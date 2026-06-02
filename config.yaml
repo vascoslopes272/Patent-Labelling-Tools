@@ -1,0 +1,36 @@
+project:
+  name: patseer_drawing_pipeline
+
+paths:
+  base:          "/mnt/storage_11tb/Drive_files_to_syncronize/3 - Processed Images DataSets & Model Outputs/1635"
+  raw_images:    "{{ paths.base }}/raw"
+  text:          "{{ paths.base }}/text"
+  labels:        "{{ paths.base }}/labels"
+  processed:     "{{ paths.base }}/processed"
+  patseer_excel: "/mnt/storage_11tb/Drive_files_to_syncronize/2 - Patente & Validation/3 -Raw_Patent_Exports_PatSeer_&Gold_Standard/1635__dataset_26_06_02.xlsx"
+
+extractor:
+  search_base_url: "https://app1.patseer.com/#/result/ad056431-8522-11e8-944f-22000bd445e0"
+  total_records: 162
+  scan_limit: 10
+  delay_seconds: 2.5
+  headless: false
+  chrome_profile_dir: ""   # leave empty for manual login; or set to your Chrome profile dir
+  chrome_profile: "Default"
+
+ocr:
+  engine: pytesseract
+  label_crops:
+    - bottom
+    - top
+
+matching:
+  fig_regex: "FIG\\.?\\s*([0-9]+[A-Za-z]?)"
+  positional_fallback: true   # 1st image ↔ 1st FIG. when OCR finds no label
+
+processing:
+  target_size: [518, 518]     # DINOv2-friendly square
+  pad_color: white
+
+dinov2:
+  model: "facebook/dinov2-base"
