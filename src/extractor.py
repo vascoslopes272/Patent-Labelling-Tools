@@ -1,279 +1,270 @@
 """
-extractor.py — PatSeer Selenium downloader and Excel metadata reader.
+extractor.py — Patent drawing downloader and description parser.
 
-Images are saved to paths.raw_images/<patent_id>/fig_XX.png.
-Description text is saved to paths.text/<patent_id>.txt.
+Supports two source modes (set in config.yaml → extractor.mode):
+
+  "google_patents"  (default / no credentials needed)
+      Downloads drawing images and BRIEF DESCRIPTION from Google Patents.
+      Free, no registration, works immediately.
+      Use this while waiting for EPO OPS account approval.
+
+  "epo"
+      Uses the EPO Open Patent Services REST API.
+      Requires free credentials from https://developers.epo.org/
+      Set EPO_CLIENT_KEY and EPO_CLIENT_SECRET in .env once approved.
 
 Public API
 ----------
-build_driver(cfg)                           → webdriver.Chrome
-login_flow(driver, cfg)                     → None
-make_requests_session(driver)               → requests.Session
-iter_records(driver, cfg, start, limit)     → Iterator[int]
-extract_drawings_for_record(driver, wait, idx) → tuple[str, list[str]]
-download_images(urls, patent_id, session, raw_dir) → int
-load_patseer_excel(path)                    → dict[str, dict]
-save_description_text(patent_id, row, text_dir) → Path
-
-Notes
------
-PatSeer's ToS may restrict automated access. Only run with a licensed
-subscription. The manual-login flow (headless=false) is the recommended
-approach to avoid bot-detection.
+build_epo_client(cfg)                               → EpoClient  (mode="epo" only)
+download_drawings(patent_id, cfg, raw_dir, client)  → list[Path]
+get_brief_description(patent_id, cfg, client)       → str
+load_patseer_excel(path)                            → dict[str, dict]
+save_description_text(patent_id, text, text_dir)    → Path
 """
 
+import io
+import os
 import re
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
-import pandas as pd
 import requests
-from selenium import webdriver
-from selenium.common.exceptions import TimeoutException
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
-from webdriver_manager.chrome import ChromeDriverManager
+from PIL import Image
 
 
-# ─── Driver setup ──────────────────────────────────────────────────────────────
+# ─── EPO OPS constants ────────────────────────────────────────────────────────
 
-def build_driver(cfg: dict) -> webdriver.Chrome:
-    """Build a Chrome WebDriver from extractor config."""
-    ext = cfg["extractor"]
-    options = webdriver.ChromeOptions()
-    if ext.get("headless", False):
-        options.add_argument("--headless=new")
-        options.add_argument("--window-size=1400,900")
-    else:
-        options.add_argument("--start-maximized")
-
-    profile_dir = ext.get("chrome_profile_dir", "")
-    if profile_dir:
-        options.add_argument(f"--user-data-dir={profile_dir}")
-        options.add_argument(f"--profile-directory={ext.get('chrome_profile', 'Default')}")
-
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    service = Service(ChromeDriverManager().install())
-    return webdriver.Chrome(service=service, options=options)
+_TOKEN_URL = "https://ops.epo.org/3.2/auth/accesstoken"
+_BASE_URL  = "http://ops.epo.org/3.2/rest-services"
+_OPS_NS    = "http://www.epo.org/exchange-ops"
 
 
-def login_flow(driver: webdriver.Chrome, cfg: dict) -> None:
-    """Navigate to PatSeer and wait for manual login if no Chrome profile is set."""
-    driver.get("https://app1.patseer.com")
-    if cfg["extractor"].get("chrome_profile_dir", ""):
-        print("Using existing Chrome profile — waiting for PatSeer to load…")
-        time.sleep(3)
-    else:
-        print("\n" + "=" * 60)
-        print("  Log in to PatSeer in the browser window that just opened.")
-        print("  Once fully logged in, come back here and press Enter.")
-        print("=" * 60)
-        input("  ▶ Press Enter when ready: ")
+# ─── EPO OPS client ───────────────────────────────────────────────────────────
 
-
-def make_requests_session(driver: webdriver.Chrome) -> requests.Session:
-    """Mirror browser cookies and user-agent into a requests.Session."""
-    session = requests.Session()
-    session.headers.update({
-        "User-Agent": driver.execute_script("return navigator.userAgent"),
-        "Referer": "https://app1.patseer.com/",
-    })
-    for cookie in driver.get_cookies():
-        session.cookies.set(cookie["name"], cookie["value"])
-    return session
-
-
-# ─── Record iteration ──────────────────────────────────────────────────────────
-
-def iter_records(
-    driver: webdriver.Chrome,
-    cfg: dict,
-    start: int = 1,
-    limit: int | None = None,
-):
+class EpoClient:
     """
-    Yield record indices one by one, navigating to each PatSeer record URL.
+    Thin REST client for EPO OPS with automatic OAuth2 token refresh.
 
-    Parameters
-    ----------
-    start : first record index (1-based)
-    limit : stop after this many records; None = process all total_records
+    Credentials are read from config (cfg["epo"]["client_key"] /
+    cfg["epo"]["client_secret"]) with fallback to environment variables
+    EPO_CLIENT_KEY and EPO_CLIENT_SECRET (loaded from .env by build_epo_client).
     """
-    ext = cfg["extractor"]
-    base_url = ext["search_base_url"]
-    total = ext["total_records"]
-    stop = min(start + limit - 1, total) if limit else total
-    delay = ext.get("delay_seconds", 2.5)
 
-    for idx in range(start, stop + 1):
-        record_url = f"{base_url}/{idx}"
-        print(f"\n[{idx:3d}/{stop}] {record_url}")
-        driver.get(record_url)
-        time.sleep(2.2)
-        yield idx
-        time.sleep(delay)
+    _TOKEN_LIFETIME = 1080   # refresh after 18 min (tokens expire at 20 min)
+
+    def __init__(self, cfg: dict):
+        self._cfg      = cfg
+        self._token: str | None = None
+        self._token_ts = 0.0
+
+    def _key(self) -> str:
+        return (
+            self._cfg.get("epo", {}).get("client_key", "")
+            or os.environ.get("EPO_CLIENT_KEY", "")
+        )
+
+    def _secret(self) -> str:
+        return (
+            self._cfg.get("epo", {}).get("client_secret", "")
+            or os.environ.get("EPO_CLIENT_SECRET", "")
+        )
+
+    def _ensure_token(self) -> None:
+        if self._token and (time.time() - self._token_ts) < self._TOKEN_LIFETIME:
+            return
+        key, secret = self._key(), self._secret()
+        if not key or not secret:
+            raise RuntimeError(
+                "EPO OPS credentials not found.\n"
+                "Set EPO_CLIENT_KEY and EPO_CLIENT_SECRET in the .env file.\n"
+                "Register a free app at https://developers.epo.org/"
+            )
+        resp = requests.post(
+            _TOKEN_URL,
+            data={"grant_type": "client_credentials"},
+            auth=(key, secret),
+            timeout=30,
+        )
+        resp.raise_for_status()
+        self._token    = resp.json()["access_token"]
+        self._token_ts = time.time()
+        print("  EPO OPS token acquired.")
+
+    def get(self, path: str, accept: str = "application/xml", **kwargs) -> requests.Response:
+        """Authenticated GET against the EPO OPS REST API."""
+        self._ensure_token()
+        url  = f"{_BASE_URL}/{path.lstrip('/')}"
+        hdrs = {"Authorization": f"Bearer {self._token}", "Accept": accept}
+        resp = requests.get(url, headers=hdrs,
+                            timeout=self._cfg.get("epo", {}).get("timeout_seconds", 60),
+                            **kwargs)
+        if resp.status_code == 401:
+            # Token may have expired mid-run — refresh once and retry.
+            self._token = None
+            self._ensure_token()
+            hdrs["Authorization"] = f"Bearer {self._token}"
+            resp = requests.get(url, headers=hdrs,
+                                timeout=self._cfg.get("epo", {}).get("timeout_seconds", 60),
+                                **kwargs)
+        resp.raise_for_status()
+        return resp
 
 
-def extract_patent_number(driver: webdriver.Chrome, record_idx: int) -> str:
+def build_epo_client(cfg: dict) -> "EpoClient":
     """
-    Read the patent publication number from the PatSeer record panel.
-    Falls back to 'record_{idx:04d}' if nothing is parseable.
+    Construct and warm-up the EPO client.
+    Loads .env credentials and verifies they work before returning.
     """
+    from dotenv import load_dotenv
+    load_dotenv()
+    client = EpoClient(cfg)
+    client._ensure_token()   # fail fast if credentials are missing or wrong
+    return client
+
+
+# ─── Drawing images ───────────────────────────────────────────────────────────
+
+def _drawing_page_count(patent_id: str, client: EpoClient) -> int:
+    """Return the number of drawing pages available for this patent."""
     try:
-        selectors = [
-            "[class*='record-title']",
-            "[class*='recordTitle']",
-            "[class*='record-head']",
-            "[class*='patent-number']",
-            "h2", "h3",
-        ]
-        for sel in selectors:
-            for el in driver.find_elements(By.CSS_SELECTOR, sel):
-                text = el.text.strip()
-                m = re.search(r"([A-Z]{2}\d{6,}[A-Z0-9]*)", text)
-                if m:
-                    return m.group(1)
-    except Exception:
-        pass
-    return f"record_{record_idx:04d}"
+        resp = client.get(f"published-data/publication/epodoc/{patent_id}/images")
+        root = ET.fromstring(resp.text)
+        for inst in root.iter(f"{{{_OPS_NS}}}document-instance"):
+            if inst.attrib.get("desc", "").lower() == "drawing":
+                return int(inst.attrib.get("number-of-pages", 0))
+    except Exception as exc:
+        print(f"  ⚠  Could not get image count for {patent_id}: {exc}")
+    return 0
 
 
-def click_drawings_tab(driver: webdriver.Chrome, wait: WebDriverWait) -> bool:
-    """Click the Drawings tab in the right-hand record panel."""
-    try:
-        tab = wait.until(EC.element_to_be_clickable((By.XPATH,
-            "//*[self::a or self::li or self::button or self::span]"
-            "[normalize-space(.)='Drawings']"
-        )))
-        driver.execute_script("arguments[0].scrollIntoView(true);", tab)
-        driver.execute_script("arguments[0].click();", tab)
-        time.sleep(1.8)
-        return True
-    except TimeoutException:
-        return False
-
-
-def collect_image_urls(driver: webdriver.Chrome) -> list[str]:
-    """
-    Collect all drawing image URLs visible after clicking the Drawings tab.
-    Tries multiple CSS selectors; strips thumbnail size parameters.
-    """
-    time.sleep(2)
-
-    css_candidates = [
-        "div[class*='drawing'] img",
-        "div[class*='Drawing'] img",
-        "div[class*='drawings'] img",
-        "div[class*='Drawings'] img",
-        ".drawings-panel img",
-        ".thumbnails img",
-        "figure img",
-        "img[class*='drawing']",
-        "img[class*='thumbnail']",
-    ]
-
-    seen: set[str] = set()
-    urls: list[str] = []
-
-    for css in css_candidates:
-        for img in driver.find_elements(By.CSS_SELECTOR, css):
-            src = (img.get_attribute("src") or
-                   img.get_attribute("data-src") or
-                   img.get_attribute("data-original") or "")
-            if not src.startswith("http"):
-                continue
-            full = re.sub(r"[?&](size|thumb|thumbnail|w|h|width|height)=[^&]*", "", src)
-            full = full.rstrip("?&")
-            if full not in seen:
-                seen.add(full)
-                urls.append(full)
-
-    return urls
-
-
-def extract_drawings_for_record(
-    driver: webdriver.Chrome,
-    wait: WebDriverWait,
-    record_idx: int,
-) -> tuple[str, list[str]]:
-    """
-    Extract patent number and image URLs for the currently-loaded record.
-
-    Returns
-    -------
-    (patent_id, image_urls) — image_urls is empty if no drawings found.
-    """
-    patent_id = extract_patent_number(driver, record_idx)
-    print(f"  Patent : {patent_id}")
-
-    if not click_drawings_tab(driver, wait):
-        print("  ⚠  Drawings tab not found — no drawings for this record?")
-        return patent_id, []
-
-    urls = collect_image_urls(driver)
-    print(f"  Images : {len(urls)} found")
-
-    if not urls:
-        print("  ⚠  No image URLs collected.")
-        print("     Tip: open DevTools → Network → filter 'Img' to inspect URLs manually.")
-
-    return patent_id, urls
-
-
-def download_images(
-    urls: list[str],
+def _download_drawings_epo(
     patent_id: str,
-    session: requests.Session,
+    cfg: dict,
     raw_dir: Path,
-) -> int:
+    client: "EpoClient",
+) -> list[Path]:
     """
-    Download image URLs into raw_dir/patent_id/fig_XX.<ext>.
+    Download all drawing pages for a patent from EPO OPS.
 
-    Returns the number of images successfully saved.
+    Each page is fetched as TIFF and saved as PNG:
+        raw_dir / {patent_id} / fig_{page:02d}.png
+
+    Skips patents whose folder already contains downloaded files.
+    Returns list of saved Paths (empty if no drawings found).
     """
-    dest_dir = raw_dir / patent_id
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    saved = 0
+    patent_dir = raw_dir / patent_id
+    patent_dir.mkdir(parents=True, exist_ok=True)
 
-    for i, url in enumerate(urls, start=1):
+    existing = sorted(patent_dir.glob("fig_*.png"))
+    if existing:
+        print(f"  Already downloaded {len(existing)} image(s) — skipping")
+        return existing
+
+    n_pages = _drawing_page_count(patent_id, client)
+    if n_pages == 0:
+        print(f"  No drawing pages found for {patent_id}")
+        return []
+
+    print(f"  Drawing pages: {n_pages}")
+    saved: list[Path] = []
+    delay = cfg.get("extractor", {}).get("delay_seconds", 1.0)
+
+    for page in range(1, n_pages + 1):
+        dest = patent_dir / f"fig_{page:02d}.png"
         try:
-            r = session.get(url, timeout=25)
-            r.raise_for_status()
-            ct = r.headers.get("content-type", "")
-            ext = "jpg" if "jpeg" in ct else ("gif" if "gif" in ct else "png")
-            dest = dest_dir / f"fig_{i:02d}.{ext}"
-            if dest.exists():
-                print(f"      {dest.name} – already exists, skipping")
-                saved += 1
-                continue
-            dest.write_bytes(r.content)
-            print(f"      ✓ {dest.name}  ({len(r.content) // 1024} kB)")
-            saved += 1
+            resp = client.get(
+                f"published-data/publication/epodoc/{patent_id}/images/Drawing/{page}",
+                accept="image/tiff",
+            )
+            img = Image.open(io.BytesIO(resp.content))
+            img.save(dest, "PNG")
+            print(f"      ✓ {dest.name}  ({len(resp.content) // 1024} kB)")
+            saved.append(dest)
         except Exception as exc:
-            print(f"      ✗ fig_{i:02d}: {exc}")
+            print(f"      ✗ fig_{page:02d}: {exc}")
+        time.sleep(delay)
 
     return saved
 
 
-# ─── Excel metadata ────────────────────────────────────────────────────────────
+# ─── Full-text description ────────────────────────────────────────────────────
+
+_BRIEF_DESC_RE = re.compile(
+    r"BRIEF\s+DESCRIPTIONS?\s+OF\s+(THE\s+)?DRAWINGS?",
+    re.IGNORECASE,
+)
+
+
+def _parse_brief_description(xml_text: str) -> str:
+    """
+    Parse EPO OPS description XML and return the BRIEF DESCRIPTION OF THE
+    DRAWINGS section as plain text.
+
+    Collects all <p>/<li> elements between the BRIEF DESCRIPTION <heading>
+    and the next <heading> element.
+    """
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return ""
+
+    collecting = False
+    lines: list[str] = []
+
+    for el in root.iter():
+        tag = el.tag.split("}")[-1].lower()   # strip namespace prefix
+
+        if tag == "heading":
+            heading_text = " ".join("".join(el.itertext()).split())
+            if _BRIEF_DESC_RE.search(heading_text):
+                collecting = True
+                continue
+            elif collecting:
+                break   # reached the next heading — done
+
+        if collecting and tag in ("p", "li"):
+            text = " ".join("".join(el.itertext()).split())
+            if text:
+                lines.append(text)
+
+    return "\n".join(lines)
+
+
+def _get_brief_description_epo(patent_id: str, client: "EpoClient") -> str:
+    """
+    Fetch the full-text description from EPO OPS and return the
+    'BRIEF DESCRIPTION OF THE DRAWINGS' section as plain text.
+
+    Returns empty string if the section is not found or the request fails.
+    """
+    try:
+        resp = client.get(
+            f"published-data/publication/epodoc/{patent_id}/description"
+        )
+        text = _parse_brief_description(resp.text)
+        if text:
+            return text
+        print(f"  ⚠  BRIEF DESCRIPTION section not found in EPO text for {patent_id}")
+    except Exception as exc:
+        print(f"  ⚠  Full-text fetch failed for {patent_id}: {exc}")
+    return ""
+
+
+# ─── Excel metadata (patent ID list + T1 metadata) ────────────────────────────
 
 def load_patseer_excel(path: Path) -> dict[str, dict]:
     """
-    Read the PatSeer Excel export and index rows by patent ID (Record Number).
+    Read the PatSeer Excel export and index rows by Record Number.
 
-    Prints column headers on first load so you can verify column names.
+    Used to obtain the ordered list of patent IDs and T1 metadata fields
+    (title, assignee, pub/app year, abstract, citations).
+    Drawing descriptions are no longer read from here — they are fetched
+    from EPO OPS by get_brief_description() and stored as .txt files.
 
-    Returns
-    -------
-    dict mapping patent_id → {
-        patent_id, record_number, assignee, pub_year, app_year,
-        title, abstract, backward_cites, forward_cites,
-        innovation_objective, description_of_drawings
-    }
+    Prints all column headers on first load so column names can be verified.
     """
+    import pandas as pd
     df = pd.read_excel(path, dtype=str)
 
     print(f"PatSeer Excel: {Path(path).name}  ({len(df)} rows, {len(df.columns)} columns)")
@@ -289,8 +280,8 @@ def load_patseer_excel(path: Path) -> dict[str, dict]:
         if not patent_id or patent_id == "nan":
             continue
 
-        def _s(col: str, default: str = "") -> str:
-            v = str(row.get(col, default)).strip()
+        def _s(col: str) -> str:
+            v = str(row.get(col, "")).strip()
             return "" if v == "nan" else v
 
         def _year(col: str) -> str | None:
@@ -302,25 +293,200 @@ def load_patseer_excel(path: Path) -> dict[str, dict]:
             return [c.strip() for c in v.split(",") if c.strip()] if v else []
 
         index[patent_id] = {
-            "patent_id":               patent_id,
-            "record_number":           _s("Record Number"),
-            "assignee":                _s("Assignee") or None,
-            "pub_year":                _year("Publication/Issue Date"),
-            "app_year":                _year("Filing/Application Date"),
-            "title":                   _s("Title") or None,
-            "abstract":                _s("Abstract") or None,
-            "backward_cites":          _cites("Backward Citations"),
-            "forward_cites":           _cites("Forward Citations"),
-            "innovation_objective":    _s("Summary of Invention") or _s("Advantages of Invention") or None,
-            "description_of_drawings": _s("Description of Drawings") or None,
+            "patent_id":            patent_id,
+            "record_number":        _s("Record Number"),
+            "assignee":             _s("Assignee") or None,
+            "pub_year":             _year("Publication/Issue Date"),
+            "app_year":             _year("Filing/Application Date"),
+            "title":                _s("Title") or None,
+            "abstract":             _s("Abstract") or None,
+            "backward_cites":       _cites("Backward Citations"),
+            "forward_cites":        _cites("Forward Citations"),
+            "innovation_objective": (
+                _s("Summary of Invention") or _s("Advantages of Invention") or None
+            ),
         }
 
     return index
 
 
-def save_description_text(patent_id: str, row: dict, text_dir: Path) -> Path:
-    """Write 'description_of_drawings' to text_dir/<patent_id>.txt."""
+def save_description_text(patent_id: str, text: str, text_dir: Path) -> Path:
+    """Write the BRIEF DESCRIPTION text to text_dir/<patent_id>.txt."""
     text_dir.mkdir(parents=True, exist_ok=True)
     dest = text_dir / f"{patent_id}.txt"
-    dest.write_text(row.get("description_of_drawings") or "", encoding="utf-8")
+    dest.write_text(text, encoding="utf-8")
     return dest
+
+
+# ─── Google Patents fallback (no credentials needed) ─────────────────────────
+
+_GP_BASE    = "https://patents.google.com/patent"
+_GP_CDN_RE  = re.compile(
+    r'https://patentimages\.storage\.googleapis\.com/[^\s"\'<>]+\.png'
+)
+_GP_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    )
+}
+# PatSeer stores US A-series publications with 6-digit sequence numbers,
+# but Google Patents requires 7 digits (zero-padded).
+# e.g.  US2022267016A1  →  US20220267016A1
+_US_PUBNUM_RE = re.compile(r'^(US)(\d{4})(\d{6})(A\d)$')
+
+
+def _normalize_for_google(patent_id: str) -> str:
+    """Pad PatSeer US publication numbers to the format Google Patents expects."""
+    m = _US_PUBNUM_RE.match(patent_id)
+    if m:
+        return f"{m.group(1)}{m.group(2)}0{m.group(3)}{m.group(4)}"
+    return patent_id
+
+
+def _fetch_google_patents(patent_id: str, timeout: int = 30) -> str:
+    """Fetch the Google Patents HTML page for a patent. Returns raw HTML."""
+    norm = _normalize_for_google(patent_id)
+    url  = f"{_GP_BASE}/{norm}/en"
+    resp = requests.get(url, headers=_GP_HEADERS, timeout=timeout)
+    resp.raise_for_status()
+    return resp.text
+
+
+def download_drawings_google(patent_id: str, cfg: dict, raw_dir: Path) -> list[Path]:
+    """
+    Download drawing images from the Google Patents public CDN.
+
+    No credentials required. Each drawing page is saved as:
+        raw_dir / {patent_id} / fig_{n:02d}.png
+
+    Google Patents serves each drawing at two CDN paths (thumbnail + full).
+    We deduplicate by filename (the D000XX part) and keep one URL per page.
+    """
+    patent_dir = raw_dir / patent_id
+    patent_dir.mkdir(parents=True, exist_ok=True)
+
+    existing = sorted(patent_dir.glob("fig_*.png"))
+    if existing:
+        print(f"  Already downloaded {len(existing)} image(s) — skipping")
+        return existing
+
+    try:
+        html = _fetch_google_patents(patent_id)
+    except Exception as exc:
+        print(f"  ⚠  Google Patents fetch failed for {patent_id}: {exc}")
+        return []
+
+    # Google Patents serves each drawing twice: thumbnail first, full-size second.
+    # Deduplicate by filename (D000XX part), keeping the LAST URL = full-size.
+    all_urls = _GP_CDN_RE.findall(html)
+    seen_names: dict[str, str] = {}
+    for url in all_urls:
+        fname = url.rsplit("/", 1)[-1]
+        seen_names[fname] = url   # overwrite → last one wins (full-size)
+
+    # Sort by drawing number (D00000, D00001, …)
+    ordered = sorted(seen_names.items(), key=lambda kv: kv[0])
+
+    if not ordered:
+        print(f"  ⚠  No drawing images found on Google Patents for {patent_id}")
+        return []
+
+    print(f"  Drawing pages: {len(ordered)}")
+    saved: list[Path] = []
+    delay = cfg.get("extractor", {}).get("delay_seconds", 1.0)
+
+    for i, (fname, url) in enumerate(ordered, start=1):
+        dest = patent_dir / f"fig_{i:02d}.png"
+        try:
+            r = requests.get(url, headers=_GP_HEADERS, timeout=30)
+            r.raise_for_status()
+            dest.write_bytes(r.content)
+            print(f"      ✓ {dest.name}  ({len(r.content) // 1024} kB)")
+            saved.append(dest)
+        except Exception as exc:
+            print(f"      ✗ fig_{i:02d}: {exc}")
+        time.sleep(delay)
+
+    return saved
+
+
+def get_brief_description_google(patent_id: str, cfg: dict) -> str:
+    """
+    Scrape the BRIEF DESCRIPTION OF THE DRAWINGS from the Google Patents page.
+
+    Google Patents wraps this section in a <description-of-drawings> tag
+    with <div class="description-paragraph"> children.
+    """
+    try:
+        html = _fetch_google_patents(patent_id)
+    except Exception as exc:
+        print(f"  ⚠  Google Patents fetch failed for {patent_id}: {exc}")
+        return ""
+
+    # Extract the <description-of-drawings>…</description-of-drawings> block
+    block_m = re.search(
+        r"<description-of-drawings[^>]*>(.*?)</description-of-drawings>",
+        html,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not block_m:
+        print(f"  ⚠  No <description-of-drawings> block found for {patent_id}")
+        return ""
+
+    block = block_m.group(1)
+
+    # Extract text from <div class="description-paragraph"> or "description-line"
+    paras = re.findall(
+        r'<div[^>]*class="description-(?:paragraph|line)"[^>]*>(.*?)</div>',
+        block,
+        re.IGNORECASE | re.DOTALL,
+    )
+    lines = []
+    for p in paras:
+        text = re.sub(r"<[^>]+>", " ", p)          # strip inner tags
+        text = " ".join(text.split()).strip()        # normalise whitespace
+        if text:
+            lines.append(text)
+
+    if not lines:
+        print(f"  ⚠  Description-of-drawings block is empty for {patent_id}")
+
+    return "\n".join(lines)
+
+
+# ─── Unified public API (mode-aware routers) ──────────────────────────────────
+
+def download_drawings(
+    patent_id: str,
+    cfg: dict,
+    raw_dir: Path,
+    client=None,          # EpoClient — required only when mode="epo"
+) -> list[Path]:
+    """
+    Download drawing images for one patent.
+
+    Dispatches to the correct backend based on cfg["extractor"]["mode"]:
+      "google_patents"  — free, no credentials (default)
+      "epo"             — EPO OPS API (requires EpoClient)
+    """
+    mode = cfg.get("extractor", {}).get("mode", "google_patents")
+    if mode == "epo":
+        return _download_drawings_epo(patent_id, cfg, raw_dir, client)
+    return download_drawings_google(patent_id, cfg, raw_dir)
+
+
+def get_brief_description(
+    patent_id: str,
+    cfg: dict,
+    client=None,          # EpoClient — required only when mode="epo"
+) -> str:
+    """
+    Fetch the BRIEF DESCRIPTION OF THE DRAWINGS for one patent.
+
+    Dispatches to the correct backend based on cfg["extractor"]["mode"].
+    """
+    mode = cfg.get("extractor", {}).get("mode", "google_patents")
+    if mode == "epo":
+        return _get_brief_description_epo(patent_id, client)
+    return get_brief_description_google(patent_id, cfg)

@@ -1,0 +1,5 @@
+{
+    "python.defaultInterpreterPath": "/home/vasco/anaconda3/envs/Finetune/bin/python",
+    "python.terminal.activateEnvironment": true,
+    "jupyter.kernelSpecFindPreferredKernel": false
+}

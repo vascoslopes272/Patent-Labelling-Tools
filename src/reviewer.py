@@ -86,6 +86,7 @@ def assemble_patent_json(
     patent_id: str,
     excel_row: dict,
     match_results: list[dict],
+    description_of_drawings: str = "",
 ) -> dict:
     """Assemble the full per-patent JSON dict (T1 metadata + T3 image entries)."""
     t3_images = []
@@ -117,7 +118,7 @@ def assemble_patent_json(
             "forward_cites":        excel_row.get("forward_cites", []),
             "innovation_objective": excel_row.get("innovation_objective"),
         },
-        "description_of_drawings": excel_row.get("description_of_drawings"),
+        "description_of_drawings": description_of_drawings or None,
         "T3_images": t3_images,
     }
 
@@ -141,8 +142,9 @@ def process_patent(
     Full Stage 01 pipeline for one patent:
       1. Glob image files from raw_dir/patent_id/
       2. OCR each image for a figure label
-      3. Parse description text and match images to descriptions
-      4. Assemble and write the JSON to cfg["paths"]["labels"]
+      3. Read BRIEF DESCRIPTION text from text/<patent_id>.txt (written by Stage 00)
+      4. Parse description text and match images to descriptions
+      5. Assemble and write the JSON to cfg["paths"]["labels"]
 
     Returns the path to the written JSON file.
     """
@@ -152,10 +154,12 @@ def process_patent(
 
     ocr_labels = [ocr_figure_label(p, cfg) for p in image_files]
 
-    desc_text = excel_row.get("description_of_drawings") or ""
+    # Description now comes from the EPO-sourced .txt file, not the Excel
+    text_path = Path(cfg["paths"]["text"]) / f"{patent_id}.txt"
+    desc_text = text_path.read_text(encoding="utf-8") if text_path.exists() else ""
     parsed_desc = parse_description(desc_text, cfg)
 
     match_results = match_images(image_files, ocr_labels, parsed_desc, cfg)
 
-    data = assemble_patent_json(patent_id, excel_row, match_results)
+    data = assemble_patent_json(patent_id, excel_row, match_results, desc_text)
     return write_patent_json(patent_id, data, cfg["paths"]["labels"])
