@@ -8,21 +8,40 @@ paths:
   labels:        "{{ paths.base }}/labels"
   processed:     "{{ paths.base }}/processed"
   patseer_excel: "/mnt/storage_11tb/Drive_files_to_syncronize/2 - Patente & Validation/3 -Raw_Patent_Exports_PatSeer_&Gold_Standard/1635__dataset_26_06_02.xlsx"
+  data:          "{{ paths.base }}/data"
+
+# ── EPO Open Patent Services API ─────────────────────────────────────────────
+# Register a free app at https://developers.epo.org/ and put credentials in .env:
+#   EPO_CLIENT_KEY=<your_key>
+#   EPO_CLIENT_SECRET=<your_secret>
+epo:
+  client_key:    ""   # leave empty — read from EPO_CLIENT_KEY in .env
+  client_secret: ""   # leave empty — read from EPO_CLIENT_SECRET in .env
+  timeout_seconds: 60
 
 extractor:
-  search_base_url: "https://app1.patseer.com/#/result/ad056431-8522-11e8-944f-22000bd445e0"
-  total_records: 162
-  scan_limit: 10
-  delay_seconds: 2.5
-  headless: false
-  chrome_profile_dir: ""   # leave empty for manual login; or set to your Chrome profile dir
-  chrome_profile: "Default"
+  # "google_patents" = free, no credentials (use while EPO account is pending)
+  # "epo"           = EPO OPS API (switch once EPO_CLIENT_KEY/SECRET are in .env)
+  mode:          "google_patents"
+  scan_limit:    10      # number of patents to process in Stage 00 (notebook)
+  delay_seconds: 1.0    # pause between requests (be polite to both services)
 
+# ── Figure segmentation (HR-Net, GoFigure-LANL) ───────────────────────────────
+# Download weights first:  python scripts/download_weights.py
+segmenter:
+  model_path:       "models/model-hrnet-new1.h5"
+  min_crop_pixels:  200    # discard sub-figure crops smaller than this in either dimension
+
+# ── OCR label extraction (GoFigure alpha-shape method) ────────────────────────
 ocr:
-  engine: pytesseract
-  label_crops:
-    - bottom
-    - top
+  # Images are resized to max_height before OCR so these params stay scale-invariant
+  max_ocr_height:   800    # resize crops to this height before running OCR
+  # Parameters from label_recognition.py (GoFigure-LANL/figure-segmentation)
+  kernel_width:     2      # erosion kernel size (removes dashed leader lines)
+  region_size_min:  45     # minimum connected-component area to keep
+  region_size_max:  5000   # maximum connected-component area to keep
+  alpha:            36     # alpha-shape concavity parameter
+  box_padding:      5      # pixels of padding around each detected label region
 
 matching:
   fig_regex: "FIG\\.?\\s*([0-9]+[A-Za-z]?)"

@@ -1,17 +1,27 @@
 # ── Core (stages 00–01) ──────────────────────────────────────────────────────
-selenium>=4.20
-webdriver-manager>=4.0
 requests>=2.31
+python-dotenv>=1.0
 pytesseract>=0.3.10
 Pillow>=10.0
 pyyaml>=6.0
 pandas>=2.0
 openpyxl>=3.1
 
+# ── Figure segmentation + OCR (GoFigure-LANL) ────────────────────────────────
+tensorflow>=2.10          # HR-Net model (segmenter.py)
+opencv-python>=4.8        # mask post-processing
+scikit-image>=0.21        # alpha-shape OCR labeler
+scipy>=1.11               # Delaunay triangulation for alpha-shape
+gdown>=4.7                # download HR-Net weights from Google Drive
+
+# ── Deduplication + grouping (T3 / T0 pipeline stages) ───────────────────────
+rapidfuzz>=3.0             # fuzzy company-name matching
+sentence-transformers>=2.2 # PatentSBERTa embeddings for prototype clustering
+
 # ── Stages 02–05 (install when you reach each stage) ─────────────────────────
 torch>=2.0
 transformers>=4.35
-scikit-learn>=1.3
+scikit-learn>=1.3          # includes HDBSCAN (≥1.3) used for prototype clustering
 umap-learn>=0.5
 
 # ── Notebooks ────────────────────────────────────────────────────────────────
