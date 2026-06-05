@@ -20,9 +20,11 @@ This places  models/model-hrnet-new1.h5  in the project root.
 Public API
 ----------
 load_segmenter(cfg)                                        → Keras model
-segment_page(img_path, model, cfg)                         → list[Path]
-segment_patent(patent_id, cfg, raw_dir, model)             → list[Path]
+segment_page(img_path, model, cfg)      → list[tuple[Path, tuple|None]]
+segment_patent(patent_id, cfg, raw_dir, model)  → dict[str, list[tuple[Path, tuple|None]]]
 """
+
+import json
 
 import cv2
 import numpy as np
@@ -124,22 +126,18 @@ def _mask_to_bboxes(mask: np.ndarray, min_size: int = 50) -> list[tuple]:
     return bboxes
 
 
-def segment_page(img_path: Path, model, cfg: dict) -> list[Path]:
+def segment_page(
+    img_path: Path, model, cfg: dict
+) -> list[tuple[Path, tuple | None]]:
     """
     Segment one full drawing page into individual sub-figure crops.
 
-    If the model detects only one sub-figure (or segmentation produces no
-    usable split), the original image is returned unchanged (wrapped in a
-    single-element list — no files written).
+    Returns a list of (path, bbox) pairs where:
+      - Single-figure page: [(img_path, None)]   — original file unchanged
+      - Split page:  [(crop_s01, (x1,y1,x2,y2)), ...]  — bbox in original pixels
 
-    When multiple sub-figures are found, crops are saved next to the source
-    image as:
-        {original_stem}_s{n:02d}.png
-
-    sorted top-to-bottom, left-to-right (reading order).
-
-    Returns the list of Paths that make up this page after segmentation:
-    either [original_path] or [crop_s01, crop_s02, ...].
+    The bbox coordinates allow callers to spatially match pre-OCR'd page labels
+    to individual crops even when the label text was outside the crop area.
     """
     min_px = cfg.get("segmenter", {}).get("min_crop_pixels", 50)
 
@@ -150,20 +148,20 @@ def segment_page(img_path: Path, model, cfg: dict) -> list[Path]:
         bboxes = _mask_to_bboxes(mask, min_size=min_px)
     except Exception as exc:
         print(f"    Segmentation failed for {img_path.name}: {exc} — keeping page as-is")
-        return [img_path]
+        return [(img_path, None)]
 
     if len(bboxes) <= 1:
-        return [img_path]
+        return [(img_path, None)]
 
     # Sort crops top-to-bottom (primary), left-to-right (secondary)
     bboxes_sorted = sorted(bboxes, key=lambda b: (b[1], b[0]))
-    crops: list[Path] = []
+    crops: list[tuple[Path, tuple]] = []
 
     for n, (x1, y1, x2, y2) in enumerate(bboxes_sorted, start=1):
         crop = img.crop((x1, y1, x2, y2))
         dest = img_path.parent / f"{img_path.stem}_s{n:02d}.png"
         crop.save(dest, "PNG")
-        crops.append(dest)
+        crops.append((dest, (x1, y1, x2, y2)))
 
     # Delete the original full page — it has been replaced by its sub-crops
     img_path.unlink()
@@ -176,7 +174,7 @@ def segment_patent(
     cfg: dict,
     raw_dir: Path,
     model,
-) -> dict[str, list[Path]]:
+) -> dict[str, list[tuple[Path, tuple | None]]]:
     """
     Run figure segmentation on all downloaded drawing pages for one patent.
 
@@ -184,44 +182,74 @@ def segment_patent(
     fig_XX_s01.png, fig_XX_s02.png, etc. and deletes the original page.
     Single-figure pages are returned as-is (no new files written).
 
-    Skips segmentation entirely if any _sXX.png files already exist
-    (idempotent — safe to re-run).
+    Bounding boxes (in original page pixel coordinates) are saved to a sidecar
+    JSON file so they survive across notebook re-runs (idempotent).
 
-    Returns a dict mapping each original page stem to its crop list:
-        { "fig_01": [Path("fig_01.png")],
-          "fig_08": [Path("fig_08_s01.png"), Path("fig_08_s02.png")], ... }
+    Returns a dict mapping each original page stem to its (crop, bbox) list:
+        { "fig_01": [(Path("fig_01.png"), None)],
+          "fig_08": [(Path("fig_08_s01.png"), (x1,y1,x2,y2)),
+                     (Path("fig_08_s02.png"), (x1,y1,x2,y2))], ... }
 
+    bbox is None for single-figure pages (no crop was extracted).
     The dict is ordered by page number so iteration is in document order.
     """
-    patent_dir = raw_dir / patent_id
-    pages = sorted(patent_dir.glob("fig_[0-9]*.png"))
+    patent_dir   = raw_dir / patent_id
+    seg_map_path = patent_dir / f"{patent_id}_seg_map.json"
+    pages        = sorted(patent_dir.glob("fig_[0-9]*.png"))
 
-    if not pages:
+    if not pages and not seg_map_path.exists():
         print(f"  No drawing pages found in {patent_dir}")
         return {}
 
-    # Idempotency: rebuild mapping from existing _s* files
+    # ── Idempotency: load from sidecar JSON (written on first run) ─────────────
+    if seg_map_path.exists():
+        try:
+            raw: dict = json.loads(seg_map_path.read_text())
+            mapping: dict[str, list[tuple[Path, tuple | None]]] = {}
+            for page_stem, crops_data in raw.items():
+                entries = []
+                for fname, bbox_list in crops_data.items():
+                    fpath = patent_dir / fname
+                    bbox  = tuple(bbox_list) if bbox_list else None
+                    entries.append((fpath, bbox))
+                mapping[page_stem] = entries
+            total = sum(len(v) for v in mapping.values())
+            print(f"  Already segmented — {total} figure files across {len(mapping)} pages")
+            return mapping
+        except Exception as exc:
+            print(f"  Warning: could not read seg_map, re-segmenting ({exc})")
+
+    # Legacy idempotency (split files exist but no sidecar) — no bbox data
     if any(patent_dir.glob("fig_*_s*.png")):
-        mapping: dict[str, list[Path]] = {}
+        mapping = {}
         for f in sorted(patent_dir.glob("fig_*.png")):
-            if "_s" in f.stem:
-                page_stem = f.stem.rsplit("_s", 1)[0]
-            else:
-                page_stem = f.stem
-            mapping.setdefault(page_stem, []).append(f)
+            page_stem = f.stem.rsplit("_s", 1)[0] if "_s" in f.stem else f.stem
+            mapping.setdefault(page_stem, []).append((f, None))
         total = sum(len(v) for v in mapping.values())
-        print(f"  Already segmented — {total} figure files across {len(mapping)} pages")
+        print(f"  Already segmented — {total} figure files across {len(mapping)} pages "
+              f"(no bbox data — re-run for spatial matching)")
         return mapping
 
-    mapping = {}
-    n_split = 0
+    # ── Fresh segmentation run ─────────────────────────────────────────────────
+    mapping   = {}
+    seg_data: dict[str, dict[str, list | None]] = {}
+    n_split   = 0
 
     for page_path in pages:
-        crops = segment_page(page_path, model, cfg)
-        mapping[page_path.stem] = crops
-        if len(crops) > 1:
+        crops_with_bboxes = segment_page(page_path, model, cfg)
+        mapping[page_path.stem] = crops_with_bboxes
+
+        page_data: dict[str, list | None] = {}
+        for crop_path, bbox in crops_with_bboxes:
+            page_data[crop_path.name] = list(bbox) if bbox else None
+        seg_data[page_path.stem] = page_data
+
+        if len(crops_with_bboxes) > 1:
             n_split += 1
-            print(f"    {page_path.name} → {len(crops)} sub-figures")
+            print(f"    {page_path.name} → {len(crops_with_bboxes)} sub-figures")
+
+    # Save sidecar for future idempotent runs
+    seg_map_path.write_text(json.dumps(seg_data, indent=2))
 
     total = sum(len(v) for v in mapping.values())
     label = f"{n_split} page(s) split" if n_split else "no splits needed"
