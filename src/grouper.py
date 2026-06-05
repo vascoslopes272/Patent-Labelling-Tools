@@ -298,6 +298,115 @@ COMPANY_LOOKUP: dict[str, str] = {
     "anduril industry inc":       "Anduril",                  # PatSeer abbr.
     "anduril industries":         "Anduril",
     "anduril":                    "Anduril",
+
+    # ── Airbus (Eurocopter legacy forms) ──────────────────────────────────────
+    "eurocopter france":          "Airbus",
+    "eurocopter deutschland gmbh":"Airbus",
+    "eurocopter":                 "Airbus",
+
+    # ── Boeing (alternate PatSeer abbreviation) ───────────────────────────────
+    "boeing co":                  "Boeing",
+
+    # ── Bell / Textron (AAI Corporation subsidiary) ───────────────────────────
+    "aai corp":                   "Bell / Textron",
+    "aai corporation":            "Bell / Textron",
+
+    # ── Collins Aerospace / RTX (Hamilton Sundstrand) ─────────────────────────
+    "hamilton sundstrand corp":   "Collins Aerospace",
+    "hamilton sundstrand corporation": "Collins Aerospace",
+    "hamilton sundstrand":        "Collins Aerospace",
+    "utc aerospace systems":      "Collins Aerospace",
+    "collins aerospace":          "Collins Aerospace",
+
+    # ── Amazon (alternate PatSeer abbreviation) ───────────────────────────────
+    "amazon tech inc":            "Amazon",
+
+    # ── Safran (subsidiary forms) ─────────────────────────────────────────────
+    "safran electrical & power":  "Safran",
+    "safran landing systems":     "Safran",
+    "safran power units":         "Safran",
+
+    # ── DJI ───────────────────────────────────────────────────────────────────
+    "sz dji technology co ltd":   "DJI",
+    "dji":                        "DJI",
+
+    # ── GKN Aerospace ─────────────────────────────────────────────────────────
+    "gkn aerospace service ltd":  "GKN Aerospace",
+    "gkn aerospace services ltd": "GKN Aerospace",
+    "gkn aerospace":              "GKN Aerospace",
+
+    # ── Daimler ───────────────────────────────────────────────────────────────
+    "daimler ag":                 "Daimler",
+
+    # ── JAXA ──────────────────────────────────────────────────────────────────
+    "japan aerospace exploration": "JAXA",
+    "jaxa":                        "JAXA",
+
+    # ── Universities & research institutes ────────────────────────────────────
+    "beihang univ":               "Beihang University",
+    "beihang university":         "Beihang University",
+    "changsha aeronautical vocational & technical college": "Changsha Aeronautical College",
+    "nanjing univ of aeronautics & astronautics": "NUAA",
+    "nanjing university of aeronautics and astronautics": "NUAA",
+    "northwestern polytechnic univ": "Northwestern Polytechnic University",
+    "northwestern polytechnical university": "Northwestern Polytechnic University",
+    "korea advanced institute of science & technology": "KAIST",
+    "korea advanced institute of science and technology": "KAIST",
+    "tongji univ":                "Tongji University",
+    "sun yat sen univ":           "Sun Yat-sen University",
+    "univ nanchang hangkong":     "Nanchang Hangkong University",
+    "univ texas":                 "University of Texas",
+    "univ shenyang aerospace":    "Shenyang Aerospace University",
+    "national univ of defense technology": "NUDT",
+    "zhejiang univ":              "Zhejiang University",
+    "zhejiang univ ningbo five in one campus education development center": "Zhejiang University",
+    "china helicopter res & development inst": "CHRDI",
+    "second research institute of casic": "CASIC",
+    "hubei institute of aerospacecraft": "Hubei Aerospace Institute",
+    "beijing aeronautical science & technology research institute commercial aircraft corp": "COMAC Research Institute",
+
+    # ── Chinese eVTOL / drone companies ──────────────────────────────────────
+    "xian aisheng technology group co ltd": "Xi'an Aisheng Technology",
+    "xian inno aviation tech co ltd": "Xi'an Inno Aviation",
+    "shanghai wollant aviation technology co ltd": "Wollant Aviation",
+    "shanghai shidi technology co ltd": "Shanghai Shidi Technology",
+    "tianjing nanning aircraft mfg co ltd": "Tianjin Nanning Aircraft",
+    "fuzhou high tech zone fujing aircraft technology co ltd": "Fujing Aircraft",
+    "jiangxi handun duoyu technology co ltd": "Jiangxi Handun Duoyu",
+    "zhuhai phoenix aircraft tech center": "Phoenix Aircraft",
+    "foshan god navi tech co ltd": "Foshan God-Navi",
+    "tianjin air technology co ltd": "Tianjin Air Technology",
+    "shanghai shangshi energy technology co ltd": "Shanghai Shangshi Energy",
+
+    # ── Western eVTOL / UAM startups ─────────────────────────────────────────
+    "emt ingenieurgesellschaft dipl ing hartmut euer mbh": "EMT",
+    "amsl innovations pl":        "AMSL Innovations",
+    "greensky srl":               "GreenSky",
+    "baxter aerospace llc":       "Baxter Aerospace",
+    "aerhart llc":                "Aerhart",
+    "hop flyt inc":               "Hop Flyt",
+    "zuri com se":                "Zuri",
+    "tetra aviation corp":        "Tetra Aviation",
+    "hi lite aircraft":           "Hi-Lite Aircraft",
+    "horizon aircraft inc":       "Horizon Aircraft",
+    "levanta tech inc":           "Levanta Tech",
+    "jetoptera inc":              "Jetoptera",
+    "delorean aerospace llc":     "DeLorean Aerospace",
+    "kymatics llc":               "Kymatics",
+    "neoptera ltd":               "Neoptera",
+    "method aeronautics llc":     "Method Aeronautics",
+    "hoversurf inc":              "Hoversurf",
+    "cyclotech gmbh":             "CycloTech",
+    "martin uav llc":             "Martin UAV",
+    "sunlight photonics inc":     "Sunlight Photonics",
+    "ishikawa energy research co ltd": "Ishikawa Energy Research",
+    "ntn toyo bearing co ltd":    "NTN Corporation",
+    "p3x gmbh & co kg":           "P3X",
+    "colugo system ltd":          "Colugo Systems",
+    "pinnacle vista llc":         "Pinnacle Vista",
+    "zipair":                     "ZIPAIR",
+    "zircon chambers pl":         "Zircon Chambers",
+    "baaz gmbh":                  "BAAZ",
 }
 
 # Canonical names (unique set of values) — used by fuzzy fallback
@@ -305,6 +414,49 @@ _CANONICAL_NAMES: list[str] = sorted(set(COMPANY_LOOKUP.values()))
 
 # Fuzzy threshold (0–100)
 _FUZZY_THRESHOLD = 85
+
+# Words that indicate an entity is an organisation (not a personal name).
+# If ANY word in the preprocessed assignee string matches one of these, the
+# string is treated as a company/institution rather than an individual.
+_COMPANY_KEYWORDS: frozenset[str] = frozenset({
+    # Legal entity suffixes
+    "inc", "llc", "ltd", "corp", "corporation", "gmbh", "srl", "se", "ag",
+    "sa", "bv", "nv", "oy", "pl", "pty", "ab", "sas", "kg", "mbh", "zao",
+    "ooo", "company", "companies", "limited", "holdings", "group", "trust",
+    # Academic
+    "univ", "university", "college", "institute", "school", "polytechnic", "academy",
+    # Industry descriptors
+    "technology", "technologies", "tech",
+    "aviation", "aerospace", "aircraft", "helicopter", "aero",
+    "flight", "drone", "uav", "rotor",
+    "systems", "solutions", "labs", "laboratory", "laboratories",
+    "industrial", "industries", "manufacturing", "mfg",
+    "center", "centre", "research", "development",
+    "energy", "power", "electric", "photonics", "robotics",
+    "capital", "ventures", "partners", "air",
+})
+
+
+def _is_personal_name(cleaned: str) -> bool:
+    """
+    Return True if the preprocessed assignee string looks like a personal name.
+
+    Heuristic rules (ALL must hold):
+      - At least 2 words (first + last name minimum)
+      - At most 5 words (longer strings are company descriptions)
+      - No digits (company/product codes)
+      - No word matches a known company/institution keyword
+    """
+    if not cleaned:
+        return False
+    words = cleaned.split()
+    if len(words) < 2 or len(words) > 5:
+        return False
+    if any(ch.isdigit() for ch in cleaned):
+        return False
+    if any(w.lower() in _COMPANY_KEYWORDS for w in words):
+        return False
+    return True
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -397,6 +549,9 @@ def _normalise_company(raw: str) -> str:
             stacklevel=2,
         )
 
+    # Last resort: distinguish personal names from truly unknown organisations
+    if _is_personal_name(cleaned):
+        return "Individual Inventor"
     return "Unknown / Independent"
 
 
@@ -615,14 +770,36 @@ def run_grouping(
     df_sorted = df_sorted.reset_index(drop=True)
     df_sorted["display_order"] = df_sorted.index
 
-    # ── Save CSV ──────────────────────────────────────────────────────────────
+    # ── Save grouped CSV ──────────────────────────────────────────────────────
     out_dir = Path(cfg["paths"]["data"])
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "grouped_patents.csv"
     df_sorted.to_csv(out_path, index=False)
     print(f"\n[grouper] Saved: {out_path}")
 
-    # ── Summary table ─────────────────────────────────────────────────────────
+    # ── Update family_map.csv with grouping columns ───────────────────────────
+    fmap_path = out_dir / "family_map.csv"
+    if fmap_path.exists():
+        fmap = pd.read_csv(fmap_path, dtype=str)
+        # Drop old grouping columns if they exist (re-run idempotency)
+        for col in ("company_canonical", "prototype_label", "display_order"):
+            if col in fmap.columns:
+                fmap = fmap.drop(columns=[col])
+        group_info = (
+            df_sorted[[pub_col, "company_canonical", "prototype_label", "display_order"]]
+            .copy()
+            .rename(columns={pub_col: "canonical_pub_number"})
+            .assign(display_order=lambda d: d["display_order"].astype(str))
+        )
+        fmap = fmap.merge(group_info, on="canonical_pub_number", how="left")
+        fmap.to_csv(fmap_path, index=False)
+        print(f"[grouper] Updated: {fmap_path}")
+
+    # ── Dataset summary CSV ───────────────────────────────────────────────────
+    summary_path = _save_dataset_summary(df_sorted, pub_col, date_col, out_dir)
+    print(f"[grouper] Saved: {summary_path}")
+
+    # ── Console summary table ─────────────────────────────────────────────────
     summary = (
         df_sorted
         .groupby(["company_canonical", "prototype_label"])
@@ -643,6 +820,116 @@ def run_grouping(
               f"{row['count']:>6}  {date_range}")
 
     return df_sorted
+
+
+# ─── Dataset summary ──────────────────────────────────────────────────────────
+
+def _pub_office(pub_num: str) -> str:
+    """Infer publication office from the patent number prefix."""
+    s = str(pub_num).strip().upper()
+    for prefix in ("US", "EP", "WO", "CN", "JP", "KR", "DE", "FR", "GB", "BR", "IT"):
+        if s.startswith(prefix):
+            return prefix
+    return "Other"
+
+
+def _save_dataset_summary(
+    df: pd.DataFrame,
+    pub_col: str,
+    date_col: str,
+    out_dir: Path,
+) -> Path:
+    """
+    Build and save data/dataset_summary.csv — one row per company.
+
+    Columns
+    -------
+    company           : canonical company name
+    n_patents         : total patent count
+    pct_of_total      : share of the full dataset (%)
+    n_prototypes      : distinct prototype labels
+    prototypes        : e.g. "Prototype_A; Prototype_B"
+    first_filing      : earliest filing (YYYY-MM)
+    last_filing       : latest filing (YYYY-MM)
+    active_years      : year span  (last − first)
+    n_us / n_ep / n_wo / n_cn / n_jp / n_kr / n_other  : patents per office
+    top_offices       : top-3 offices joined with "/"
+    """
+    total = len(df)
+    rows: list[dict] = []
+
+    # Infer office from pub number
+    df = df.copy()
+    df["_office"] = df[pub_col].apply(_pub_office)
+
+    for company, grp in df.groupby("company_canonical", sort=False):
+        # Prototype info
+        protos      = sorted(grp["prototype_label"].dropna().unique())
+        proto_str   = "; ".join(p for p in protos if p != "Unclassified")
+        n_protos    = len([p for p in protos if p != "Unclassified"])
+
+        # Filing dates
+        dates    = pd.to_datetime(grp[date_col], errors="coerce").dropna()
+        first    = str(dates.min())[:7] if len(dates) else ""
+        last     = str(dates.max())[:7] if len(dates) else ""
+        try:
+            span = dates.dt.year.max() - dates.dt.year.min()
+        except Exception:
+            span = None
+
+        # Publication office breakdown
+        office_counts = grp["_office"].value_counts()
+        def _cnt(office: str) -> int:
+            return int(office_counts.get(office, 0))
+
+        offices_sorted = office_counts.index.tolist()
+        top3 = "/".join(offices_sorted[:3])
+
+        rows.append({
+            "company":       company,
+            "n_patents":     len(grp),
+            "pct_of_total":  round(len(grp) / total * 100, 1),
+            "n_prototypes":  n_protos,
+            "prototypes":    proto_str or "Prototype_A",
+            "first_filing":  first,
+            "last_filing":   last,
+            "active_years":  span,
+            "n_us":          _cnt("US"),
+            "n_ep":          _cnt("EP"),
+            "n_wo":          _cnt("WO"),
+            "n_cn":          _cnt("CN"),
+            "n_jp":          _cnt("JP"),
+            "n_kr":          _cnt("KR"),
+            "n_other":       _cnt("Other"),
+            "top_offices":   top3,
+        })
+
+    summary_df = pd.DataFrame(rows).sort_values("n_patents", ascending=False).reset_index(drop=True)
+
+    # Append TOTAL row
+    total_row = {
+        "company":      "TOTAL",
+        "n_patents":    total,
+        "pct_of_total": 100.0,
+        "n_prototypes": "",
+        "prototypes":   "",
+        "first_filing": str(pd.to_datetime(df[date_col], errors="coerce").dropna().min())[:7],
+        "last_filing":  str(pd.to_datetime(df[date_col], errors="coerce").dropna().max())[:7],
+        "active_years": "",
+        "n_us":         int((df["_office"] == "US").sum()),
+        "n_ep":         int((df["_office"] == "EP").sum()),
+        "n_wo":         int((df["_office"] == "WO").sum()),
+        "n_cn":         int((df["_office"] == "CN").sum()),
+        "n_jp":         int((df["_office"] == "JP").sum()),
+        "n_kr":         int((df["_office"] == "KR").sum()),
+        "n_other":      int((df["_office"] == "Other").sum()),
+        "top_offices":  "",
+    }
+    summary_df = pd.concat([summary_df, pd.DataFrame([total_row])], ignore_index=True)
+
+    dest = out_dir / "dataset_summary.csv"
+    summary_df.to_csv(dest, index=False)
+    return dest
 
 
 # ─── Standalone entry point ───────────────────────────────────────────────────

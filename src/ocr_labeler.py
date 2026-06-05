@@ -41,6 +41,82 @@ from skimage.io import imsave
 _FIG_TOKEN = re.compile(r"FIG\.?\s*([0-9]+[A-Za-z]?)", re.IGNORECASE)
 
 
+def _find_fig_labels_with_positions(
+    im: "Image.Image",
+    scale: float,
+) -> "list[tuple[str, int, int]]":
+    """
+    Run word-level OCR on an already-resized image and return every detected
+    FIG. label together with its center in *original* page pixel coordinates.
+
+    Parameters
+    ----------
+    im    : Resized PIL image fed to tesseract.
+    scale : resize_factor = resized_dimension / original_dimension.
+            Use to convert tesseract pixel coords back to original-page coords.
+
+    Returns
+    -------
+    list of (label, cx_orig, cy_orig) sorted top-to-bottom, left-to-right.
+    e.g. [("FIG. 2", 340, 812), ("FIG. 3", 890, 812)]
+    """
+    import pytesseract
+
+    try:
+        data = pytesseract.image_to_data(
+            im, config="--psm 6", output_type=pytesseract.Output.DICT
+        )
+    except Exception:
+        return []
+
+    words   = data["text"]
+    lefts   = data["left"]
+    tops    = data["top"]
+    widths  = data["width"]
+    heights = data["height"]
+    n       = len(words)
+
+    labels: list[tuple[str, int, int]] = []
+    seen:   set[str] = set()
+
+    i = 0
+    while i < n:
+        w = words[i].strip()
+        if not w:
+            i += 1
+            continue
+
+        if re.match(r"^(FIG\.?|FIGURE)$", w, re.IGNORECASE):
+            # Look ahead up to 5 tokens for the figure number (handles "FIG . 2A")
+            for j in range(i + 1, min(i + 6, n)):
+                nw = words[j].strip().rstrip(".")
+                if not nw:
+                    continue
+                m = re.match(r"^(\d+[A-Za-z]?)$", nw)
+                if m:
+                    label = f"FIG. {m.group(1).upper()}"
+                    if label not in seen:
+                        seen.add(label)
+                        # Bounding box spans from start of "FIG" to end of number token
+                        x0 = lefts[i]
+                        x1 = lefts[j] + widths[j]
+                        y0 = min(tops[i], tops[j])
+                        y1 = max(tops[i] + heights[i], tops[j] + heights[j])
+                        cx_resized = (x0 + x1) // 2
+                        cy_resized = (y0 + y1) // 2
+                        labels.append((
+                            label,
+                            int(cx_resized / scale),
+                            int(cy_resized / scale),
+                        ))
+                    break  # found number — stop looking further
+        i += 1
+
+    # Sort in reading order: top-to-bottom, left-to-right
+    labels.sort(key=lambda t: (t[2], t[1]))
+    return labels
+
+
 def _set_tesseract_cmd() -> None:
     """
     Ensure pytesseract can find the tesseract binary.
@@ -272,51 +348,55 @@ def ocr_figure_label(img_path: Path, cfg: dict) -> str | None:
 
 # ─── Page-level OCR (run before segmentation) ────────────────────────────────
 
-def ocr_all_pages(pages: list[Path], cfg: dict) -> dict[str, list[str]]:
+def ocr_all_pages(
+    pages: list[Path], cfg: dict
+) -> "dict[str, list[tuple[str, int, int]]]":
     """
-    OCR every original drawing page and return all FIG. labels found on each.
+    OCR every original drawing page before segmentation and return all detected
+    FIG. labels together with their positions on the page.
 
-    Call this BEFORE segmentation, while the original pages are still on disk.
+    Must be called BEFORE ``segment_patent()`` — original full pages must still
+    be on disk.  Once HR-Net crops and deletes them, label positions are lost.
 
-    Returns { page_stem: [ordered list of FIG. tokens] }
-        e.g. { "fig_08": ["FIG. 7"], "fig_21": ["FIG. 16A", "FIG. 16B"] }
+    Returns
+    -------
+    dict mapping page_stem → list of (label, cx, cy) tuples where cx/cy are
+    the center of the detected label text in original page pixel coordinates.
+
+        { "fig_08": [("FIG. 7", 420, 930)],
+          "fig_21": [("FIG. 16A", 310, 860), ("FIG. 16B", 890, 860)] }
+
+    The spatial coordinates allow ``assign_and_rename_crops()`` to match each
+    HR-Net crop to its label even when the label text fell outside the crop bbox.
     """
-    import pytesseract
     _set_tesseract_cmd()
 
     ocr_cfg = cfg.get("ocr", {})
     max_h   = ocr_cfg.get("max_ocr_height", 800)
-    result: dict[str, list[str]] = {}
+    result: dict[str, list[tuple[str, int, int]]] = {}
 
     for page in pages:
         try:
-            im = Image.open(page).convert("RGB")
+            im_orig = Image.open(page).convert("RGB")
         except Exception:
             result[page.stem] = []
             continue
 
-        w, h = im.size
-        if h > max_h:
-            im = im.resize((int(w * max_h / h), max_h), Image.LANCZOS)
+        orig_w, orig_h = im_orig.size
+        if orig_h > max_h:
+            scale = max_h / orig_h
+            im    = im_orig.resize((int(orig_w * scale), max_h), Image.LANCZOS)
+        else:
+            scale = 1.0
+            im    = im_orig
 
-        try:
-            text = pytesseract.image_to_string(im, config="--psm 6")
-        except Exception:
-            result[page.stem] = []
-            continue
-
-        seen: set[str] = set()
-        labels: list[str] = []
-        for m in _FIG_TOKEN.finditer(text):
-            token = f"FIG. {m.group(1).upper()}"
-            if token not in seen:
-                seen.add(token)
-                labels.append(token)
-
+        labels = _find_fig_labels_with_positions(im, scale)
         result[page.stem] = labels
 
-    total_labeled = sum(1 for v in result.values() if v)
-    print(f"  Page-level OCR: {total_labeled}/{len(pages)} pages have FIG. labels")
+    total_pages  = sum(1 for v in result.values() if v)
+    total_labels = sum(len(v) for v in result.values())
+    print(f"  Page-level OCR: {total_pages}/{len(pages)} pages with FIG. labels "
+          f"({total_labels} labels total)")
     return result
 
 
@@ -335,92 +415,201 @@ def _format_fig_num(raw: str) -> str:
     return f"{int(m.group(1)):03d}{m.group(2).upper()}"
 
 
+# ─── Spatial label matching (for split pages) ─────────────────────────────────
+
+def _spatial_match_labels(
+    crops: "list[tuple[Path, tuple | None]]",
+    page_labels: "list[tuple[str, int, int]]",
+) -> "list[str | None]":
+    """
+    Greedy nearest-neighbor assignment of page-level FIG. labels to crops.
+
+    Used for *split* pages where a single drawing page was segmented into
+    multiple sub-figure crops.  The label text may have been cropped away
+    from the sub-figure image, but its position on the original page is known
+    from the pre-segmentation OCR pass.
+
+    Algorithm
+    ---------
+    Crops are processed in top-to-bottom order.  For each crop, the closest
+    unassigned label whose center is either inside the crop bounding box or
+    below it (patent labels typically appear below or beside their figure) is
+    assigned.  Labels that are more than one crop-height *above* the crop are
+    skipped — they belong to a figure higher on the page.
+
+    Parameters
+    ----------
+    crops       : list of (crop_path, bbox) from segment_patent().
+                  bbox = (x1, y1, x2, y2) in original page pixel coords.
+                  None bbox → crop is skipped.
+    page_labels : list of (label, cx, cy) from ocr_all_pages(), sorted
+                  top-to-bottom.  cx/cy in original page pixel coords.
+
+    Returns
+    -------
+    list[str | None] — same length as ``crops``.  None where no label matched.
+    """
+    if not page_labels or not crops:
+        return [None] * len(crops)
+
+    assigned = [False] * len(page_labels)
+    result: list[str | None] = [None] * len(crops)
+
+    # Process crops in top-to-bottom order (mirrors reading order of labels)
+    crop_order = sorted(
+        range(len(crops)),
+        key=lambda i: (
+            crops[i][1][1] if crops[i][1] else 0,   # bbox y1
+            crops[i][1][0] if crops[i][1] else 0,   # bbox x1
+        ),
+    )
+
+    for ci in crop_order:
+        _, bbox = crops[ci]
+        if bbox is None:
+            continue
+
+        x1, y1, x2, y2 = bbox
+        crop_h = max(y2 - y1, 1)
+
+        best_j    = None
+        best_dist = float("inf")
+
+        for j, (label, lx, ly) in enumerate(page_labels):
+            if assigned[j]:
+                continue
+            # Labels clearly above this crop belong to a figure higher on the page
+            if ly < y1 - crop_h:
+                continue
+            # Distance from label center to crop bbox (0 if label is inside)
+            dx   = max(x1 - lx, 0, lx - x2)
+            dy   = max(y1 - ly, 0, ly - y2)
+            dist = (dx * dx + dy * dy) ** 0.5
+            if dist < best_dist:
+                best_dist = dist
+                best_j    = j
+
+        if best_j is not None:
+            result[ci]       = page_labels[best_j][0]
+            assigned[best_j] = True
+
+    return result
+
+
 # ─── Rename crops by figure label ─────────────────────────────────────────────
 
 def assign_and_rename_crops(
     patent_id: str,
-    page_to_crops: dict[str, list[Path]],
-    page_labels: dict[str, list[str]],
+    page_to_crops: "dict[str, list[tuple[Path, tuple | None]]]",
+    page_labels:   "dict[str, list[tuple[str, int, int]]]",
     cfg: dict,
     description_text: str = "",
 ) -> list[Path]:
     """
-    Assign figure labels to crops using a two-source strategy, then rename.
+    Assign figure labels to crops using a three-source strategy, then rename.
 
     For each page and its crops (in document order):
-      1. Crop-level OCR  — run GoFigure OCR on the crop itself.
-      2. Page-level fallback — if crop OCR finds nothing, use the next
-         unassigned label from the pre-computed page_labels for that page.
-         Labels are consumed in the order they appeared in the page text.
-         Only applied to single-figure pages (not split pages).
-      3. Description positional fallback — if description_text is provided
-         and the number of still-unlabeled crops exactly matches the number
-         of FIG. entries in the description, assign them in document order.
-         Only used when counts match exactly (safe, no guessing).
-      4. Unlabeled — if no source provides a label, the crop gets _Fu name.
 
-    This dramatically improves labeling rate because FIG. labels that are
-    outside the crop bounding box (cut off by segmentation) are still found
-    from the original full page.
+    1. **Crop-level OCR** — run GoFigure OCR directly on the crop image.
+    2. **Page-level fallback** — if crop OCR finds nothing:
+       - Single-figure pages: consume the next unassigned label from the
+         pre-segmentation full-page OCR (``page_labels``).
+       - Split pages with bbox data: use ``_spatial_match_labels()`` to match
+         each crop to the nearest FIG. label detected on the original page.
+         This rescues cases where HR-Net's tight crop excluded the label text.
+    3. **Description positional fallback** — only when *no* pages were split.
+       Overrides any remaining unlabeled crops with description order.
+    4. **Unlabeled** — crop gets ``_Fu`` name.
 
     Parameters
     ----------
     patent_id     : e.g. "US11787551B1"
-    page_to_crops : {page_stem: [crop_paths]} — output of segment_patent()
-    page_labels   : {page_stem: [FIG tokens]} — output of ocr_all_pages()
+    page_to_crops : {page_stem: [(crop_path, bbox|None)]} — from segment_patent()
+    page_labels   : {page_stem: [(label, cx, cy)]}        — from ocr_all_pages()
     cfg           : full config dict
 
     Returns
     -------
     Ordered list of final renamed Paths.
     """
-    # Build flat list of (page_stem, crop_path) in document order
-    items: list[tuple[str, Path]] = []
+    # Build flat list of (page_stem, crop_path, bbox) in document order
+    items: list[tuple[str, Path, tuple | None]] = []
     for page_stem in sorted(page_to_crops.keys()):
-        for crop in page_to_crops[page_stem]:
-            items.append((page_stem, crop))
+        for crop_path, bbox in page_to_crops[page_stem]:
+            items.append((page_stem, crop_path, bbox))
 
-    # Pointer into page_labels for each page (consumed as assigned)
+    # Pointer into page_labels for single-figure pages (consumed sequentially)
     page_label_idx: dict[str, int] = {s: 0 for s in page_to_crops}
+
+    # Pre-compute spatial assignments for all split pages (done once per page,
+    # not per crop, to avoid greedy ordering artifacts)
+    spatial_cache: dict[str, list[str | None]] = {}
+    for page_stem, crops in page_to_crops.items():
+        if len(crops) > 1:
+            avail = page_labels.get(page_stem, [])
+            if avail:
+                spatial_cache[page_stem] = _spatial_match_labels(crops, avail)
 
     # Pass 1: determine labels for every crop
     raw_labels: list[tuple[Path, str | None]] = []
-    for page_stem, crop in items:
-        # Try crop-level OCR first
-        label = ocr_figure_label(crop, cfg)
 
-        # Page-level fallback: only for single-figure pages (no split).
-        # For split pages (2+ sub-figures), each crop must find its own label via
-        # crop OCR — assigning the same page label to multiple sub-figures would
-        # produce incorrect duplicate names (e.g., both halves called F007).
-        if label is None and len(page_to_crops.get(page_stem, [])) == 1:
-            idx = page_label_idx.get(page_stem, 0)
-            avail = page_labels.get(page_stem, [])
-            if idx < len(avail):
-                label = avail[idx]
-                page_label_idx[page_stem] = idx + 1
+    for page_stem, crop_path, bbox in items:
+        # Strategy 1: crop-level OCR
+        label = ocr_figure_label(crop_path, cfg)
 
-        raw_labels.append((crop, label))
-        print(f"    {crop.name}  →  {label or '—'}")
+        if label is None:
+            crops_on_page = page_to_crops.get(page_stem, [])
+            n_crops       = len(crops_on_page)
+            avail_labels  = page_labels.get(page_stem, [])  # [(label, cx, cy)]
 
-    # Pass 1b: positional assignment from description text
-    # Only used when NO pages were split (all pages are single figures).
-    # US patents must submit figures in order, so page 1 = FIG. 1, page 2 = FIG. 2.
-    # When HR-Net splits occur the intra-page order is uncertain, so we skip this.
+            if n_crops == 1:
+                # Strategy 2a: single-figure page — consume next page label
+                idx = page_label_idx.get(page_stem, 0)
+                if idx < len(avail_labels):
+                    label = avail_labels[idx][0]
+                    page_label_idx[page_stem] = idx + 1
+
+            elif page_stem in spatial_cache and bbox is not None:
+                # Strategy 2b: split page — look up pre-computed spatial match
+                crop_idx = next(
+                    (i for i, (cp, _) in enumerate(crops_on_page) if cp == crop_path),
+                    None,
+                )
+                if crop_idx is not None:
+                    label = spatial_cache[page_stem][crop_idx]
+                    if label:
+                        print(f"    [spatial] {crop_path.name}  →  {label}")
+
+        raw_labels.append((crop_path, label))
+        if label:
+            print(f"    {crop_path.name}  →  {label}")
+        else:
+            print(f"    {crop_path.name}  →  —")
+
+    # Pass 1b: description positional fallback
+    # Only when NO pages were split — in that case page order = figure order.
     any_splits = any(len(v) > 1 for v in page_to_crops.values())
     if description_text and not any_splits:
         from src.matcher import parse_description
         parsed_desc = parse_description(description_text, cfg)
-        desc_figs   = list(parsed_desc.keys())          # e.g. ["1","2","3A",...]
-        n_assign    = min(len(items), len(desc_figs))   # assign as many as possible
+        desc_figs   = list(parsed_desc.keys())
+        n_assign    = min(len(items), len(desc_figs))
         for i in range(n_assign):
             crop, _ = raw_labels[i]
             raw_labels[i] = (crop, f"FIG. {desc_figs[i]}")
         leftover = len(items) - n_assign
         print(f"  Positional assignment (no splits): {n_assign}/{len(items)} labeled"
-              + (f", {leftover} extra crops -> _Fu" if leftover else ""))
+              + (f", {leftover} extra crops → _Fu" if leftover else ""))
     elif description_text and any_splits:
-        print(f"  Positional assignment skipped (page splits detected — order not guaranteed)")
+        n_spatial = sum(1 for ps in spatial_cache for _ in spatial_cache[ps] if _ is not None)
+        n_spatial_total = sum(
+            sum(1 for lbl in lbls if lbl is not None)
+            for lbls in spatial_cache.values()
+        )
+        msg = f"  Spatial matching rescued {n_spatial_total} crop(s) on split pages"
+        if not n_spatial_total:
+            msg = "  Positional assignment skipped (splits detected; no page-level labels found)"
+        print(msg)
 
     # Pass 2: detect duplicates, assign final names, rename
     label_count: dict[str, int] = {}
@@ -431,10 +620,10 @@ def assign_and_rename_crops(
                 key = _format_fig_num(m.group(1))
                 label_count[key] = label_count.get(key, 0) + 1
 
-    used_names:    set[str]        = set()
-    dup_seen:      dict[str, int]  = {}
-    unlabeled_idx: int             = 0
-    new_paths:     list[Path]      = []
+    used_names:    set[str]       = set()
+    dup_seen:      dict[str, int] = {}
+    unlabeled_idx: int            = 0
+    new_paths:     list[Path]     = []
 
     for crop, label in raw_labels:
         fig_key: str | None = None
@@ -554,16 +743,6 @@ def ocr_and_rename_crops(
 
 
 # ─── Retroactive relabeling pass ──────────────────────────────────────────────
-
-def _format_fig_num(raw: str) -> str:
-    """Format a raw figure token into zero-padded form: '3A' → '003A'."""
-    m = re.match(r"(\d+)([A-Za-z]?)", raw.strip())
-    if not m:
-        return raw
-    num = int(m.group(1))
-    letter = m.group(2).upper()
-    return f"{num:03d}{letter}"
-
 
 def relabel_unlabeled_patent(
     patent_id: str,

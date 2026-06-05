@@ -12,8 +12,7 @@ process_patent(patent_id, cfg, excel_index, raw_dir)       → Path
 import json
 from pathlib import Path
 
-from src.ocr_labeler import ocr_figure_label
-from src.matcher import parse_description, match_images
+from src.matcher import parse_description, match_images, label_from_filename
 
 
 # ─── Visual field keyword rules ────────────────────────────────────────────────
@@ -92,14 +91,20 @@ def assemble_patent_json(
     t3_images = []
     for res in match_results:
         img_entry = {
-            "file":                res["file"],
-            "ocr_label":           res["ocr_label"],
-            "fig_number":          res["fig_number"],
-            "matched_description": res["matched_description"],
-            "match_status":        res["match_status"],
-            "match_confidence":    res["match_confidence"],
-            "needs_review":        res["needs_review"],
-            "visual":              auto_fill_visual(res.get("matched_description")),
+            "file":                 res["file"],
+            "ocr_label":            res["ocr_label"],
+            "fig_number":           res["fig_number"],
+            "matched_description":  res["matched_description"],
+            "match_status":         res["match_status"],
+            "match_method":         res.get("match_method"),
+            "match_confidence":     res["match_confidence"],
+            "composite_confidence": res.get("composite_confidence"),
+            "semantic_best_score":  res.get("semantic_best_score", 0.0),
+            "siglip_score":         res.get("siglip_score"),
+            "siglip_mismatch":      res.get("siglip_mismatch", False),
+            "review_candidates":    res.get("review_candidates", []),
+            "needs_review":         res["needs_review"],
+            "visual":               auto_fill_visual(res.get("matched_description")),
         }
         if "duplicate_group" in res:
             img_entry["duplicate_group"] = res["duplicate_group"]
@@ -137,29 +142,75 @@ def process_patent(
     cfg: dict,
     excel_index: dict,
     raw_dir: Path,
+    sbert_model=None,
+    siglip_bundle: tuple | None = None,
+    skip_siglip: bool = False,
 ) -> Path:
     """
-    Full Stage 01 pipeline for one patent:
-      1. Glob image files from raw_dir/patent_id/
-      2. OCR each image for a figure label
-      3. Read BRIEF DESCRIPTION text from text/<patent_id>.txt (written by Stage 00)
-      4. Parse description text and match images to descriptions
-      5. Assemble and write the JSON to cfg["paths"]["labels"]
+    Full Stage 01 pipeline for one patent.
 
-    Returns the path to the written JSON file.
+    Stage 00 already renamed all figure crops to ``{id}_F*.png`` / ``{id}_Fu*.png``.
+    Stage 01 reads the fig label from the filename (no re-OCR) and matches to the
+    description text from ``text/{patent_id}.txt``.
+
+    Steps
+    -----
+    1. Glob ``_F*.png`` / ``_Fu*.png`` from raw_dir/patent_id/
+    2. Extract OCR label from each filename via label_from_filename()
+    3. Read description text from text/<patent_id>.txt
+    4. Parse description and match images to descriptions
+    5. (Optional) SigLIP visual verification
+    6. Assemble and write the JSON to cfg["paths"]["labels"]
+
+    Parameters
+    ----------
+    sbert_model   : SentenceTransformer for semantic fallback in match_images().
+    siglip_bundle : (model, tokenizer, preprocess, device) from load_siglip_model().
+    skip_siglip   : Pass True to skip SigLIP calls (fast mode).
+
+    Returns
+    -------
+    Path to the written JSON file.
     """
-    excel_row = excel_index.get(patent_id, {})
+    from src.cross_modal import verify_matches
+
+    excel_row      = excel_index.get(patent_id, {})
     patent_img_dir = raw_dir / patent_id
-    image_files = sorted(patent_img_dir.glob("fig_*")) if patent_img_dir.exists() else []
 
-    ocr_labels = [ocr_figure_label(p, cfg) for p in image_files]
+    if not patent_img_dir.exists():
+        image_files = []
+    else:
+        labeled   = sorted(patent_img_dir.glob(f"{patent_id}_F[0-9]*.png"))
+        unlabeled = sorted(patent_img_dir.glob(f"{patent_id}_Fu*.png"))
+        image_files = labeled + unlabeled
 
-    # Description now comes from the EPO-sourced .txt file, not the Excel
+    # Stage 00 already encoded the label into the filename — no re-OCR needed.
+    ocr_labels = [label_from_filename(p.name) for p in image_files]
+
+    # Description from EPO/Google scrape or PatSeer Excel (written by Stage 00).
     text_path = Path(cfg["paths"]["text"]) / f"{patent_id}.txt"
-    desc_text = text_path.read_text(encoding="utf-8") if text_path.exists() else ""
+    desc_text  = text_path.read_text(encoding="utf-8") if text_path.exists() else ""
     parsed_desc = parse_description(desc_text, cfg)
 
-    match_results = match_images(image_files, ocr_labels, parsed_desc, cfg)
+    has_splits = any(label is None for label in ocr_labels)   # any _Fu → uncertain order
+
+    match_results = match_images(
+        image_files,
+        ocr_labels,
+        parsed_desc,
+        cfg,
+        sbert_model       = sbert_model,
+        total_desc_entries = len(parsed_desc),
+        has_splits         = has_splits,
+    )
+
+    if siglip_bundle is not None:
+        model, tokenizer, preprocess, device = siglip_bundle
+        match_results = verify_matches(
+            match_results, raw_dir, patent_id,
+            model, tokenizer, preprocess, device,
+            skip_siglip=skip_siglip,
+        )
 
     data = assemble_patent_json(patent_id, excel_row, match_results, desc_text)
     return write_patent_json(patent_id, data, cfg["paths"]["labels"])
