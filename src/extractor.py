@@ -455,6 +455,106 @@ def get_brief_description_google(patent_id: str, cfg: dict) -> str:
     return "\n".join(lines)
 
 
+# ─── PatentsView / USPTO bulk data ───────────────────────────────────────────
+
+_PATENTSVIEW_URL = "https://api.patentsview.org/patents/query"
+_USPTO_BULK_BASE = "https://bulkdata.uspto.gov"
+# Strips US prefix + kind code → numeric core for PatentsView queries.
+# US11299268B2 → '11299268'     US2022267016A1 → '2022267016'
+_US_STRIP_RE = re.compile(r'^US(\d+)[A-Z]\d*$', re.IGNORECASE)
+
+
+def _strip_us_patent_number(patent_id: str) -> str | None:
+    """Strip US prefix and kind code → numeric core."""
+    m = _US_STRIP_RE.match(patent_id)
+    return m.group(1) if m else None
+
+
+def _query_patentsview(
+    patent_numbers: list[str],
+    fields: list[str],
+) -> list[dict]:
+    """Query PatentsView API; returns list of patent dicts (empty on failure)."""
+    if not patent_numbers:
+        return []
+    payload = {
+        "q": {"patent_number": {"$in": patent_numbers}},
+        "f": fields,
+        "o": {"per_page": len(patent_numbers)},
+    }
+    try:
+        resp = requests.post(_PATENTSVIEW_URL, json=payload, timeout=15)
+        resp.raise_for_status()
+        return resp.json().get("patents") or []
+    except Exception:
+        return []
+
+
+def get_brief_description_uspto(patent_id: str, cfg: dict) -> str:
+    """
+    Fetch the BRIEF DESCRIPTION OF THE DRAWINGS for a US patent via USPTO sources.
+
+    Strategy
+    --------
+    1. Strip the patent ID to its numeric core (US11299268B2 → '11299268').
+    2. Query PatentsView for ``patent_abstract`` and ``patent_date``.
+       PatentsView does not expose the Brief Description of Drawings directly,
+       so if ``brief_summary`` is present it is returned immediately.
+    3. Use the publication date from step 2 to locate the correct weekly ZIP
+       on bulkdata.uspto.gov and attempt to verify the patent is present.
+       Full ZIP parsing (100s MB each) is deferred to a future implementation;
+       this step currently resolves the index URL and returns empty so the
+       caller can fall through to the Google Patents fallback.
+
+    Returns empty string on failure so get_brief_description() can continue
+    with the next source in the source_priority list.
+    """
+    numeric = _strip_us_patent_number(patent_id)
+    if not numeric:
+        return ""
+
+    # ── Step 1: PatentsView ────────────────────────────────────────────────────
+    patents = _query_patentsview(
+        [numeric],
+        ["patent_number", "patent_title", "patent_abstract", "patent_date"],
+    )
+
+    pub_date: str | None = None
+    if patents:
+        p        = patents[0]
+        pub_date = p.get("patent_date") or None
+        brief    = (p.get("brief_summary") or "").strip()
+        if brief:
+            return brief
+
+    # ── Step 2: USPTO bulk XML (index probe only) ─────────────────────────────
+    # Grant publications: bulkdata.uspto.gov/data/patent/grant/redbook/fulltext/YYYY/
+    # Application publications: …/patent/application/redbook/fulltext/YYYY/
+    # Each weekly ZIP is 100–400 MB; stream-parsing to extract a single patent's
+    # BRIEF DESCRIPTION section is not yet implemented.
+    if pub_date:
+        try:
+            is_grant  = bool(re.search(r'B\d*$', patent_id, re.IGNORECASE))
+            data_type = "grant" if is_grant else "application"
+            prefix    = "ipg"   if is_grant else "ipa"
+            year      = pub_date[:4]
+            index_url = (
+                f"{_USPTO_BULK_BASE}/data/patent/"
+                f"{data_type}/redbook/fulltext/{year}/"
+            )
+            idx_resp  = requests.get(index_url, timeout=15)
+            idx_resp.raise_for_status()
+
+            zip_names   = re.findall(rf'{prefix}\d{{6}}\.zip', idx_resp.text)
+            pub_yymmdd  = pub_date[2:4] + pub_date[5:7] + pub_date[8:10]
+            _target_zip = f"{prefix}{pub_yymmdd}.zip"   # noqa: F841 (future use)
+            _ = zip_names   # index fetched; full ZIP parse deferred
+        except Exception:
+            pass
+
+    return ""
+
+
 # ─── Unified public API (mode-aware routers) ──────────────────────────────────
 
 def download_drawings(
@@ -484,9 +584,36 @@ def get_brief_description(
     """
     Fetch the BRIEF DESCRIPTION OF THE DRAWINGS for one patent.
 
-    Dispatches to the correct backend based on cfg["extractor"]["mode"].
+    When extractor.source_priority is set in config.yaml, tries each source
+    in order and returns the first non-empty result.  Supported values:
+
+      "uspto"  — PatentsView API + USPTO bulk XML (US patents only)
+      "epo"    — EPO OPS API or Google Patents depending on extractor.mode
+
+    When source_priority is absent or empty, falls back to the original
+    single-source dispatch on extractor.mode.
     """
-    mode = cfg.get("extractor", {}).get("mode", "google_patents")
-    if mode == "epo":
-        return _get_brief_description_epo(patent_id, client)
-    return get_brief_description_google(patent_id, cfg)
+    ext_cfg  = cfg.get("extractor", {})
+    mode     = ext_cfg.get("mode", "google_patents")
+    priority = ext_cfg.get("source_priority", [])
+
+    if not priority:
+        # Original single-source dispatch
+        if mode == "epo":
+            return _get_brief_description_epo(patent_id, client)
+        return get_brief_description_google(patent_id, cfg)
+
+    for source in priority:
+        text = ""
+        if source == "uspto":
+            if patent_id.upper().startswith("US"):
+                text = get_brief_description_uspto(patent_id, cfg)
+        elif source == "epo":
+            if mode == "epo" and client is not None:
+                text = _get_brief_description_epo(patent_id, client)
+            else:
+                text = get_brief_description_google(patent_id, cfg)
+        if text:
+            return text
+
+    return ""

@@ -25,6 +25,11 @@ extractor:
   mode:          "google_patents"
   scan_limit:    10      # number of patents to process in Stage 00 (notebook)
   delay_seconds: 1.0    # pause between requests (be polite to both services)
+  # Description-source priority: try sources in order; first non-empty wins.
+  # "uspto" = PatentsView API (US-only); "epo" = current mode (Google or EPO).
+  source_priority: ["uspto", "epo"]
+  # Set to true in the notebook to run check_uspto_coverage() at startup.
+  run_coverage_check: false
 
 # ── Figure segmentation (HR-Net, GoFigure-LANL) ───────────────────────────────
 # Download weights first:  python scripts/download_weights.py
