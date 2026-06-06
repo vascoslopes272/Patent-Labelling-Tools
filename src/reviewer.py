@@ -104,6 +104,7 @@ def assemble_patent_json(
             "siglip_mismatch":      res.get("siglip_mismatch", False),
             "review_candidates":    res.get("review_candidates", []),
             "needs_review":         res["needs_review"],
+            "compound_figure":      res.get("compound_figure", False),
             "visual":               auto_fill_visual(res.get("matched_description")),
         }
         if "duplicate_group" in res:
@@ -184,8 +185,17 @@ def process_patent(
         unlabeled = sorted(patent_img_dir.glob(f"{patent_id}_Fu*.png"))
         image_files = labeled + unlabeled
 
+    # ── Trivial-crop filtering ────────────────────────────────────────────────
+    # Axis strips, blank margins, and text-only legend fragments are excluded
+    # from matching and taxonomy but still appear in the JSON with a distinct
+    # status so they can be inspected if needed.
+    from src.ocr_labeler import is_trivial_crop, is_compound_figure
+
+    trivial_set  = {p for p in image_files if is_trivial_crop(p)}
+    active_files = [p for p in image_files if p not in trivial_set]
+
     # Stage 00 already encoded the label into the filename — no re-OCR needed.
-    ocr_labels = [label_from_filename(p.name) for p in image_files]
+    ocr_labels = [label_from_filename(p.name) for p in active_files]
 
     # Description from EPO/Google scrape or PatSeer Excel (written by Stage 00).
     text_path = Path(cfg["paths"]["text"]) / f"{patent_id}.txt"
@@ -195,13 +205,14 @@ def process_patent(
     has_splits = any(label is None for label in ocr_labels)   # any _Fu → uncertain order
 
     match_results = match_images(
-        image_files,
+        active_files,
         ocr_labels,
         parsed_desc,
         cfg,
-        sbert_model       = sbert_model,
+        sbert_model        = sbert_model,
         total_desc_entries = len(parsed_desc),
         has_splits         = has_splits,
+        siglip_bundle      = siglip_bundle,
     )
 
     if siglip_bundle is not None:
@@ -211,6 +222,14 @@ def process_patent(
             model, tokenizer, preprocess, device,
             skip_siglip=skip_siglip,
         )
+
+    # ── Compound figure detection ─────────────────────────────────────────────
+    for res in match_results:
+        img_file = raw_dir / patent_id / res["file"]
+        is_comp  = is_compound_figure(img_file) if img_file.exists() else False
+        res["compound_figure"] = is_comp
+        if is_comp:
+            res["needs_review"] = True
 
     # ── T2 auto-labeling (SigLIP per-image taxonomy prediction) ──────────────
     if siglip_bundle is not None and not skip_siglip:
@@ -234,6 +253,25 @@ def process_patent(
             else:
                 res["T2_predictions"] = {}
                 res["G1_hint"]        = None
+
+    # ── Append trivial crop entries (skipped from matching and T2) ───────────
+    for p in sorted(trivial_set, key=lambda x: x.name):
+        match_results.append({
+            "file":                 p.name,
+            "ocr_label":            label_from_filename(p.name),
+            "fig_number":           None,
+            "matched_description":  None,
+            "match_status":         "trivial_crop",
+            "match_method":         None,
+            "match_confidence":     0.0,
+            "composite_confidence": 0.0,
+            "semantic_best_score":  0.0,
+            "siglip_score":         None,
+            "siglip_mismatch":      False,
+            "review_candidates":    [],
+            "needs_review":         False,
+            "compound_figure":      False,
+        })
 
     data = assemble_patent_json(patent_id, excel_row, match_results, desc_text)
     return write_patent_json(patent_id, data, cfg["paths"]["labels"])

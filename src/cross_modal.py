@@ -391,3 +391,138 @@ def classify_g1_hint(
         "confidence": round(scores[best_i], 4),
         "source":     "siglip",
     }
+
+
+# ─── Primary visual matching for unlabeled crops ──────────────────────────────
+
+def match_fu_by_siglip(
+    fu_images: list[Path],
+    parsed_desc: dict[str, str],
+    model,
+    tokenizer,
+    preprocess,
+    device: str,
+    top_k: int = 3,
+    confidence_threshold: float = 0.25,
+) -> list[dict]:
+    """
+    Primary visual matching for unlabeled (_Fu) patent figure crops.
+
+    For patents where OCR failed to detect a ``FIG. N`` label, SigLIP computes
+    cosine similarity between each crop's image embedding and every description
+    line's text embedding, then assigns the highest-scoring match.
+
+    Text embeddings are batched in a single forward pass per call (not once per
+    image) for efficiency — callers should pass all _Fu images for a patent at
+    once rather than one at a time.
+
+    Confidence calibration
+    ----------------------
+    ≥ 0.35 → ``needs_review: False``  — high confidence, auto-accept
+    0.25–0.35 → ``needs_review: True`` — show candidates in review UI
+    < 0.25  → ``match_status: "siglip_uncertain"``, ``needs_review: True``
+
+    Parameters
+    ----------
+    fu_images            : _Fu crop paths to match.
+    parsed_desc          : ``{fig_key: full_description_line}`` from parse_description().
+    model/tokenizer/preprocess/device : From load_siglip_model().
+    top_k                : Ranked candidates to include per image (always populated).
+    confidence_threshold : Minimum score to assign a match (default 0.25).
+
+    Returns
+    -------
+    List of dicts, one per image, with fields:
+        file                 : str
+        fig_number           : matched key (e.g. "3C") or None if below threshold
+        matched_description  : full description line or None
+        match_status         : "siglip_matched" | "siglip_uncertain"
+        match_method         : "siglip_primary"
+        match_confidence     : float in [0, 1]
+        needs_review         : bool
+        review_candidates    : top_k list of {fig_number, description, score}
+    """
+    import torch
+    import torch.nn.functional as F
+    from PIL import Image
+
+    desc_keys  = list(parsed_desc.keys())
+    desc_texts = [parsed_desc[k] for k in desc_keys]
+
+    # ── Batch text embeddings — one forward pass for all description lines ─────
+    text_feats = None
+    if desc_keys:
+        try:
+            toks = tokenizer(desc_texts).to(device)
+            with torch.no_grad():
+                if device == "cuda":
+                    with torch.cuda.amp.autocast():
+                        text_enc = model.encode_text(toks)
+                else:
+                    text_enc = model.encode_text(toks)
+                text_feats = F.normalize(text_enc, dim=-1)   # (N_desc, D)
+        except Exception as exc:
+            print(f"  [SigLIP primary] text encoding failed: {exc}")
+
+    results: list[dict] = []
+
+    for img_path in fu_images:
+        entry: dict = {
+            "file":                img_path.name,
+            "fig_number":          None,
+            "matched_description": None,
+            "match_status":        "siglip_uncertain",
+            "match_method":        "siglip_primary",
+            "match_confidence":    0.0,
+            "needs_review":        True,
+            "review_candidates":   [],
+        }
+
+        if text_feats is None:
+            results.append(entry)
+            continue
+
+        try:
+            image = Image.open(img_path).convert("RGB")
+            img_t = preprocess(image).unsqueeze(0).to(device)
+
+            with torch.no_grad():
+                if device == "cuda":
+                    with torch.cuda.amp.autocast():
+                        img_enc = model.encode_image(img_t)
+                else:
+                    img_enc = model.encode_image(img_t)
+                img_feat = F.normalize(img_enc, dim=-1)   # (1, D)
+
+            sims = (img_feat @ text_feats.T).squeeze(0).cpu().tolist()
+            sims = [float(max(0.0, min(1.0, s))) for s in sims]
+
+            ranked = sorted(
+                zip(desc_keys, desc_texts, sims),
+                key=lambda x: x[2],
+                reverse=True,
+            )
+
+            entry["review_candidates"] = [
+                {"fig_number": k, "description": d, "score": round(s, 4)}
+                for k, d, s in ranked[:top_k]
+            ]
+
+            best_key, best_desc, best_score = ranked[0]
+            entry["match_confidence"] = round(best_score, 4)
+
+            if best_score >= confidence_threshold:
+                entry.update(
+                    fig_number          = best_key,
+                    matched_description = best_desc,
+                    match_status        = "siglip_matched",
+                )
+
+            entry["needs_review"] = best_score < 0.35
+
+        except Exception as exc:
+            print(f"  [SigLIP primary] {img_path.name}: {exc}")
+
+        results.append(entry)
+
+    return results

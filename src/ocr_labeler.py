@@ -343,6 +343,28 @@ def ocr_figure_label(img_path: Path, cfg: dict) -> str | None:
     except Exception:
         pass
 
+    # ── Strategy 4: bottom strip + Otsu binarization (cursive/stylized fonts) ─
+    # Older USPTO patents use calligraphic fonts (e.g. £IG. 3C) that confuse the
+    # default --psm 6 layout analysis.  Cropping the bottom 15% and binarizing
+    # with an aggressive Otsu threshold produces a clean black-on-white image
+    # that the LSTM engine can handle better in single-line and single-word modes.
+    try:
+        w4, h4  = im.size
+        strip4  = im.crop((0, int(h4 * 0.85), w4, h4))
+        arr4    = np.array(strip4.convert("L"))
+        thresh4 = threshold_otsu(arr4)
+        bin4    = Image.fromarray(((arr4 < thresh4) * 255).astype(np.uint8))
+        for psm_cfg4 in ("--psm 7 --oem 1", "--psm 8"):
+            try:
+                text = pytesseract.image_to_string(bin4, config=psm_cfg4)
+                m = _FIG_TOKEN.search(text)
+                if m:
+                    return f"FIG. {m.group(1).upper()}"
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     return None
 
 
@@ -740,6 +762,117 @@ def ocr_and_rename_crops(
     unlabeled = len(ocr_results) - labeled
     print(f"  Renamed {len(new_paths)} crops  ({labeled} labeled  {unlabeled} unlabeled)")
     return new_paths
+
+
+# ─── Crop quality filters ─────────────────────────────────────────────────────
+
+def is_compound_figure(img_path: Path) -> bool:
+    """
+    Detect whether a single crop actually contains multiple stacked subfigures.
+
+    Searches the middle 60% of the image height for a horizontal white-space
+    band that crosses the full width.  Such a band indicates that two distinct
+    drawings were not separated by the segmentation step and should be reviewed.
+
+    A band qualifies when:
+    - It spans at least 20 consecutive rows.
+    - More than 95% of the pixels in each row are white (≥ 250 in grayscale).
+
+    This function is informational only.  It does NOT split the image; the
+    caller sets ``needs_review: True`` in the match result so a human can act.
+
+    Parameters
+    ----------
+    img_path : Path to a PNG crop file.
+
+    Returns
+    -------
+    True if a qualifying white-space band is found, False otherwise.
+    """
+    try:
+        im = Image.open(img_path).convert("L")
+    except Exception:
+        return False
+
+    arr  = np.array(im)
+    h, _ = arr.shape
+
+    y_start = int(h * 0.20)
+    y_end   = int(h * 0.80)
+    if y_end <= y_start:
+        return False
+
+    # Fraction of white pixels per row within the search band
+    row_white = (arr[y_start:y_end] >= 250).mean(axis=1)
+
+    run = 0
+    for is_white in row_white > 0.95:
+        if is_white:
+            run += 1
+            if run >= 20:
+                return True
+        else:
+            run = 0
+    return False
+
+
+def is_trivial_crop(img_path: Path, min_content_ratio: float = 0.03) -> bool:
+    """
+    Decide whether a crop is too trivial to include in taxonomy labeling.
+
+    A crop is trivial when any of the following holds:
+
+    1. Fewer than ``min_content_ratio`` of all pixels are black — the image is
+       nearly blank (white margin, almost-empty page strip).
+    2. The image is smaller than 150×150 pixels — too small to contain a
+       meaningful figure; likely a stray axis label or legend fragment.
+    3. All connected components have a median area below 500 px² — the image
+       contains only small text blobs (figure numbers, legends) with no
+       line-drawing geometry.
+
+    Trivial crops receive ``match_status: "trivial_crop"`` and
+    ``needs_review: False`` in the assembled JSON and are excluded from
+    the matching and T2 taxonomy steps.
+
+    Parameters
+    ----------
+    img_path          : Path to a PNG crop file.
+    min_content_ratio : Black-pixel fraction below which the crop is blank.
+
+    Returns
+    -------
+    True if the crop is trivial, False if it contains substantive figure content.
+    """
+    try:
+        im = Image.open(img_path).convert("L")
+    except Exception:
+        return False
+
+    w, h = im.size
+
+    # Criterion 2: too small
+    if w < 150 or h < 150:
+        return True
+
+    arr = np.array(im)
+
+    # Criterion 1: nearly blank
+    if (arr < 128).mean() < min_content_ratio:
+        return True
+
+    # Criterion 3: only small connected components → text/legend, no line drawing
+    try:
+        thresh = threshold_otsu(arr)
+        bw     = arr < thresh
+    except Exception:
+        return False
+
+    labeled  = skimage.measure.label(bw)
+    regions  = skimage.measure.regionprops(labeled)
+    if not regions:
+        return True
+    areas = np.array([r.area for r in regions], dtype=float)
+    return float(np.median(areas)) < 500.0
 
 
 # ─── Retroactive relabeling pass ──────────────────────────────────────────────

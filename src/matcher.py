@@ -106,6 +106,7 @@ def match_images(
     sbert_model=None,
     total_desc_entries: int = 0,
     has_splits: bool = False,
+    siglip_bundle: "tuple | None" = None,
 ) -> list[dict]:
     """
     Match each image to a description line and assign a match_status.
@@ -157,6 +158,24 @@ def match_images(
         if key:
             fig_claim_count[key] = fig_claim_count.get(key, 0) + 1
 
+    # ── Pre-compute SigLIP matches for all _Fu images (text batched once) ───────
+    fu_siglip: dict[str, dict] = {}
+    if siglip_bundle is not None and parsed_desc:
+        from src.cross_modal import match_fu_by_siglip
+        _model, _tok, _pre, _dev = siglip_bundle
+        _fu_paths = [
+            p for p, lbl in zip(image_files, ocr_labels)
+            if lbl is None and "_Fu" in p.name
+        ]
+        if _fu_paths:
+            try:
+                _fu_results = match_fu_by_siglip(
+                    _fu_paths, parsed_desc, _model, _tok, _pre, _dev
+                )
+                fu_siglip = {r["file"]: r for r in _fu_results}
+            except Exception as exc:
+                print(f"  [SigLIP primary] batch failed: {exc}")
+
     # ── Pre-compute SBERT embeddings for all description entries ──────────────
     desc_embeddings   = None
     desc_keys_ordered: list[str] = []
@@ -192,7 +211,11 @@ def match_images(
 
         # ── Branch A: no OCR label (_Fu file) ─────────────────────────────────
         if fig_num is None:
-            if has_splits:
+            _sres = fu_siglip.get(img_path.name)
+            if _sres is not None:
+                # SigLIP primary match — adopt all fields except "file"
+                entry.update({k: v for k, v in _sres.items() if k != "file"})
+            elif has_splits:
                 entry.update(
                     match_status    = "human_required",
                     match_method    = "human_required",
@@ -278,8 +301,9 @@ def match_images(
                 needs_review        = False,
             )
 
-        # ── Enrich _Fu files with review_candidates ───────────────────────────
-        if is_fu and parsed_desc:
+        # ── Enrich _Fu files with review_candidates (SBERT fallback) ───────────
+        # Skipped when SigLIP already populated review_candidates above.
+        if is_fu and parsed_desc and not entry.get("review_candidates"):
             if sbert_model is not None and desc_embeddings is not None and len(desc_embeddings):
                 import numpy as np
 
