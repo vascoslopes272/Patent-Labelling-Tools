@@ -29,7 +29,7 @@ extractor:
   # "uspto" = PatentsView API (US-only); "epo" = current mode (Google or EPO).
   source_priority: ["uspto", "epo"]
   # Set to true in the notebook to run check_uspto_coverage() at startup.
-  run_coverage_check: false
+  run_coverage_check: true
 
 # ── Figure segmentation (HR-Net, GoFigure-LANL) ───────────────────────────────
 # Download weights first:  python scripts/download_weights.py
