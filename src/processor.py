@@ -2,7 +2,7 @@
 processor.py — image padding and resizing (Stage 02, stub).
 
 Pads each drawing to a square canvas then resizes to processing.target_size
-so all images fed to DINOv2 are identical in dimension.
+so all images have identical dimensions for downstream embedding models.
 
 Public API (to be implemented)
 -------------------------------
@@ -23,7 +23,11 @@ def pad_to_square(img: Image.Image, pad_color: str = "white") -> Image.Image:
     TODO: create a new RGB image of size (max_side, max_side), paste img
           centred, return the padded result.
     """
-    raise NotImplementedError("Stage 02: pad_to_square not yet implemented")
+    w, h   = img.size
+    side   = max(w, h)
+    canvas = Image.new("RGB", (side, side), pad_color)
+    canvas.paste(img, ((side - w) // 2, (side - h) // 2))
+    return canvas
 
 
 def resize_image(img: Image.Image, target_size: tuple[int, int]) -> Image.Image:
@@ -32,7 +36,7 @@ def resize_image(img: Image.Image, target_size: tuple[int, int]) -> Image.Image:
 
     TODO: return img.resize(target_size, Image.LANCZOS)
     """
-    raise NotImplementedError("Stage 02: resize_image not yet implemented")
+    return img.resize(target_size, Image.LANCZOS)
 
 
 def process_image(src_path: Path, dst_path: Path, cfg: dict) -> None:
@@ -42,7 +46,13 @@ def process_image(src_path: Path, dst_path: Path, cfg: dict) -> None:
     TODO: open src_path, call pad_to_square + resize_image, save to dst_path.
     Reads pad_color and target_size from cfg["processing"].
     """
-    raise NotImplementedError("Stage 02: process_image not yet implemented")
+    pad_color   = cfg.get("processing", {}).get("pad_color", "white")
+    target_size = tuple(cfg.get("processing", {}).get("target_size", [518, 518]))
+    img = Image.open(src_path).convert("RGB")
+    img = pad_to_square(img, pad_color)
+    img = resize_image(img, target_size)
+    dst_path.parent.mkdir(parents=True, exist_ok=True)
+    img.save(dst_path, "PNG")
 
 
 def process_patent(patent_id: str, cfg: dict) -> int:
@@ -53,4 +63,17 @@ def process_patent(patent_id: str, cfg: dict) -> int:
 
     TODO: iterate fig_* images, call process_image for each, return count.
     """
-    raise NotImplementedError("Stage 02: process_patent not yet implemented")
+    raw_dir  = Path(cfg["paths"]["raw_images"])  / patent_id
+    proc_dir = Path(cfg["paths"]["processed"])   / patent_id
+    proc_dir.mkdir(parents=True, exist_ok=True)
+    count = 0
+    for src in sorted(raw_dir.glob("*.png")):
+        dst = proc_dir / src.name
+        if dst.exists():
+            continue
+        try:
+            process_image(src, dst, cfg)
+            count += 1
+        except Exception as exc:
+            print(f"  processor: skipped {src.name}: {exc}")
+    return count

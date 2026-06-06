@@ -214,3 +214,180 @@ def verify_matches(
         updated.append(r)
 
     return updated
+
+
+# ─── Zero-shot T2 taxonomy classification ─────────────────────────────────────
+
+def classify_t2_fields(
+    img_path: Path,
+    model,
+    tokenizer,
+    preprocess,
+    device: str,
+) -> dict:
+    """
+    Zero-shot classify a patent figure crop on T2 taxonomy axes using SigLIP.
+
+    Returns predictions using the exact label strings from the HTML review tool
+    so the UI can pre-fill T2 fields without any mapping step.
+
+    Returns
+    -------
+    dict with keys matching HTML state fields::
+
+        {
+          "per":    {"value": str, "confidence": float},
+          "sym":    {"value": str, "confidence": float},
+          "acSty":  {"value": str, "confidence": float},
+          "acCol":  {"value": str, "confidence": float},
+          "bgSty":  {"value": str, "confidence": float},
+          "bgCol":  {"value": str, "confidence": float},
+          "parts":  [str, ...]
+          "parts_scores": {str: float}
+        }
+
+    Returns empty dict if model is None or image cannot be loaded.
+    """
+    import torch
+    import torch.nn.functional as F
+    from PIL import Image
+
+    PARTS_THRESHOLD = 0.20
+
+    T2_PER    = ["Top", "Bottom/Down", "Front", "Back", "Side",
+                 "Front-Isometric", "Rear-Isometric", "Generic 3D"]
+    T2_SYM    = ["Symmetric View", "Asymmetric View"]
+    T2_AC_STY = ["Line Drawing", "Shaded Render", "Solid/Filled Model", "Schematic"]
+    T2_AC_COL = ["B/W (Monochrome)", "Grayscale", "Full Color"]
+    T2_BG_STY = ["Solid Fill", "Shaded/Gradient", "Grid/Pattern"]
+    T2_BG_COL = ["White", "Blueprint Blue", "Dark", "Grayscale"]
+    T2_PARTS  = [
+        "Whole Vehicle Layout", "Primary Wing", "Secondary/Canard Wing",
+        "Empennage/Tail", "Rotor/Propeller Blade", "Tilt Hinge/Mechanism",
+        "Fuselage Cross-section", "Landing Gear/Skids",
+        "Internal Components/Batteries/Wiring",
+    ]
+    TEMPLATES = {
+        "per":   "A patent drawing showing a {} view of an aircraft",
+        "sym":   "This aircraft patent drawing has a {}",
+        "acSty": "The aircraft in this patent figure is drawn as a {}",
+        "acCol": "The rendering color of this patent figure is {}",
+        "bgSty": "The background of this patent drawing is {}",
+        "bgCol": "The background color of this patent drawing is {}",
+        "parts": "This aircraft patent drawing shows a visible {}",
+    }
+
+    if model is None:
+        return {}
+    try:
+        image = Image.open(img_path).convert("RGB")
+        img_t = preprocess(image).unsqueeze(0).to(device)
+    except Exception:
+        return {}
+
+    def _score(candidates: list, template: str) -> list:
+        texts     = [template.format(c) for c in candidates]
+        toks      = tokenizer(texts).to(device)
+        with torch.no_grad():
+            img_feat  = F.normalize(model.encode_image(img_t),  dim=-1)
+            text_feat = F.normalize(model.encode_text(toks),    dim=-1)
+            raw       = (img_feat @ text_feat.T).squeeze(0).cpu().tolist()
+        return [float(max(0.0, min(1.0, s))) for s in raw]
+
+    result: dict = {}
+    for axis, candidates in [
+        ("per",   T2_PER),
+        ("sym",   T2_SYM),
+        ("acSty", T2_AC_STY),
+        ("acCol", T2_AC_COL),
+        ("bgSty", T2_BG_STY),
+        ("bgCol", T2_BG_COL),
+    ]:
+        try:
+            scores  = _score(candidates, TEMPLATES[axis])
+            best_i  = scores.index(max(scores))
+            result[axis] = {"value": candidates[best_i],
+                            "confidence": round(scores[best_i], 4)}
+        except Exception:
+            result[axis] = {"value": None, "confidence": 0.0}
+
+    try:
+        part_scores = _score(T2_PARTS, TEMPLATES["parts"])
+        result["parts"]        = [T2_PARTS[i] for i, s in enumerate(part_scores)
+                                   if s > PARTS_THRESHOLD]
+        result["parts_scores"] = {T2_PARTS[i]: round(s, 4)
+                                   for i, s in enumerate(part_scores)}
+    except Exception:
+        result["parts"]        = []
+        result["parts_scores"] = {}
+
+    return result
+
+
+# ─── Zero-shot G1 architecture classification ─────────────────────────────────
+
+def classify_g1_hint(
+    img_path: Path,
+    model,
+    tokenizer,
+    preprocess,
+    device: str,
+    nlp_confidence: float = 0.0,
+    confidence_threshold: float = 0.55,
+) -> "dict | None":
+    """
+    Conditionally classify G1 architecture type using SigLIP zero-shot.
+
+    Only runs when ``nlp_confidence < confidence_threshold`` — if the NLP
+    matcher is already confident the visual check is skipped to save compute.
+
+    Returns
+    -------
+    ``{"value": str, "confidence": float, "source": "siglip"}``  or  ``None``
+    if skipped.  ``value`` is a G1_TOP_TYPES key (e.g. ``"TW"``, ``"MC"``,
+    ``"LC"``) matching the HTML ``topType`` field.
+    """
+    import torch
+    import torch.nn.functional as F
+    from PIL import Image
+
+    if nlp_confidence >= confidence_threshold:
+        return None
+
+    G1_TOP_TYPES = {
+        "MC":  "multirotor aircraft with multiple fixed rotors and no fixed wings",
+        "eH":  "conventional single main rotor helicopter layout",
+        "TW":  "tilt-wing aircraft where the entire wing rotates to vector thrust",
+        "TP":  "tilt-rotor aircraft with tilting propulsors mounted on fixed wings",
+        "LC":  "lift-plus-cruise with separate fixed lift rotors and a forward propulsor",
+        "CVT": "combined thrust aircraft mixing tilting and fixed lift propulsors",
+        "VT":  "vectored thrust where all propulsors tilt for both hover and cruise",
+        "OT":  "novel unconventional aircraft not fitting standard eVTOL configurations",
+    }
+    TEMPLATE = "A patent drawing of an eVTOL aircraft: {}"
+
+    if model is None:
+        return None
+    try:
+        image = Image.open(img_path).convert("RGB")
+        img_t = preprocess(image).unsqueeze(0).to(device)
+    except Exception:
+        return None
+
+    ids   = list(G1_TOP_TYPES.keys())
+    texts = [TEMPLATE.format(G1_TOP_TYPES[k]) for k in ids]
+    toks  = tokenizer(texts).to(device)
+
+    with torch.no_grad():
+        img_feat  = F.normalize(model.encode_image(img_t), dim=-1)
+        text_feat = F.normalize(model.encode_text(toks),   dim=-1)
+        scores    = (img_feat @ text_feat.T).squeeze(0).cpu().tolist()
+
+    scores = [float(max(0.0, min(1.0, s))) for s in scores]
+    best_i = scores.index(max(scores))
+
+    return {
+        "value":      ids[best_i],
+        "confidence": round(scores[best_i], 4),
+        "source":     "siglip",
+    }

@@ -212,5 +212,114 @@ def process_patent(
             skip_siglip=skip_siglip,
         )
 
+    # ── T2 auto-labeling (SigLIP per-image taxonomy prediction) ──────────────
+    if siglip_bundle is not None and not skip_siglip:
+        from src.cross_modal import classify_t2_fields, classify_g1_hint
+        model, tokenizer, preprocess, device = siglip_bundle
+        for res in match_results:
+            img_path = raw_dir / patent_id / res["file"]
+            if img_path.exists():
+                res["T2_predictions"] = classify_t2_fields(
+                    img_path, model, tokenizer, preprocess, device
+                )
+                nlp_conf = float(
+                    res.get("composite_confidence")
+                    or res.get("match_confidence")
+                    or 0.0
+                )
+                res["G1_hint"] = classify_g1_hint(
+                    img_path, model, tokenizer, preprocess, device,
+                    nlp_confidence=nlp_conf,
+                )
+            else:
+                res["T2_predictions"] = {}
+                res["G1_hint"]        = None
+
     data = assemble_patent_json(patent_id, excel_row, match_results, desc_text)
     return write_patent_json(patent_id, data, cfg["paths"]["labels"])
+
+
+# ─── Batch Stage 01 runner ────────────────────────────────────────────────────
+
+def run_stage01(
+    cfg: dict,
+    sbert_model=None,
+    siglip_bundle: "tuple | None" = None,
+    skip_siglip: bool = False,
+    limit: "int | None" = None,
+) -> "pd.DataFrame":
+    """
+    Batch Stage 01 runner. Processes all patent folders in raw_images/.
+
+    Parameters
+    ----------
+    limit : If set, process only the first N patents (for testing).
+
+    Returns
+    -------
+    pandas DataFrame with one row per patent:
+    patent_id | match_score | matched | semantic | positional | unmatched |
+    human_required | has_splits | review_required | description_found |
+    t2_labeled | total_crops | error
+    """
+    import pandas as pd
+    from tqdm import tqdm
+    from src.extractor import load_patseer_excel
+
+    raw_dir   = cfg["paths"]["raw_images"]
+    excel_idx = load_patseer_excel(cfg["paths"]["patseer_excel"])
+
+    patent_dirs = sorted([d for d in raw_dir.iterdir() if d.is_dir()])
+    if limit:
+        patent_dirs = patent_dirs[:limit]
+
+    rows = []
+    for patent_dir in tqdm(patent_dirs, desc="Stage 01"):
+        pid = patent_dir.name
+        try:
+            json_path = process_patent(
+                pid, cfg, excel_idx, raw_dir,
+                sbert_model   = sbert_model,
+                siglip_bundle = siglip_bundle,
+                skip_siglip   = skip_siglip,
+            )
+            data     = json.loads(json_path.read_text(encoding="utf-8"))
+            figs     = data.get("T3_images", [])
+            statuses = [f.get("match_status", "") for f in figs]
+            rows.append({
+                "patent_id":         pid,
+                "match_score":       round(
+                    sum(1 for s in statuses
+                        if s in ("matched", "semantic", "positional"))
+                    / max(len(statuses), 1), 3),
+                "matched":           statuses.count("matched"),
+                "semantic":          statuses.count("semantic"),
+                "positional":        statuses.count("positional"),
+                "unmatched":         statuses.count("unmatched"),
+                "human_required":    statuses.count("human_required"),
+                "has_splits":        data.get("has_splits", False),
+                "review_required":   any(f.get("needs_review") for f in figs),
+                "description_found": bool(data.get("description_of_drawings")),
+                "t2_labeled":        sum(1 for f in figs if f.get("T2_predictions")),
+                "total_crops":       len(figs),
+                "error":             None,
+            })
+        except Exception as exc:
+            rows.append({
+                "patent_id":   pid,
+                "error":       str(exc),
+                "match_score": 0.0,
+                "total_crops": 0,
+            })
+
+    df = pd.DataFrame(rows)
+    print(f"\n{'='*55}")
+    print(f"  Stage 01 complete: {len(df)} patents")
+    if "match_score" in df.columns and df["match_score"].notna().any():
+        print(f"  Avg match score  : {df['match_score'].mean():.1%}")
+        hr = df.get("human_required", pd.Series(dtype=int))
+        rr = df.get("review_required", pd.Series(dtype=bool))
+        print(f"  Human-required   : {hr.sum() if not hr.empty else 0} crops")
+        print(f"  Needs review     : {rr.sum() if not rr.empty else 0} patents")
+    print(f"{'='*55}")
+    return df
