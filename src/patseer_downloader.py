@@ -29,6 +29,7 @@ your Chrome profile directory (see the comment below).
 import re
 import time
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 import requests
 from selenium import webdriver
@@ -118,13 +119,44 @@ def extract_patent_number(driver: webdriver.Chrome, record_idx: int) -> str:
     return f"record_{record_idx:04d}"
 
 
+def open_details_view(driver: webdriver.Chrome, wait: WebDriverWait) -> bool:
+    """
+    Select the currently highlighted record in the search results list, then
+    navigate to DetailsView.
+
+    PatSeer keeps the selected record in session state. The correct two-step
+    flow is:
+      1. Let the search-result URL finish loading (so the record is selected)
+      2. Navigate to /DetailsView — it picks up the session-selected patent
+    """
+    # If we somehow already landed on DetailsView, nothing to do
+    if "DetailsView" in driver.current_url or "detailsview" in driver.current_url.lower():
+        return True
+
+    # Wait a bit longer for Angular hash-routing to register the selected record
+    time.sleep(2.0)
+
+    # Navigate to DetailsView — session state carries the selected record over
+    driver.get("https://app1.patseer.com/DetailsView")
+    time.sleep(3.5)   # give it time to load the patent content
+
+    return "DetailsView" in driver.current_url or "detailsview" in driver.current_url.lower()
+
+
 def click_drawings_tab(driver: webdriver.Chrome, wait: WebDriverWait) -> bool:
-    """Click the 'Drawings' tab in the right-hand record panel."""
+    """Click the 'Drawings' tab in the DetailsView panel."""
+    # Broader text variants — PatSeer may localise or abbreviate the label
+    tab_texts = ["Drawings", "Drawing", "Figures", "Images", "Patents Drawings"]
+    xpath_conditions = " or ".join(
+        f"contains(normalize-space(.), '{t}')" for t in tab_texts
+    )
+    xpath = (
+        f"//*[self::a or self::li or self::button or self::span or self::div]"
+        f"[{xpath_conditions}]"
+        f"[not(descendant::*[self::a or self::button or self::li])]"  # avoid container divs
+    )
     try:
-        tab = wait.until(EC.element_to_be_clickable((By.XPATH,
-            "//*[self::a or self::li or self::button or self::span]"
-            "[normalize-space(.)='Drawings']"
-        )))
+        tab = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
         driver.execute_script("arguments[0].scrollIntoView(true);", tab)
         driver.execute_script("arguments[0].click();", tab)
         time.sleep(1.8)
@@ -136,45 +168,113 @@ def click_drawings_tab(driver: webdriver.Chrome, wait: WebDriverWait) -> bool:
 def collect_image_urls(driver: webdriver.Chrome) -> list[str]:
     """
     Collect all drawing image URLs visible after clicking the Drawings tab.
-    PatSeer loads thumbnails; we try to get the highest-resolution version.
-
-    ── If images still aren't found, open DevTools → Network → filter 'Img',
-       click on a drawing, and inspect the request URL. Update the selector
-       or URL patterns below to match what you see.
+    Filenames are NOT read from the DOM — they come from the Content-Disposition
+    header returned when each URL is fetched.
     """
-    time.sleep(2)   # let thumbnails finish loading
-
-    # Multiple candidate selectors – one of these should match PatSeer's DOM
-    css_candidates = [
-        "div[class*='drawing'] img",
-        "div[class*='Drawing'] img",
-        "div[class*='drawings'] img",
-        "div[class*='Drawings'] img",
-        ".drawings-panel img",
-        ".thumbnails img",
-        "figure img",
-        "img[class*='drawing']",
-        "img[class*='thumbnail']",
-    ]
+    time.sleep(2.5)   # let thumbnails finish loading
 
     seen: set[str] = set()
     urls: list[str] = []
 
-    for css in css_candidates:
+    def _add(src: str) -> None:
+        if not src or not src.startswith("http"):
+            return
+        # Strip thumbnail size parameters to request the full-resolution image
+        full = re.sub(r"[?&](size|thumb|thumbnail|w|h|width|height|scale|dpi)=[^&]*", "", src)
+        full = full.rstrip("?&")
+        if full not in seen:
+            seen.add(full)
+            urls.append(full)
+
+    # ── Pass 1: targeted drawing-panel selectors ──────────────────────────────
+    css_targeted = [
+        "div[class*='drawing'] img",
+        "div[class*='Drawing'] img",
+        "div[class*='drawings'] img",
+        "div[class*='Drawings'] img",
+        "div[class*='figure'] img",
+        "div[class*='Figure'] img",
+        "div[class*='image'] img",
+        ".drawings-panel img",
+        ".thumbnails img",
+        ".thumbnail-list img",
+        "figure img",
+        "img[class*='drawing']",
+        "img[class*='thumbnail']",
+        "img[class*='figure']",
+        # PatSeer sometimes wraps each drawing in an anchor
+        "a[class*='drawing'] img",
+        "a[class*='thumbnail'] img",
+    ]
+    for css in css_targeted:
         for img in driver.find_elements(By.CSS_SELECTOR, css):
-            src = (img.get_attribute("src") or
-                   img.get_attribute("data-src") or
-                   img.get_attribute("data-original") or "")
+            for attr in ("src", "data-src", "data-original", "data-lazy"):
+                _add(img.get_attribute(attr) or "")
+
+    # ── Pass 2: broad fallback — all <img> tags, filter by size + URL ────────
+    if not urls:
+        for img in driver.find_elements(By.TAG_NAME, "img"):
+            src = img.get_attribute("src") or img.get_attribute("data-src") or ""
             if not src.startswith("http"):
                 continue
-            # Attempt to strip thumbnail parameters to get full-size image
-            full = re.sub(r"[?&](size|thumb|thumbnail|w|h|width|height)=[^&]*", "", src)
-            full = full.rstrip("?&")
-            if full not in seen:
-                seen.add(full)
-                urls.append(full)
+            # Skip tiny icons/logos (width or height < 100px in natural size)
+            try:
+                nat_w = driver.execute_script("return arguments[0].naturalWidth;",  img)
+                nat_h = driver.execute_script("return arguments[0].naturalHeight;", img)
+                if nat_w and nat_h and (int(nat_w) < 100 or int(nat_h) < 100):
+                    continue
+            except Exception:
+                pass
+            # Skip obvious non-drawing resources
+            if any(skip in src.lower() for skip in ("logo", "icon", "avatar", "spinner", "flag")):
+                continue
+            _add(src)
+
+    # ── Pass 3: anchor hrefs pointing directly to image files ────────────────
+    if not urls:
+        for a in driver.find_elements(By.CSS_SELECTOR, "a[href]"):
+            href = a.get_attribute("href") or ""
+            if re.search(r"\.(png|jpg|jpeg|gif|tif|tiff|bmp|webp)(\?|$)", href, re.IGNORECASE):
+                _add(href)
 
     return urls
+
+
+def _filename_from_response(resp: requests.Response, fallback_idx: int) -> str:
+    """
+    Derive the filename for a downloaded image.
+
+    Priority:
+      1. Content-Disposition header  (e.g. 'attachment; filename="D00002.png"')
+      2. Last path component of the URL (if it has a recognisable extension)
+      3. fig_NN.<ext> derived from Content-Type
+    """
+    cd = resp.headers.get("Content-Disposition", "")
+    if cd:
+        # RFC 5987 extended value:  filename*=UTF-8''D00002.png
+        m = re.search(r"filename\*=['\"]?(?:[\w\-]+'')?([^;\"'\s]+)", cd, re.IGNORECASE)
+        if m:
+            return unquote(m.group(1))
+        # Plain value:  filename="D00002.png"  or  filename=D00002.png
+        m = re.search(r'filename=["\']?([^;"\']+)["\']?', cd, re.IGNORECASE)
+        if m:
+            return unquote(m.group(1).strip())
+
+    # Fall back to URL path
+    try:
+        path = unquote(urlparse(resp.url).path)
+        name = Path(path).name
+        if name and re.search(r"\.[a-zA-Z]{2,4}$", name):
+            return name
+    except Exception:
+        pass
+
+    # Last resort: generic name with extension from Content-Type
+    ct = resp.headers.get("content-type", "")
+    ext_map = {"jpeg": "jpg", "png": "png", "gif": "gif",
+               "tiff": "tif", "bmp": "bmp", "webp": "webp"}
+    ext = next((e for mime, e in ext_map.items() if mime in ct.lower()), "png")
+    return f"fig_{fallback_idx:02d}.{ext}"
 
 
 def download_images(
@@ -183,25 +283,27 @@ def download_images(
     session: requests.Session,
     out_dir: Path,
 ) -> int:
-    """Download a list of image URLs into out_dir / patent_num /. Returns count saved."""
+    """Download images into out_dir/patent_num/, using the server-supplied filename
+    from the Content-Disposition response header."""
     dest_dir = out_dir / patent_num
     dest_dir.mkdir(parents=True, exist_ok=True)
     saved = 0
 
     for i, url in enumerate(urls, start=1):
-        # Guess extension from content-type header
         try:
             r = session.get(url, timeout=25)
             r.raise_for_status()
-            ct = r.headers.get("content-type", "")
-            ext = "jpg" if "jpeg" in ct else ("gif" if "gif" in ct else "png")
-            dest = dest_dir / f"fig_{i:02d}.{ext}"
+            name = _filename_from_response(r, i)
+            # Prefix with patent number if the server-supplied name doesn't include it
+            if patent_num.lower() not in name.lower():
+                name = f"{patent_num}_{name}"
+            dest = dest_dir / name
             if dest.exists():
-                print(f"      {dest.name} – already exists, skipping")
+                print(f"      {name} – already exists, skipping")
                 saved += 1
                 continue
             dest.write_bytes(r.content)
-            print(f"      ✓ {dest.name}  ({len(r.content)//1024} kB)")
+            print(f"      ✓ {name}  ({len(r.content)//1024} kB)")
             saved += 1
         except Exception as exc:
             print(f"      ✗ fig_{i:02d}: {exc}")
@@ -236,7 +338,18 @@ def main():
             record_url = f"{SEARCH_BASE_URL}/{idx}"
             print(f"\n[{idx:3d}/{TOTAL_RECORDS}] {record_url}")
             driver.get(record_url)
-            time.sleep(2.2)
+            time.sleep(3.5)   # wait for Angular hash-routing to register the selected record
+
+            print(f"  URL    : {driver.current_url}")
+
+            # Open the DetailsView for this record (contains the Drawings tab)
+            if not open_details_view(driver, wait):
+                print("  ⚠  Could not open DetailsView — check URL structure above")
+                print(f"     Current URL after attempt: {driver.current_url}")
+                errors.append((idx, f"record_{idx:04d}", "DetailsView not reached"))
+                continue
+
+            print(f"  Detail : {driver.current_url}")
 
             patent_num = extract_patent_number(driver, idx)
             print(f"  Patent : {patent_num}")
@@ -250,7 +363,8 @@ def main():
 
             # Click the Drawings tab
             if not click_drawings_tab(driver, wait):
-                print("  ⚠  Drawings tab not found – no drawings for this record?")
+                print("  ⚠  Drawings tab not found")
+                print(f"     Tabs visible: {[el.text for el in driver.find_elements(By.XPATH, '//*[self::a or self::li or self::button][string-length(normalize-space(.)) < 30]')][:15]}")
                 errors.append((idx, patent_num, "no Drawings tab"))
                 continue
 
@@ -264,7 +378,7 @@ def main():
                 errors.append((idx, patent_num, "no image URLs found"))
                 continue
 
-            # Download
+            # Download — filenames come from Content-Disposition response headers
             session = make_requests_session(driver)
             n = download_images(img_urls, patent_num, session, OUTPUT_DIR)
             total_images += n
