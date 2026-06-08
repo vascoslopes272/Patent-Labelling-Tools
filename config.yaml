@@ -2,7 +2,7 @@ project:
   name: patseer_drawing_pipeline
 
 paths:
-  base:          "/mnt/storage_11tb/Drive_files_to_syncronize/3 - Processed Images DataSets & Model Outputs/1639"
+  base:          "/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_DS"
   raw_images:    "{{ paths.base }}/raw"
   text:          "{{ paths.base }}/text"
   labels:        "{{ paths.base }}/labels"
