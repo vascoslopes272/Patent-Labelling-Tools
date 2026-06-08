@@ -26,8 +26,10 @@ TIP: To skip the manual-login step on future runs, set CHROME_PROFILE_DIR to
 your Chrome profile directory (see the comment below).
 """
 
+import json
 import re
 import time
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
@@ -63,6 +65,57 @@ CHROME_PROFILE     = "Default"
 
 # ───────────────────────────────────────────────────────────────────────────────
 
+
+# ─── Filename cleaning ────────────────────────────────────────────────────────
+
+_PUB_DATE_RE = re.compile(r"-(\d{4})(\d{2})(\d{2})-")
+
+
+def clean_filename(raw_name: str, patent_id: str) -> str:
+    """
+    Clean a raw PatSeer filename into the canonical pipeline format.
+
+    Transformations (in order):
+      1. Strip record_NNNN_ prefix          record_0002_US…A1-…-img003.png
+      2. Collapse -YYYYMMDD- date segment   → US…A1-img003.png
+      3. Replace remaining hyphens with _   → US…A1_img003.png
+
+    The patent_id parameter is accepted for API symmetry; the ID is
+    already embedded in the raw filename so no substitution is needed.
+    """
+    name = re.sub(r"^record_\d+_", "", raw_name)   # strip record prefix
+    name = re.sub(r"-\d{8}-", "-", name)             # collapse date segment
+    name = name.replace("-", "_")                    # normalise separator
+    return name
+
+
+def _extract_pub_date(raw_name: str) -> str | None:
+    """Extract publication date from a raw PatSeer filename as YYYY-MM-DD."""
+    m = _PUB_DATE_RE.search(raw_name)
+    if m:
+        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    return None
+
+
+def _url_matches_type_filter(url: str, file_type_filter: str) -> bool:
+    """
+    Heuristic check: does a PatSeer image URL belong to the requested type?
+    PatSeer embeds the original filename in the URL path, so we inspect the
+    path segment.  Returns True for "all" or when the URL cannot be classified.
+    """
+    if file_type_filter == "all":
+        return True
+    path = urlparse(url).path.lower()
+    if file_type_filter == "img":
+        return bool(re.search(r"[-_]img\d", path))
+    if file_type_filter == "D":
+        return bool(re.search(r"[-_]d\d{4,}", path))
+    if file_type_filter == "FAT":
+        return bool(re.search(r"[-_]fat\d", path))
+    return True
+
+
+# ─── Selenium helpers ─────────────────────────────────────────────────────────
 
 def build_driver() -> webdriver.Chrome:
     options = webdriver.ChromeOptions()
@@ -165,11 +218,16 @@ def click_drawings_tab(driver: webdriver.Chrome, wait: WebDriverWait) -> bool:
         return False
 
 
-def collect_image_urls(driver: webdriver.Chrome) -> list[str]:
+def collect_image_urls(
+    driver: webdriver.Chrome,
+    file_type_filter: str = "all",   # "img", "D", "FAT", or "all"
+) -> list[str]:
     """
-    Collect all drawing image URLs visible after clicking the Drawings tab.
+    Collect drawing image URLs visible after clicking the Drawings tab.
+
     Filenames are NOT read from the DOM — they come from the Content-Disposition
-    header returned when each URL is fetched.
+    header when each URL is fetched.  file_type_filter applies a URL-heuristic
+    pre-filter based on the filename segment embedded in the PatSeer CDN path.
     """
     time.sleep(2.5)   # let thumbnails finish loading
 
@@ -182,7 +240,7 @@ def collect_image_urls(driver: webdriver.Chrome) -> list[str]:
         # Strip thumbnail size parameters to request the full-resolution image
         full = re.sub(r"[?&](size|thumb|thumbnail|w|h|width|height|scale|dpi)=[^&]*", "", src)
         full = full.rstrip("?&")
-        if full not in seen:
+        if full not in seen and _url_matches_type_filter(full, file_type_filter):
             seen.add(full)
             urls.append(full)
 
@@ -282,31 +340,75 @@ def download_images(
     patent_num: str,
     session: requests.Session,
     out_dir: Path,
+    record_idx: int = 0,
 ) -> int:
-    """Download images into out_dir/patent_num/, using the server-supplied filename
-    from the Content-Disposition response header."""
+    """
+    Download images into out_dir/patent_num/.
+
+    For each file:
+      - Filename is taken from the Content-Disposition response header.
+      - clean_filename() is applied immediately to normalise to the
+        pipeline convention (US…A1_img003.png, US…A1_D00005.png, etc.).
+      - Files are categorised into img / D / FAT lists for the manifest.
+
+    A manifest JSON is saved at out_dir/patent_num/{patent_num}_download_manifest.json.
+    """
     dest_dir = out_dir / patent_num
     dest_dir.mkdir(parents=True, exist_ok=True)
-    saved = 0
+    saved     = 0
+    pub_date: str | None = None
+
+    img_files:  list[str] = []
+    d_files:    list[str] = []
+    fat_files:  list[str] = []
 
     for i, url in enumerate(urls, start=1):
         try:
             r = session.get(url, timeout=25)
             r.raise_for_status()
-            name = _filename_from_response(r, i)
-            # Prefix with patent number if the server-supplied name doesn't include it
+            raw_name = _filename_from_response(r, i)
+
+            # Extract publication date once (same for all files of this patent)
+            if pub_date is None:
+                pub_date = _extract_pub_date(raw_name)
+
+            name = clean_filename(raw_name, patent_num)
+            # Ensure patent ID prefix is present (fallback for unexpected raw names)
             if patent_num.lower() not in name.lower():
                 name = f"{patent_num}_{name}"
+
             dest = dest_dir / name
             if dest.exists():
                 print(f"      {name} – already exists, skipping")
-                saved += 1
-                continue
-            dest.write_bytes(r.content)
-            print(f"      ✓ {name}  ({len(r.content)//1024} kB)")
+            else:
+                dest.write_bytes(r.content)
+                print(f"      ✓ {name}  ({len(r.content)//1024} kB)")
             saved += 1
+
+            # Categorise
+            name_lower = name.lower()
+            if "_img" in name_lower:
+                img_files.append(name)
+            elif re.search(r"_d\d{4,}", name_lower):
+                d_files.append(name)
+            elif "_fat" in name_lower:
+                fat_files.append(name)
+
         except Exception as exc:
-            print(f"      ✗ fig_{i:02d}: {exc}")
+            print(f"      ✗ file_{i:02d}: {exc}")
+
+    # ── Save download manifest ────────────────────────────────────────────────
+    manifest = {
+        "patent_id":          patent_num,
+        "publication_date":   pub_date,
+        "record_position":    record_idx,
+        "img_files":          sorted(img_files),
+        "d_files":            sorted(d_files),
+        "fat_files":          sorted(fat_files),
+        "download_timestamp": datetime.now().isoformat(timespec="seconds"),
+    }
+    manifest_path = dest_dir / f"{patent_num}_download_manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     return saved
 
@@ -354,10 +456,14 @@ def main():
             patent_num = extract_patent_number(driver, idx)
             print(f"  Patent : {patent_num}")
 
-            # Skip patents we already completed
-            patent_dir = OUTPUT_DIR / patent_num
-            if patent_dir.exists() and any(patent_dir.glob("fig_*")):
-                count = len(list(patent_dir.glob("fig_*")))
+            # Skip patents we already completed (manifest is the canonical marker)
+            patent_dir    = OUTPUT_DIR / patent_num
+            manifest_path = patent_dir / f"{patent_num}_download_manifest.json"
+            if manifest_path.exists():
+                print(f"  Manifest exists — already downloaded, skipping")
+                continue
+            if patent_dir.exists() and any(patent_dir.glob("*.png")):
+                count = len(list(patent_dir.glob("*.png")))
                 print(f"  Already downloaded {count} image(s) – skipping")
                 continue
 
@@ -380,7 +486,7 @@ def main():
 
             # Download — filenames come from Content-Disposition response headers
             session = make_requests_session(driver)
-            n = download_images(img_urls, patent_num, session, OUTPUT_DIR)
+            n = download_images(img_urls, patent_num, session, OUTPUT_DIR, record_idx=idx)
             total_images += n
 
             time.sleep(DELAY_SECS)
