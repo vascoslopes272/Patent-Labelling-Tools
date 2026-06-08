@@ -40,6 +40,12 @@ _CLEAN_NAME_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Files that already went through a previous 00b run — skip them to stay idempotent.
+_ALREADY_PROCESSED_RE = re.compile(
+    r"_(?:F\d{3}[A-Za-z]?|Fu\d{3}|crop\d{2})",
+    re.IGNORECASE,
+)
+
 
 def clean_patent_filename(raw_name: str) -> tuple[str, str, str]:
     """
@@ -290,11 +296,14 @@ def match_positionally(
         needs_review     : bool
         output_filename  : str
     """
-    img_files  = sorted(img_dir.glob(f"{patent_id}_img*.png"),
+    def _unprocessed(paths):
+        return [p for p in paths if not _ALREADY_PROCESSED_RE.search(p.stem)]
+
+    img_files  = sorted(_unprocessed(img_dir.glob(f"{patent_id}_img*.png")),
                         key=lambda p: _file_sort_key(p.name))
-    d_files    = sorted(img_dir.glob(f"{patent_id}_D*.png"),
+    d_files    = sorted(_unprocessed(img_dir.glob(f"{patent_id}_D*.png")),
                         key=lambda p: _file_sort_key(p.name))
-    fat_files  = sorted(img_dir.glob(f"{patent_id}_FAT*.png"),
+    fat_files  = sorted(_unprocessed(img_dir.glob(f"{patent_id}_FAT*.png")),
                         key=lambda p: _file_sort_key(p.name))
 
     desc_map  = _parse_description_map(description_text)

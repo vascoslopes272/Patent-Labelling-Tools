@@ -712,14 +712,14 @@ def ocr_and_rename_crops(
 
         if fig_key:
             if label_count[fig_key] == 1:
-                stem = f"{patent_id}_F{fig_key}"
+                stem = f"{path.stem}_F{fig_key}"
             else:
                 dup_seen[fig_key] = dup_seen.get(fig_key, 0) + 1
                 suffix = chr(ord("a") + dup_seen[fig_key] - 1)   # a, b, c…
-                stem = f"{patent_id}_F{fig_key}_{suffix}"
+                stem = f"{path.stem}_F{fig_key}_{suffix}"
         else:
             unlabeled_idx += 1
-            stem = f"{patent_id}_Fu{unlabeled_idx:03d}"
+            stem = f"{path.stem}_Fu{unlabeled_idx:03d}"
 
         # Guard against any remaining conflicts
         candidate = stem + ".png"
