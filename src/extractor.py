@@ -20,6 +20,7 @@ download_drawings(patent_id, cfg, raw_dir, client)  → list[Path]
 get_brief_description(patent_id, cfg, client)       → str
 load_patseer_excel(path)                            → dict[str, dict]
 save_description_text(patent_id, text, text_dir)    → Path
+save_descriptions_csv(index, out_path)              → Path
 """
 
 import io
@@ -334,6 +335,22 @@ def save_description_text(patent_id: str, text: str, text_dir: Path) -> Path:
     dest = text_dir / f"{patent_id}.txt"
     dest.write_text(text, encoding="utf-8")
     return dest
+
+
+def save_descriptions_csv(index: dict, out_path: Path) -> Path:
+    """Write patent_id + description_of_drawings from the full index to a CSV.
+
+    Each row: patent_id, description_of_drawings (empty string if not available).
+    Overwrites the file if it already exists.
+    """
+    import csv
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["patent_id", "description_of_drawings"])
+        for patent_id, meta in index.items():
+            writer.writerow([patent_id, meta.get("description_of_drawings") or ""])
+    return out_path
 
 
 # ─── Google Patents fallback (no credentials needed) ─────────────────────────
