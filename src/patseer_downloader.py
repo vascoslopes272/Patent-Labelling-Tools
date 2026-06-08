@@ -48,7 +48,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 # Paste your search URL from the browser (only the base part – no record number)
 SEARCH_BASE_URL = "https://app1.patseer.com/#/result/ad056431-8522-11e8-944f-22000bd445e0"
 
-TOTAL_RECORDS      = 10    # total records in your search result
+TOTAL_RECORDS      = 1689    # total records in your search result
 START_FROM         = 1     # change this to resume a previous run
 LOGIN_WAIT_SECONDS = 60    # seconds to log in and navigate to search before script takes over
 
