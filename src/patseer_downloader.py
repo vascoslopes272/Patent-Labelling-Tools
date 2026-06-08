@@ -48,10 +48,11 @@ from webdriver_manager.chrome import ChromeDriverManager
 # Paste your search URL from the browser (only the base part – no record number)
 SEARCH_BASE_URL = "https://app1.patseer.com/#/result/ad056431-8522-11e8-944f-22000bd445e0"
 
-TOTAL_RECORDS = 162      # total records in your search result
-START_FROM    = 1        # change this to resume a previous run
+TOTAL_RECORDS      = 10    # total records in your search result
+START_FROM         = 1     # change this to resume a previous run
+LOGIN_WAIT_SECONDS = 60    # seconds to log in and navigate to search before script takes over
 
-OUTPUT_DIR    = Path("patseer_drawings")   # folder where images are saved
+OUTPUT_DIR    = Path("patseer_drawings")   # overridden by notebook Cell 1 via cfg["paths"]["raw_images"]
 DELAY_SECS    = 2.5      # pause between patents – keep this ≥ 2 to avoid hammering the server
 HEADLESS      = False    # set True to run without a visible browser window
 
@@ -95,6 +96,79 @@ def _extract_pub_date(raw_name: str) -> str | None:
     if m:
         return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
     return None
+
+
+def _patent_id_from_urls(urls: list[str]) -> str | None:
+    """Extract the patent publication number from collected image URLs.
+
+    PatSeer CDN paths embed the original filename, which always contains the
+    patent number (e.g. …/record_0001_US20220267016A1-20220825-D00001.png).
+    This is far more reliable than scraping the DOM.
+    """
+    pat = re.compile(r"([A-Z]{2}\d{6,}[A-Z0-9]+)", re.IGNORECASE)
+    for url in urls:
+        path = unquote(urlparse(url).path)
+        m = pat.search(path)
+        if m:
+            return m.group(1).upper()
+    return None
+
+
+def _fix_record_folder(record_dir: Path, out_dir: Path) -> str | None:
+    """After downloading into a record_XXXX folder, extract the real patent ID from
+    the downloaded filenames, rename all files + the folder, and update the manifest.
+    Returns the new patent_id on success, None if it can't be determined.
+    """
+    if not record_dir.exists():
+        return None
+
+    pat       = re.compile(r"([A-Z]{2}\d{6,}[A-Z0-9]+)", re.IGNORECASE)
+    patent_id = None
+
+    for f in record_dir.iterdir():
+        # Search the stem so the extension doesn't interfere
+        m = pat.search(f.stem)
+        if m:
+            candidate = m.group(1).upper()
+            if not candidate.upper().startswith("RECORD"):
+                patent_id = candidate
+                break
+
+    if not patent_id:
+        return None
+
+    new_dir = out_dir / patent_id
+    if new_dir.exists():
+        print(f"  ⚠  Cannot rename: {patent_id}/ already exists")
+        return None
+
+    record_name = record_dir.name   # "record_0003"
+    prefix      = record_name + "_"
+
+    # Rename files: manifest gets a new name, all others lose the record_XXXX_ prefix
+    for f in list(record_dir.iterdir()):
+        if f.name == f"{record_name}_download_manifest.json":
+            f.rename(record_dir / f"{patent_id}_download_manifest.json")
+        elif f.name.startswith(prefix):
+            f.rename(record_dir / f.name[len(prefix):])
+
+    # Update manifest content
+    manifest_path = record_dir / f"{patent_id}_download_manifest.json"
+    if manifest_path.exists():
+        data = json.loads(manifest_path.read_text())
+        data["patent_id"] = patent_id
+
+        def _fix(n: str) -> str:
+            return n[len(prefix):] if n.startswith(prefix) else n
+
+        data["img_files"] = [_fix(n) for n in data.get("img_files", [])]
+        data["d_files"]   = [_fix(n) for n in data.get("d_files", [])]
+        data["fat_files"] = [_fix(n) for n in data.get("fat_files", [])]
+        manifest_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    # Finally rename the folder itself
+    record_dir.rename(new_dir)
+    return patent_id
 
 
 def _url_matches_type_filter(url: str, file_type_filter: str) -> bool:
@@ -148,52 +222,51 @@ def make_requests_session(driver: webdriver.Chrome) -> requests.Session:
 
 def extract_patent_number(driver: webdriver.Chrome, record_idx: int) -> str:
     """
-    Try to read the patent publication number from the record panel header.
+    Try to read the patent publication number from the DetailsView DOM.
     Falls back to 'record_{idx}' if nothing can be parsed.
     """
     try:
-        # PatSeer shows the number in the top of the right panel, e.g. "1.US2015014475A1"
-        selectors = [
-            "[class*='record-title']",
-            "[class*='recordTitle']",
-            "[class*='record-head']",
-            "[class*='patent-number']",
-            "h2", "h3",
-        ]
-        for sel in selectors:
-            els = driver.find_elements(By.CSS_SELECTOR, sel)
+        # Most reliable: the Angular navbar element carries appnum="US20221767359A1"
+        for attr_sel, attr_name in [
+            ("[class*='recordInfoContainer'][appnum]", "appnum"),
+            ("[class*='recordInfoContainer'][recordnum]", "recordnum"),
+            ("[appnum]", "appnum"),
+            ("[recordnum]", "recordnum"),
+        ]:
+            els = driver.find_elements(By.CSS_SELECTOR, attr_sel)
             for el in els:
+                val = el.get_attribute(attr_name)
+                if val:
+                    m = re.search(r"([A-Z]{2}\d{6,}[A-Z0-9]*)", val, re.IGNORECASE)
+                    if m:
+                        return m.group(1).upper()
+    except Exception:
+        pass
+    try:
+        # Fallback: scan visible text in common header elements
+        for sel in ["[class*='record-title']", "[class*='recordTitle']",
+                    "[class*='record-head']", "[class*='patent-number']", "h2", "h3"]:
+            for el in driver.find_elements(By.CSS_SELECTOR, sel):
                 text = el.text.strip()
-                match = re.search(r"([A-Z]{2}\d{6,}[A-Z0-9]*)", text)
-                if match:
-                    return match.group(1)
+                m = re.search(r"([A-Z]{2}\d{6,}[A-Z0-9]*)", text)
+                if m:
+                    return m.group(1).upper()
     except Exception:
         pass
     return f"record_{record_idx:04d}"
 
 
-def open_details_view(driver: webdriver.Chrome, wait: WebDriverWait) -> bool:
-    """
-    Select the currently highlighted record in the search results list, then
-    navigate to DetailsView.
-
-    PatSeer keeps the selected record in session state. The correct two-step
-    flow is:
-      1. Let the search-result URL finish loading (so the record is selected)
-      2. Navigate to /DetailsView — it picks up the session-selected patent
-    """
-    # If we somehow already landed on DetailsView, nothing to do
-    if "DetailsView" in driver.current_url or "detailsview" in driver.current_url.lower():
+def click_next_patent(driver: webdriver.Chrome) -> bool:
+    """Click the next-record arrow in DetailsView (ng-click='nextSelectedRecord')."""
+    try:
+        btn = WebDriverWait(driver, 5).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "[ng-click*='nextSelectedRecord']"))
+        )
+        driver.execute_script("arguments[0].click();", btn)
+        time.sleep(2.5)
         return True
-
-    # Wait a bit longer for Angular hash-routing to register the selected record
-    time.sleep(2.0)
-
-    # Navigate to DetailsView — session state carries the selected record over
-    driver.get("https://app1.patseer.com/DetailsView")
-    time.sleep(3.5)   # give it time to load the patent content
-
-    return "DetailsView" in driver.current_url or "detailsview" in driver.current_url.lower()
+    except Exception:
+        return False
 
 
 def click_drawings_tab(driver: webdriver.Chrome, wait: WebDriverWait) -> bool:
@@ -414,22 +487,32 @@ def download_images(
 
 
 def main():
-    OUTPUT_DIR.mkdir(exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     driver = build_driver()
     wait   = WebDriverWait(driver, 15)
 
-    # ── Login ────────────────────────────────────────────────────────────────
-    if CHROME_PROFILE_DIR:
-        print("Using existing Chrome profile – navigating directly to PatSeer…")
-        driver.get("https://app1.patseer.com")
-        time.sleep(3)
-    else:
-        driver.get("https://app1.patseer.com")
-        print("\n" + "="*60)
-        print("  Please log in to PatSeer in the browser window that opened.")
-        print("  Once you are fully logged in, come back here and press Enter.")
-        print("="*60)
-        input("  ▶ Press Enter when ready: ")
+    # ── Login + activate search ───────────────────────────────────────────────
+    driver.get("https://app1.patseer.com")
+    print("\n" + "="*60)
+    print(f"  You have {LOGIN_WAIT_SECONDS} seconds to:")
+    print("  1. Log in to PatSeer in the Chrome window")
+    print("  2. Navigate to your search so the patent list is visible")
+    print("  Script will open DetailsView automatically when the timer ends.")
+    print("="*60)
+    for remaining in range(LOGIN_WAIT_SECONDS, 0, -10):
+        print(f"  {remaining}s remaining…")
+        time.sleep(10)
+    print("  Time up — taking over.\n")
+
+    # ── Open DetailsView — shows patent 1 of the active search ───────────────
+    driver.get("https://app1.patseer.com/DetailsView")
+    time.sleep(4)
+
+    # Fast-forward to START_FROM by clicking next (START_FROM - 1) times
+    if START_FROM > 1:
+        print(f"  Fast-forwarding to record {START_FROM} (clicking next {START_FROM-1} times)…")
+        for _ in range(START_FROM - 1):
+            click_next_patent(driver)
 
     # ── Main loop ─────────────────────────────────────────────────────────────
     total_images = 0
@@ -437,41 +520,27 @@ def main():
 
     try:
         for idx in range(START_FROM, TOTAL_RECORDS + 1):
-            record_url = f"{SEARCH_BASE_URL}/{idx}"
-            print(f"\n[{idx:3d}/{TOTAL_RECORDS}] {record_url}")
-            driver.get(record_url)
-            time.sleep(3.5)   # wait for Angular hash-routing to register the selected record
-
-            print(f"  URL    : {driver.current_url}")
-
-            # Open the DetailsView for this record (contains the Drawings tab)
-            if not open_details_view(driver, wait):
-                print("  ⚠  Could not open DetailsView — check URL structure above")
-                print(f"     Current URL after attempt: {driver.current_url}")
-                errors.append((idx, f"record_{idx:04d}", "DetailsView not reached"))
-                continue
-
-            print(f"  Detail : {driver.current_url}")
+            print(f"\n[{idx:3d}/{TOTAL_RECORDS}]")
 
             patent_num = extract_patent_number(driver, idx)
             print(f"  Patent : {patent_num}")
 
-            # Skip patents we already completed (manifest is the canonical marker)
+            # Skip check
             patent_dir    = OUTPUT_DIR / patent_num
             manifest_path = patent_dir / f"{patent_num}_download_manifest.json"
             if manifest_path.exists():
-                print(f"  Manifest exists — already downloaded, skipping")
-                continue
-            if patent_dir.exists() and any(patent_dir.glob("*.png")):
-                count = len(list(patent_dir.glob("*.png")))
-                print(f"  Already downloaded {count} image(s) – skipping")
+                print(f"  Manifest exists — skipping")
+                if idx < TOTAL_RECORDS:
+                    click_next_patent(driver)
                 continue
 
             # Click the Drawings tab
             if not click_drawings_tab(driver, wait):
-                print("  ⚠  Drawings tab not found")
-                print(f"     Tabs visible: {[el.text for el in driver.find_elements(By.XPATH, '//*[self::a or self::li or self::button][string-length(normalize-space(.)) < 30]')][:15]}")
+                print(f"  ⚠  Drawings tab not found")
+                print(f"     Tabs: {[el.text.strip() for el in driver.find_elements(By.XPATH, '//*[self::a or self::li or self::button][string-length(normalize-space(.)) < 30]') if el.text.strip()][:15]}")
                 errors.append((idx, patent_num, "no Drawings tab"))
+                if idx < TOTAL_RECORDS:
+                    click_next_patent(driver)
                 continue
 
             # Collect image URLs
@@ -480,14 +549,43 @@ def main():
 
             if not img_urls:
                 print("  ⚠  No image URLs collected.")
-                print("     Tip: open DevTools → Network → filter 'Img' and inspect manually.")
                 errors.append((idx, patent_num, "no image URLs found"))
+                if idx < TOTAL_RECORDS:
+                    click_next_patent(driver)
                 continue
 
-            # Download — filenames come from Content-Disposition response headers
+            # Refine patent_num from image URLs if DOM extraction fell back
+            if patent_num.startswith("record_"):
+                from_url = _patent_id_from_urls(img_urls)
+                if from_url:
+                    patent_num = from_url
+                    print(f"  Patent : {patent_num}  (from image URL)")
+                    manifest_path = OUTPUT_DIR / patent_num / f"{patent_num}_download_manifest.json"
+                    if manifest_path.exists():
+                        print(f"  Manifest exists — skipping")
+                        if idx < TOTAL_RECORDS:
+                            click_next_patent(driver)
+                        continue
+
+            # Download
             session = make_requests_session(driver)
             n = download_images(img_urls, patent_num, session, OUTPUT_DIR, record_idx=idx)
             total_images += n
+
+            # Post-download: if DOM and URL extraction both failed, read patent ID
+            # directly from the downloaded filenames and rename the folder
+            if patent_num.startswith("record_"):
+                fixed = _fix_record_folder(OUTPUT_DIR / patent_num, OUTPUT_DIR)
+                if fixed:
+                    patent_num = fixed
+                    print(f"  Patent : {patent_num}  (from downloaded filenames — folder renamed)")
+
+            # Advance to next patent
+            if idx < TOTAL_RECORDS:
+                if not click_next_patent(driver):
+                    print("  ⚠  Next-patent arrow not found — check selectors in click_next_patent()")
+                    errors.append((idx, patent_num, "next arrow not found"))
+                    break
 
             time.sleep(DELAY_SECS)
 
