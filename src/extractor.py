@@ -253,14 +253,23 @@ def _get_brief_description_epo(patent_id: str, client: "EpoClient") -> str:
 
 # ─── Excel metadata (patent ID list + T1 metadata) ────────────────────────────
 
+_DRAWING_DESC_COLS = [
+    "Description of Drawings",
+    "Brief Description of Drawings",
+    "Brief Description",
+    "Drawing Description",
+    "Drawing Descriptions",
+]
+
+
 def load_patseer_excel(path: Path) -> dict[str, dict]:
     """
     Read the PatSeer Excel export and index rows by Record Number.
 
     Used to obtain the ordered list of patent IDs and T1 metadata fields
-    (title, assignee, pub/app year, abstract, citations).
-    Drawing descriptions are no longer read from here — they are fetched
-    from EPO OPS by get_brief_description() and stored as .txt files.
+    (title, assignee, pub/app year, abstract, citations) plus the Brief
+    Description of the Drawings text (column "Description of Drawings" or
+    common variants), stored as "description_of_drawings" in each entry.
 
     Prints all column headers on first load so column names can be verified.
     """
@@ -271,6 +280,14 @@ def load_patseer_excel(path: Path) -> dict[str, dict]:
     print("Columns:")
     for i, col in enumerate(df.columns):
         print(f"  [{i:3d}] {col!r}")
+    print()
+
+    # Locate the drawings-description column once, before the row loop
+    desc_col = next((c for c in _DRAWING_DESC_COLS if c in df.columns), None)
+    if desc_col:
+        print(f"  Description of Drawings column : {desc_col!r}")
+    else:
+        print("  ⚠  No 'Description of Drawings' column found in Excel.")
     print()
 
     index: dict[str, dict] = {}
@@ -293,18 +310,19 @@ def load_patseer_excel(path: Path) -> dict[str, dict]:
             return [c.strip() for c in v.split(",") if c.strip()] if v else []
 
         index[patent_id] = {
-            "patent_id":            patent_id,
-            "record_number":        _s("Record Number"),
-            "assignee":             _s("Assignee") or None,
-            "pub_year":             _year("Publication/Issue Date"),
-            "app_year":             _year("Filing/Application Date"),
-            "title":                _s("Title") or None,
-            "abstract":             _s("Abstract") or None,
-            "backward_cites":       _cites("Backward Citations"),
-            "forward_cites":        _cites("Forward Citations"),
-            "innovation_objective": (
+            "patent_id":               patent_id,
+            "record_number":           _s("Record Number"),
+            "assignee":                _s("Assignee") or None,
+            "pub_year":                _year("Publication/Issue Date"),
+            "app_year":                _year("Filing/Application Date"),
+            "title":                   _s("Title") or None,
+            "abstract":                _s("Abstract") or None,
+            "backward_cites":          _cites("Backward Citations"),
+            "forward_cites":           _cites("Forward Citations"),
+            "innovation_objective":    (
                 _s("Summary of Invention") or _s("Advantages of Invention") or None
             ),
+            "description_of_drawings": (_s(desc_col) if desc_col else None) or None,
         }
 
     return index

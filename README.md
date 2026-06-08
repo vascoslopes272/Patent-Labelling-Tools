@@ -8,12 +8,27 @@ its description line, and assembles per-patent JSON ready for DINOv2 embedding.
 
 | # | Notebook | src module | What it does |
 |---|----------|-----------|--------------|
-| 00 | `00_image_extractor.ipynb` | `extractor.py` | Selenium download of drawings + Excel metadata |
-| 01 | `01_review.ipynb` | `ocr_labeler`, `matcher`, `reviewer` | OCR → match → JSON assembly + review table |
+| 00a | `00a_patseer_download.ipynb` | `patseer_downloader.py` | Selenium download from PatSeer → canonical filenames + manifest JSON |
+| 00b | `00b_figure_matching.ipynb` | `figure_matcher.py` | Pure positional matching of figures to description keys; renames to `_F` / `_Fu` |
+| 00 | `00_image_extractor.ipynb` | `extractor.py` | Legacy EPO/Google Patents download + Excel metadata (Stage 01 fallback path) |
+| 01 | `01_review.ipynb` | `ocr_labeler`, `matcher`, `reviewer` | OCR → match → JSON assembly + review table (Stage 01 fallback) |
 | 02 | `02_processing.ipynb` | `processor.py` | Pad to square + resize to 518×518 |
 | 03 | `03_filtering.ipynb` | `filtering.py` | Remove blank / tiny / duplicate images |
 | 04 | `04_dinov2.ipynb` | `dinov2.py` | DINOv2 embeddings (facebook/dinov2-base) |
 | 05 | `05_embedding_stats.ipynb` | `embedding_stats.py` | PCA / UMAP / clustering |
+
+### PatSeer pipeline (00a → 00b)
+
+The preferred path for the 1635-patent dataset.  Runs independently of the
+legacy 00 → 01 flow.
+
+```
+00a_patseer_download   Downloads img / D / FAT files; saves manifest per patent
+        ↓
+00b_figure_matching    Splits D/FAT sheets at whitespace bands; assigns _F / _Fu
+        ↓
+02_processing          (same as legacy path onwards)
+```
 
 ## Setup
 
