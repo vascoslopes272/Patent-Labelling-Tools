@@ -26,6 +26,7 @@ TIP: To skip the manual-login step on future runs, set CHROME_PROFILE_DIR to
 your Chrome profile directory (see the comment below).
 """
 
+import csv
 import json
 import re
 import time
@@ -35,7 +36,7 @@ from urllib.parse import unquote, urlparse
 
 import requests
 from selenium import webdriver
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import TimeoutException, UnexpectedAlertPresentException
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
@@ -50,7 +51,7 @@ SEARCH_BASE_URL = "https://app1.patseer.com/#/result/ad056431-8522-11e8-944f-220
 
 TOTAL_RECORDS      = 1639    # total records in your search result
 START_FROM         = 1     # change this to resume a previous run
-LOGIN_WAIT_SECONDS = 60    # seconds to log in and navigate to search before script takes over
+LOGIN_WAIT_SECONDS = 35    # seconds to log in and navigate to search before script takes over
 
 OUTPUT_DIR    = Path("patseer_drawings")   # overridden by notebook Cell 1 via cfg["paths"]["raw_images"]
 DELAY_SECS    = 2.5      # pause between patents – keep this ≥ 2 to avoid hammering the server
@@ -486,6 +487,38 @@ def download_images(
     return saved
 
 
+def _dismiss_alert_and_relogin(driver: webdriver.Chrome) -> None:
+    """
+    Dismisses the PatSeer session-expired alert and navigates back to the
+    PatSeer home page so the user can log in again.
+    """
+    try:
+        alert = driver.switch_to.alert
+        alert_text = alert.text
+        alert.accept()
+        print(f"\n  ⚠  Browser alert dismissed: \"{alert_text}\"")
+    except Exception:
+        pass
+
+    driver.get("https://app1.patseer.com")
+
+
+def _append_errors_csv(errors: list[tuple], out_dir: Path, start_from: int) -> Path:
+    """Append this run's errors to a persistent CSV in out_dir."""
+    csv_path = out_dir / "download_errors.csv"
+    is_new   = not csv_path.exists()
+    run_ts   = datetime.now().isoformat(timespec="seconds")
+
+    with csv_path.open("a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        if is_new:
+            writer.writerow(["record_idx", "patent_id", "reason", "run_start_from", "timestamp"])
+        for idx, patent_num, reason in errors:
+            writer.writerow([idx, patent_num, reason, start_from, run_ts])
+
+    return csv_path
+
+
 def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     driver = build_driver()
@@ -494,100 +527,123 @@ def main():
     # ── Login + activate search ───────────────────────────────────────────────
     driver.get("https://app1.patseer.com")
     print("\n" + "="*60)
-    print(f"  You have {LOGIN_WAIT_SECONDS} seconds to:")
     print("  1. Log in to PatSeer in the Chrome window")
     print("  2. Navigate to your search so the patent list is visible")
-    print("  Script will open DetailsView automatically when the timer ends.")
     print("="*60)
-    for remaining in range(LOGIN_WAIT_SECONDS, 0, -10):
-        print(f"  {remaining}s remaining…")
-        time.sleep(10)
-    print("  Time up — taking over.\n")
+    input("\n  Press Enter when you are ready (Chrome will open DetailsView)…")
+    print()
 
     # ── Open DetailsView — shows patent 1 of the active search ───────────────
     driver.get("https://app1.patseer.com/DetailsView")
     time.sleep(4)
 
-    # Fast-forward to START_FROM by clicking next (START_FROM - 1) times
-    if START_FROM > 1:
-        print(f"  Fast-forwarding to record {START_FROM} (clicking next {START_FROM-1} times)…")
-        for _ in range(START_FROM - 1):
-            click_next_patent(driver)
+    # Ask user to navigate manually to the starting patent
+    start = START_FROM
+    if start > 1:
+        print("\n" + "="*60)
+        print(f"  START_FROM = {start}.  Please navigate manually in Chrome")
+        print(f"  to the patent you want to start from in the search results.")
+        print("="*60)
+        raw = input(f"\n  Enter the record number the browser is showing [{start}]: ").strip()
+        if raw.isdigit():
+            start = int(raw)
+        print(f"  Starting from record {start}…\n")
 
     # ── Main loop ─────────────────────────────────────────────────────────────
     total_images = 0
     errors: list[tuple] = []
+    idx = start
 
     try:
-        for idx in range(START_FROM, TOTAL_RECORDS + 1):
+        while idx <= TOTAL_RECORDS:
             print(f"\n[{idx:3d}/{TOTAL_RECORDS}]")
 
-            patent_num = extract_patent_number(driver, idx)
-            print(f"  Patent : {patent_num}")
+            try:
+                patent_num = extract_patent_number(driver, idx)
+                print(f"  Patent : {patent_num}")
 
-            # Skip check
-            patent_dir    = OUTPUT_DIR / patent_num
-            manifest_path = patent_dir / f"{patent_num}_download_manifest.json"
-            if manifest_path.exists():
-                print(f"  Manifest exists — skipping")
+                # Skip check
+                patent_dir    = OUTPUT_DIR / patent_num
+                manifest_path = patent_dir / f"{patent_num}_download_manifest.json"
+                if manifest_path.exists():
+                    print(f"  Manifest exists — skipping")
+                    if idx < TOTAL_RECORDS:
+                        click_next_patent(driver)
+                    idx += 1
+                    continue
+
+                # Click the Drawings tab
+                if not click_drawings_tab(driver, wait):
+                    print(f"  ⚠  Drawings tab not found")
+                    print(f"     Tabs: {[el.text.strip() for el in driver.find_elements(By.XPATH, '//*[self::a or self::li or self::button][string-length(normalize-space(.)) < 30]') if el.text.strip()][:15]}")
+                    errors.append((idx, patent_num, "no Drawings tab"))
+                    if idx < TOTAL_RECORDS:
+                        click_next_patent(driver)
+                    idx += 1
+                    continue
+
+                # Collect image URLs
+                img_urls = collect_image_urls(driver)
+                print(f"  Images : {len(img_urls)} found")
+
+                if not img_urls:
+                    print("  ⚠  No image URLs collected.")
+                    errors.append((idx, patent_num, "no image URLs found"))
+                    if idx < TOTAL_RECORDS:
+                        click_next_patent(driver)
+                    idx += 1
+                    continue
+
+                # Refine patent_num from image URLs if DOM extraction fell back
+                if patent_num.startswith("record_"):
+                    from_url = _patent_id_from_urls(img_urls)
+                    if from_url:
+                        patent_num = from_url
+                        print(f"  Patent : {patent_num}  (from image URL)")
+                        manifest_path = OUTPUT_DIR / patent_num / f"{patent_num}_download_manifest.json"
+                        if manifest_path.exists():
+                            print(f"  Manifest exists — skipping")
+                            if idx < TOTAL_RECORDS:
+                                click_next_patent(driver)
+                            idx += 1
+                            continue
+
+                # Download
+                session = make_requests_session(driver)
+                n = download_images(img_urls, patent_num, session, OUTPUT_DIR, record_idx=idx)
+                total_images += n
+
+                # Post-download: if DOM and URL extraction both failed, read patent ID
+                # directly from the downloaded filenames and rename the folder
+                if patent_num.startswith("record_"):
+                    fixed = _fix_record_folder(OUTPUT_DIR / patent_num, OUTPUT_DIR)
+                    if fixed:
+                        patent_num = fixed
+                        print(f"  Patent : {patent_num}  (from downloaded filenames — folder renamed)")
+
+                # Advance to next patent
                 if idx < TOTAL_RECORDS:
-                    click_next_patent(driver)
-                continue
+                    if not click_next_patent(driver):
+                        print("  ⚠  Next-patent arrow not found — check selectors in click_next_patent()")
+                        errors.append((idx, patent_num, "next arrow not found"))
+                        break
 
-            # Click the Drawings tab
-            if not click_drawings_tab(driver, wait):
-                print(f"  ⚠  Drawings tab not found")
-                print(f"     Tabs: {[el.text.strip() for el in driver.find_elements(By.XPATH, '//*[self::a or self::li or self::button][string-length(normalize-space(.)) < 30]') if el.text.strip()][:15]}")
-                errors.append((idx, patent_num, "no Drawings tab"))
-                if idx < TOTAL_RECORDS:
-                    click_next_patent(driver)
-                continue
+                idx += 1
+                time.sleep(DELAY_SECS)
 
-            # Collect image URLs
-            img_urls = collect_image_urls(driver)
-            print(f"  Images : {len(img_urls)} found")
-
-            if not img_urls:
-                print("  ⚠  No image URLs collected.")
-                errors.append((idx, patent_num, "no image URLs found"))
-                if idx < TOTAL_RECORDS:
-                    click_next_patent(driver)
-                continue
-
-            # Refine patent_num from image URLs if DOM extraction fell back
-            if patent_num.startswith("record_"):
-                from_url = _patent_id_from_urls(img_urls)
-                if from_url:
-                    patent_num = from_url
-                    print(f"  Patent : {patent_num}  (from image URL)")
-                    manifest_path = OUTPUT_DIR / patent_num / f"{patent_num}_download_manifest.json"
-                    if manifest_path.exists():
-                        print(f"  Manifest exists — skipping")
-                        if idx < TOTAL_RECORDS:
-                            click_next_patent(driver)
-                        continue
-
-            # Download
-            session = make_requests_session(driver)
-            n = download_images(img_urls, patent_num, session, OUTPUT_DIR, record_idx=idx)
-            total_images += n
-
-            # Post-download: if DOM and URL extraction both failed, read patent ID
-            # directly from the downloaded filenames and rename the folder
-            if patent_num.startswith("record_"):
-                fixed = _fix_record_folder(OUTPUT_DIR / patent_num, OUTPUT_DIR)
-                if fixed:
-                    patent_num = fixed
-                    print(f"  Patent : {patent_num}  (from downloaded filenames — folder renamed)")
-
-            # Advance to next patent
-            if idx < TOTAL_RECORDS:
-                if not click_next_patent(driver):
-                    print("  ⚠  Next-patent arrow not found — check selectors in click_next_patent()")
-                    errors.append((idx, patent_num, "next arrow not found"))
-                    break
-
-            time.sleep(DELAY_SECS)
+            except UnexpectedAlertPresentException:
+                _dismiss_alert_and_relogin(driver)
+                print("\n" + "="*60)
+                print("  Session expired.  Steps to resume:")
+                print("  1. Log in to PatSeer in the Chrome window")
+                print("  2. Navigate to the patent you want to resume from")
+                print("     in the search results list")
+                print("="*60)
+                raw = input(f"\n  Enter the record number to resume from [{idx}]: ").strip()
+                if raw.isdigit():
+                    idx = int(raw)
+                print(f"  Resuming from record {idx}…\n")
+                time.sleep(2)
 
     except KeyboardInterrupt:
         print("\n⏹  Run interrupted by user.  Re-run with START_FROM set to resume.")
@@ -602,6 +658,8 @@ def main():
         print(f"\n  Records with issues ({len(errors)}):")
         for i, pn, reason in errors:
             print(f"    Record {i:3d}  ({pn})  →  {reason}")
+        csv_path = _append_errors_csv(errors, OUTPUT_DIR, start)
+        print(f"\n  Errors appended to : {csv_path}")
     print("="*60)
 
 
