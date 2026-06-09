@@ -9,7 +9,7 @@ its description line, and assembles per-patent JSON ready for DINOv2 embedding.
 | # | Notebook | src module | What it does |
 |---|----------|-----------|--------------|
 | 00a | `00a_patseer_download.ipynb` | `patseer_downloader.py` | Selenium download from PatSeer → canonical filenames + manifest JSON |
-| 00b | `00b_figure_matching.ipynb` | `figure_matcher.py` | Pure positional matching of figures to description keys; renames to `_F` / `_Fu` |
+| 00b | `00b_figure_crop_&_Brief_DD_matching.ipynb` | `figure_matcher.py`, `extractor.py` | Export descriptions CSV + positional matching of figures to description keys; renames to `_F` / `_Fu` |
 | 00 | `00_image_extractor.ipynb` | `extractor.py` | Legacy EPO/Google Patents download + Excel metadata (Stage 01 fallback path) |
 | 01 | `01_review.ipynb` | `ocr_labeler`, `matcher`, `reviewer` | OCR → match → JSON assembly + review table (Stage 01 fallback) |
 | 02 | `02_processing.ipynb` | `processor.py` | Pad to square + resize to 518×518 |
