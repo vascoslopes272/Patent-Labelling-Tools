@@ -17,11 +17,11 @@ import pandas as pd
 import torch
 from PIL import Image
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+from qwen_vl_utils import process_vision_info
 
 # ─── Internal helpers ─────────────────────────────────────────────────────────
-# Add this line back in! It is critical for extraction to work.
-_FIG_KEY_RE = re.compile(r"FIG(?:URE)?S?\.?\s*([0-9]+[A-Za-z]?)", re.IGNORECASE)
 
+_FIG_KEY_RE = re.compile(r"FIG(?:URE)?S?\.?\s*([0-9]+[A-Za-z]?)", re.IGNORECASE)
 _MIN_CROP_PX = 150   # discard crops smaller than this in either dimension
 
 def _file_sort_key(name: str) -> int:
@@ -46,202 +46,224 @@ def _build_folder_map(raw_dir: Path) -> dict[str, Path]:
 
 # ─── Public API ───────────────────────────────────────────────────────────────
 
-# Change the function signature to accept your config dictionary (cfg)
 def build_engine(cfg: dict) -> tuple[Qwen2_5_VLForConditionalGeneration, AutoProcessor]:
     """
     Initialise Qwen2.5-VL-7B-Instruct once on your local GPU.
-    Loads model weights from the cache directory configured inside config.yaml.
+    Loads weights from the path specified inside config.yaml.
+    Caps max input pixels to fit comfortably inside 11GB VRAM.
     """
     model_id = "Qwen/Qwen2.5-VL-7B-Instruct"
     
-    # Read the cache folder path straight from your yaml settings dynamically
     cache_path = Path(cfg["paths"].get("model_cache", "models/Qwen"))
     cache_path.mkdir(parents=True, exist_ok=True)
     
     print(f"Loading local GPU Vision Model: {model_id}...")
-    print(f"Using workspace model repository location: {cache_path.resolve()}")
+    print(f"Using model cache repository path: {cache_path.resolve()}")
     
     model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
         model_id,
         torch_dtype=torch.bfloat16,
         device_map="auto",
-        cache_dir=str(cache_path)  # Controlled via config.yaml
+        cache_dir=str(cache_path)
     )
+    
     processor = AutoProcessor.from_pretrained(
         model_id,
-        cache_dir=str(cache_path)  # Controlled via config.yaml
+        cache_dir=str(cache_path),
+        min_pixels=256 * 28 * 28,
+        max_pixels=1024 * 28 * 28,
+        padding_side="left"
     )
-    print("VLM Engine loaded successfully on GPU.")
+    
+    print("VLM Engine loaded successfully on GPU within memory limits.")
     return model, processor
-
 
 def process_file(
     img_path: Path,
-    patent_id: str,
-    matched_dir: Path,
+    out_dir: Path,
+    desc: str,
     is_fat: bool,
-    engine: tuple[Qwen2_5_VLForConditionalGeneration, AutoProcessor],
-    fig_regex: str,
-    desc_figs: list[str],
-    positional_counter: list[int]
+    engine: tuple[Qwen2_5_VLForConditionalGeneration, AutoProcessor]
 ) -> list[dict]:
     """
-    Processes a single drawing sheet using the local GPU VLM layout processor.
+    Processes a single patent drawing sheet using the unified VLM interface.
     """
     model, processor = engine
-    
-    # Load Image arrays
-    pil_img = Image.open(img_path).convert("RGB")
-    cv_img = cv2.imread(str(img_path))
-    if cv_img is None:
-        print(f"  ⚠  Could not read image: {img_path}")
-        return []
-        
-    h, w, _ = cv_img.shape
-    out_dir = matched_dir / patent_id
-    out_dir.mkdir(parents=True, exist_ok=True)
-    
-    # FAT files require cropping without automated labeling assignments
-    if is_fat:
-        prompt = """Analyze this patent sheet. Locate all sub-figure boundaries. 
-        Return coordinates relative to the full image coordinates [x1, y1, x2, y2]. Use the format:
-        [{"bbox_2d": [x1, y1, x2, y2], "label": "FIG. u"}]"""
-    else:
-        prompt = """Analyze this patent drawing sheet. 
-        Identify all standalone sub-figures or cohesive schematic blocks.
-        For each, return its bounding boxes in absolute coordinates [x1, y1, x2, y2] relative to the image canvas.
-        Also read the exact sub-figure text label (e.g. 'FIG. 1', 'FIG. 3') associated with it.
-        Return ONLY a clean JSON array matching this format:
-        [{"bbox_2d": [x1, y1, x2, y2], "label": "FIG. 1"}]"""
-
-    messages = [{"role": "user", "content": [{"type": "image", "image": pil_img}, {"type": "text", "text": prompt}]}]
-    text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    inputs = processor(images=pil_img, texts=text, return_tensors="pt").to("cuda")
-    
-    with torch.no_grad():
-        generated_ids = model.generate(**inputs, max_new_tokens=1000)
-    
-    generated_ids_trimmed = [out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)]
-    output_text = processor.batch_decode(generated_ids_trimmed, skip_special_tokens=True)[0]
-    
-    # Parse coordinates and crop
     crops_produced = []
+
+    if is_fat:
+        out_path = out_dir / f"{img_path.stem}_crop_0_Fu.png"
+        img = cv2.imread(str(img_path))
+        if img is not None:
+            cv2.imwrite(str(out_path), img)
+            crops_produced.append({
+                "original": img_path.name,
+                "output": out_path.name,
+                "label": None,
+                "method": "vlm_fat_fallback",
+                "is_fat": True,
+                "needs_review": True
+            })
+        return crops_produced
+
+    # Structural prompt architecture to enforce valid JSON parsing outputs
+    prompt = (
+        "Analyze this patent drawing sheet. Identify all sub-figures present in the layout.\n"
+        "For each sub-figure, provide the exact figure label string (e.g., 'FIG. 1', 'FIG. 2A') "
+        "and its bounding box coordinate array formatted exactly like: [ymin, xmin, ymax, xmax] normalized from 0 to 1000.\n"
+        "Context description information:\n"
+        f"\"{desc}\"\n\n"
+        "Return your structural answer as a raw JSON list with no markdown wrapper blocks: "
+        "[{\"box\": [ymin, xmin, ymax, xmax], \"label\": \"FIG. X\"}]"
+    )
+
     try:
-        clean_json = re.sub(r"```json\s*|\s*```", "", output_text).strip()
-        predictions = json.loads(clean_json)
-    except Exception:
-        # Fallback to saving whole sheet as unconditional unlabelled block if JSON fails
-        predictions = [{"bbox_2d": [0, 0, w, h], "label": "FIG. u"}]
+        # Load via PIL to match the vision processing inputs expected by qwen_vl_utils
+        raw_image = Image.open(img_path).convert("RGB")
 
-    for idx, pred in enumerate(predictions):
-        bbox = pred.get("bbox_2d", [0, 0, w, h])
-        vlm_label = str(pred.get("label", "FIG. u")).strip()
+        # Properly structured messages schema mapping
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": raw_image},
+                    {"type": "text", "text": prompt}
+                ]
+            }
+        ]
+
+        text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        image_inputs, video_inputs = process_vision_info(messages)
         
-        x1, y1 = max(0, int(bbox[0])), max(0, int(bbox[1]))
-        x2, y2 = min(w, int(bbox[2])), min(h, int(bbox[3]))
-        
-        # Guard against zero-area crops or trash fragments
-        if (x2 - x1) < _MIN_CROP_PX or (y2 - y1) < _MIN_CROP_PX:
-            continue
+        inputs = processor(
+            text=[text],
+            images=image_inputs,
+            videos=video_inputs,
+            padding=True,
+            return_tensors="pt"
+        ).to("cuda")
+
+        with torch.no_grad():
+            generated_ids = model.generate(**inputs, max_new_tokens=512)
+            generated_ids_trimmed = [
+                out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+            ]
+            output_text = processor.batch_decode(
+                generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
+            )[0]
+
+        # Extract code strings from possible markdown blocks securely
+        cleaned_json = output_text.strip()
+        if "```json" in cleaned_json:
+            cleaned_json = cleaned_json.split("```json")[1].split("```")[0].strip()
+        elif "```" in cleaned_json:
+            cleaned_json = cleaned_json.split("```")[1].split("```")[0].strip()
+
+        parsed_data = json.loads(cleaned_json)
+
+        img = cv2.imread(str(img_path))
+        if img is None:
+            return crops_produced
+        h, w = img.shape[:2]
+
+        for idx, item in enumerate(parsed_data):
+            box = item.get("box", [])
+            label = item.get("label", None)
             
-        crop_arr = cv_img[y1:y2, x1:x2]
-        method = "vlm_grounding"
-        needs_review = False
-        final_label = None
-        
-        # Clean label strings via Regex matches
-        label_match = re.search(fig_regex, vlm_label, re.IGNORECASE)
-        
-        if label_match and not is_fat:
-            final_label = label_match.group(1).upper()
-            filename = f"{patent_id}_F{final_label.zfill(3)}.png"
-        else:
-            # Positional Fallback if the VLM found structural blocks but missed parsing specific labels
-            method = "positional_fallback" if not is_fat else "fat_force_unlabeled"
-            if not is_fat and positional_counter[0] < len(desc_figs):
-                final_label = desc_figs[positional_counter[0]]
-                filename = f"{patent_id}_F{final_label.zfill(3)}.png"
-                positional_counter[0] += 1
-            else:
-                filename = f"{patent_id}_Fu{positional_counter[1]:03d}.png"
-                positional_counter[1] += 1
-                needs_review = True
+            if len(box) == 4:
+                ymin, xmin, ymax, xmax = box
+                ymin_px = int((ymin / 1000.0) * h)
+                xmin_px = int((xmin / 1000.0) * w)
+                ymax_px = int((ymax / 1000.0) * h)
+                xmax_px = int((xmax / 1000.0) * w)
                 
-        # Resolve any duplicate name collisions safely via alphabetic extensions
-        out_path = out_dir / filename
-        suffix_idx = 1
-        while out_path.exists():
-            letter_suffix = chr(97 + suffix_idx)  # 'b', 'c', etc.
-            stem = out_path.stem
-            if re.search(r"_[b-z]$", stem):
-                stem = stem[:-2]
-            out_path = out_dir / f"{stem}_{letter_suffix}.png"
-            suffix_idx += 1
+                ymin_px = max(0, min(ymin_px, h - 1))
+                xmin_px = max(0, min(xmin_px, w - 1))
+                ymax_px = max(ymin_px + 10, min(ymax_px, h))
+                xmax_px = max(xmin_px + 10, min(xmax_px, w))
 
-        cv2.imwrite(str(out_path), crop_arr)
-        
-        crops_produced.append({
-            "original": img_path.name,
-            "output": out_path.name,
-            "label": final_label,
-            "method": method,
-            "is_fat": is_fat,
-            "needs_review": needs_review
-        })
-        
+                crop = img[ymin_px:ymax_px, xmin_px:xmax_px]
+                if crop.shape[0] < _MIN_CROP_PX or crop.shape[1] < _MIN_CROP_PX:
+                    continue
+
+                clean_lbl = "unassigned"
+                needs_review = True
+                if label:
+                    match = _FIG_KEY_RE.search(label)
+                    if match:
+                        clean_lbl = match.group(1)
+                        needs_review = False
+
+                lbl_suffix = f"_F{clean_lbl}" if not needs_review else "_Fu"
+                out_path = out_dir / f"{img_path.stem}_crop_{idx}{lbl_suffix}.png"
+                cv2.imwrite(str(out_path), crop)
+
+                crops_produced.append({
+                    "original": img_path.name,
+                    "output": out_path.name,
+                    "label": clean_lbl if not needs_review else None,
+                    "method": "vlm_spatial_ocr",
+                    "is_fat": False,
+                    "needs_review": needs_review
+                })
+
+    except Exception as e:
+        print(f"    ⚠ Visual parsing warning for {img_path.name}: {e}")
+        out_path = out_dir / f"{img_path.stem}_crop_fallback_Fu.png"
+        img = cv2.imread(str(img_path))
+        if img is not None:
+            cv2.imwrite(str(out_path), img)
+            crops_produced.append({
+                "original": img_path.name,
+                "output": out_path.name,
+                "label": None,
+                "method": "vlm_error_fallback",
+                "is_fat": False,
+                "needs_review": True
+            })
+
+    # Cleanup variables and empty the cache at the end of every individual file loop iteration
+    if "inputs" in locals(): 
+        del inputs
+    if "generated_ids" in locals(): 
+        del generated_ids
+    if "generated_ids_trimmed" in locals(): 
+        del generated_ids_trimmed
+    torch.cuda.empty_cache()
+
     return crops_produced
-
 
 def process_patent(
     patent_id: str,
     raw_dir: Path,
     matched_dir: Path,
-    description_text: str,
+    desc: str,
     cfg: dict,
     engine: tuple[Qwen2_5_VLForConditionalGeneration, AutoProcessor]
 ) -> dict:
     """
-    Collects raw assets and processes them sequentially via the loaded VLM engine.
+    Handles file execution sequence groups (img -> D -> FAT).
     """
-    p_folder = raw_dir / patent_id
-    if not p_folder.is_dir():
-        return {"patent_id": patent_id, "files": []}
-        
-    fig_regex = cfg["matching"]["fig_regex"]
-    
-    # Parse target sequence array out of PatSeer Excel text description block
-    desc_figs = []
-    if description_text:
-        desc_figs = _FIG_KEY_RE.findall(description_text)
-        
-    all_files = list(p_folder.iterdir())
-    imgs = sorted([f for f in all_files if "_img" in f.name], key=lambda x: _file_sort_key(x.name))
-    ds   = sorted([f for f in all_files if "_D" in f.name], key=lambda x: _file_sort_key(x.name))
-    fats = sorted([f for f in all_files if "_FAT" in f.name], key=lambda x: _file_sort_key(x.name))
-    
-    processing_queue = []
-    for f in imgs: processing_queue.append((f, False))
-    for f in ds:   processing_queue.append((f, False))
-    for f in fats: processing_queue.append((f, True))
-    
-    positional_counter = [0, 1]  # [positional_idx, unlabeled_sequence_idx]
-    results = []
-    
-    for img_path, is_fat in processing_queue:
-        file_crops = process_file(
-            img_path=img_path,
-            patent_id=patent_id,
-            matched_dir=matched_dir,
-            is_fat=is_fat,
-            engine=engine,
-            fig_regex=fig_regex,
-            desc_figs=desc_figs,
-            positional_counter=positional_counter
-        )
-        results.extend(file_crops)
-        
-    return {"patent_id": patent_id, "files": results}
+    p_dir = raw_dir / patent_id
+    out_dir = matched_dir / patent_id
+    out_dir.mkdir(parents=True, exist_ok=True)
 
+    files = sorted([p for p in p_dir.iterdir() if p.is_file()], key=lambda x: _file_sort_key(x.name))
+    
+    img_files = [f for f in files if "_img_" in f.name]
+    d_files   = [f for f in files if "_D_" in f.name]
+    fat_files = [f for f in files if "_FAT_" in f.name]
+
+    patent_summary = {"patent_id": patent_id, "files": []}
+
+    for f in img_files:
+        patent_summary["files"].extend(process_file(f, out_dir, desc, False, engine))
+    for f in d_files:
+        patent_summary["files"].extend(process_file(f, out_dir, desc, False, engine))
+    for f in fat_files:
+        patent_summary["files"].extend(process_file(f, out_dir, desc, True, engine))
+
+    return patent_summary
 
 def process_all_patents(
     df: pd.DataFrame,
@@ -283,7 +305,8 @@ def process_all_patents(
                     "labeled":      1 if f["label"] is not None else 0,
                     "unlabeled":    1 if f["label"] is None else 0,
                 })
+            print(f"  ✓ Successfully processed patent {excel_id}")
         except Exception as e:
             print(f"  ❌ Failed processing patent {excel_id}: {e}")
-            
+
     return pd.DataFrame(rows)
