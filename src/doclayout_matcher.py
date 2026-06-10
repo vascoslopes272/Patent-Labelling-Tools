@@ -39,7 +39,10 @@ IMGSZ = 1024           # DocStructBench model was trained at 1024
 _FIGURE_CLASS = "figure"
 _CAPTION_CLASS = "figure_caption"
 
-_FIG_KEY_RE = re.compile(r"FIG(?:URE)?S?\.?\s*([0-9]+[A-Za-z]?)", re.IGNORECASE)
+# Robust to EasyOCR misreads of the separator character:
+#   "FIG. 1A"  "Fig. 2a"  "FIG 3"  "Fig_4a"  "Fig: 1"  "Fia. 2"  "Fig1"
+# Accepts any 0-2 non-alphanumeric chars between FIG[URE] and the number.
+_FIG_KEY_RE = re.compile(r"FI[GA][^A-Za-z0-9]{0,2}([0-9]+[A-Za-z]?)", re.IGNORECASE)
 
 
 # ─── Engine ───────────────────────────────────────────────────────────────────
@@ -172,26 +175,60 @@ def read_label(reader, img: np.ndarray, cap_box: list[int] | None,
             return None
         return _ocr_for_label(reader, region)
 
-    # Pass 1: dedicated caption box
+    # Pass 1: dedicated caption box (with rotation)
     if cap_box is not None:
         lbl = _read_region(cap_box)
         if lbl:
             return lbl, False
 
-    # Pass 2: scan a small MARGIN around the figure box where rotated captions often sit
-    # (patents sometimes print "Fig. N" beside the drawing, outside the detected region).
-    # We expand by 15% on each side and restrict to outside the original fig_box so we
-    # don't match reference numerals inside the drawing.
     if fig_box is not None:
         fx1, fy1, fx2, fy2 = fig_box
         fw, fh = fx2 - fx1, fy2 - fy1
-        margin_x = max(10, int(fw * 0.15))
-        margin_y = max(10, int(fh * 0.10))
-        expanded = [max(0, fx1 - margin_x), max(0, fy1 - margin_y),
-                    min(w, fx2 + margin_x), min(h, fy2 + margin_y)]
-        lbl = _read_region(expanded)
+
+        # Pass 2: top-left corner of the figure box (top 25% height × left 45% width).
+        # Patents almost always print "Fig. N" or "FIG. N" in the upper-left of the
+        # sub-figure area. This small focused crop avoids the noisy reference numerals
+        # that fill the rest of the drawing and confuse EasyOCR.
+        corner = [fx1, fy1, fx1 + int(fw * 0.45), fy1 + int(fh * 0.25)]
+        lbl = _read_region(corner)
         if lbl:
             return lbl, False
+
+        # Pass 3: top-right corner (some patents put the label on the right)
+        corner_r = [fx2 - int(fw * 0.45), fy1, fx2, fy1 + int(fh * 0.25)]
+        lbl = _read_region(corner_r)
+        if lbl:
+            return lbl, False
+
+        # Pass 4: fixed 350px strip directly below the figure box.
+        # Patent captions are always a short text line; 350px covers large-font USPTO labels
+        # and cases where there is a gap between the figure boundary and the caption.
+        # Using a below-only strip avoids picking up the caption of the figure above.
+        below_strip = [fx1, fy2, fx2, min(h, fy2 + 350)]
+        lbl = _read_region(below_strip)
+        if lbl:
+            return lbl, False
+
+        # Pass 4b: bottom 15% of the figure box (center region).
+        # Catches captions printed inside the drawing near the bottom center — common
+        # when YOLO merges multiple sub-figures into one detection box.
+        bottom_center = [fx1 + int(fw * 0.1), fy2 - int(fh * 0.15),
+                         fx2 - int(fw * 0.1), fy2]
+        lbl = _read_region(bottom_center)
+        if lbl:
+            return lbl, False
+
+        # Pass 5: side margins + above (rotated captions beside/above the drawing).
+        margin_x = max(10, int(fw * 0.15))
+        margin_above = max(10, int(fh * 0.08))
+        for region_box in [
+            [max(0, fx1 - margin_x), fy1, fx1, fy2],          # left strip
+            [fx2, fy1, min(w, fx2 + margin_x), fy2],           # right strip
+            [fx1, max(0, fy1 - margin_above), fx2, fy1],        # above strip
+        ]:
+            lbl = _read_region(region_box)
+            if lbl:
+                return lbl, False
 
     return None, True
 
