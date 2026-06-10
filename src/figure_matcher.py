@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import torch
 from PIL import Image
-from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, BitsAndBytesConfig
 from qwen_vl_utils import process_vision_info
 
 # ─── Internal helpers ─────────────────────────────────────────────────────────
@@ -25,7 +25,7 @@ _FIG_KEY_RE = re.compile(r"FIG(?:URE)?S?\.?\s*([0-9]+[A-Za-z]?)", re.IGNORECASE)
 _MIN_CROP_PX = 150   # discard crops smaller than this in either dimension
 
 def _file_sort_key(name: str) -> int:
-    m = re.search(r"_(?:img|D|FAT)_([0-9]+)", name)
+    m = re.search(r"_(?:img|D|FAT)_?([0-9]+)", name)
     return int(m.group(1)) if m else 999999
 
 def _patent_core(pid: str) -> str:
@@ -48,33 +48,40 @@ def _build_folder_map(raw_dir: Path) -> dict[str, Path]:
 
 def build_engine(cfg: dict) -> tuple[Qwen2_5_VLForConditionalGeneration, AutoProcessor]:
     """
-    Initialise Qwen2.5-VL-7B-Instruct once on your local GPU.
-    Loads weights from the path specified inside config.yaml.
-    Caps max input pixels to fit comfortably inside 11GB VRAM.
+    Initialise Qwen2.5-VL-7B-Instruct (4-bit quantized) on your local GPU.
+    4-bit NF4 quantization brings weight footprint to ~4 GB, leaving sufficient
+    VRAM headroom for activation allocations on a 10-11 GB card.
     """
     model_id = "Qwen/Qwen2.5-VL-7B-Instruct"
-    
+
     cache_path = Path(cfg["paths"].get("model_cache", "models/Qwen"))
     cache_path.mkdir(parents=True, exist_ok=True)
-    
-    print(f"Loading local GPU Vision Model: {model_id}...")
+
+    print(f"Loading local GPU Vision Model (4-bit): {model_id}...")
     print(f"Using model cache repository path: {cache_path.resolve()}")
-    
+
+    bnb_cfg = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16,
+        bnb_4bit_use_double_quant=True,
+    )
+
     model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
         model_id,
-        torch_dtype=torch.bfloat16,
+        quantization_config=bnb_cfg,
         device_map="auto",
-        cache_dir=str(cache_path)
+        cache_dir=str(cache_path),
     )
-    
+
     processor = AutoProcessor.from_pretrained(
         model_id,
         cache_dir=str(cache_path),
         min_pixels=256 * 28 * 28,
-        max_pixels=1024 * 28 * 28,
-        padding_side="left"
+        max_pixels=768 * 28 * 28,
+        padding_side="left",
     )
-    
+
     print("VLM Engine loaded successfully on GPU within memory limits.")
     return model, processor
 
@@ -250,9 +257,9 @@ def process_patent(
 
     files = sorted([p for p in p_dir.iterdir() if p.is_file()], key=lambda x: _file_sort_key(x.name))
     
-    img_files = [f for f in files if "_img_" in f.name]
-    d_files   = [f for f in files if "_D_" in f.name]
-    fat_files = [f for f in files if "_FAT_" in f.name]
+    img_files = [f for f in files if re.search(r"_img\d", f.name)]
+    d_files   = [f for f in files if re.search(r"_D\d", f.name)]
+    fat_files = [f for f in files if re.search(r"_FAT\d", f.name)]
 
     patent_summary = {"patent_id": patent_id, "files": []}
 
