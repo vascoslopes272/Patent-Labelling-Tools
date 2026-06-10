@@ -22,6 +22,9 @@ gdown>=4.7                # download HR-Net weights from Google Drive
 rapidfuzz>=3.0             # fuzzy company-name matching
 sentence-transformers>=2.2 # PatentSBERTa embeddings for prototype clustering
 
+# ── Stage 00a.2 triage (SigLIP zero-shot pre-filter) ─────────────────────────
+open-clip-torch>=2.24         # SigLIP ViT-SO400M-14-SigLIP-384 (also used by cross_modal.py)
+
 # ── Stages 02–05 (install when you reach each stage) ─────────────────────────
 torch>=2.0
 transformers>=4.35
