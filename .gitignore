@@ -1,3 +1,6 @@
+# Notebook audit outputs (generated files, not source)
+notebooks/outputs/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
