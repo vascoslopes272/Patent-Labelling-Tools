@@ -26,7 +26,7 @@ extractor:
   # "google_patents" = free, no credentials (use while EPO account is pending)
   # "epo"           = EPO OPS API (switch once EPO_CLIENT_KEY/SECRET are in .env)
   mode:          "google_patents"
-  scan_limit:    10      # number of patents to process in Stage 00 (notebook)
+  scan_limit:    20      # number of patents to process in Stage 00 (notebook)
   delay_seconds: 1.0    # pause between requests (be polite to both services)
 
 # ── Figure segmentation (HR-Net, GoFigure-LANL) ───────────────────────────────
