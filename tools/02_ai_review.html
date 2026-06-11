@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Patent Pre-Label Review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ── Design tokens ──────────────────────────────────────────────── */
+:root {
+  --bg:         #F5F4F0;
+  --bg2:        #EDECE7;
+  --surface:    #fff;
+  --border:     #D6D5CF;
+  --text:       #1A1A18;
+  --text2:      #5A5955;
+  --text3:      #8A8985;
+  --accent:     #2D5BE3;
+  --accent-bg:  #EEF2FD;
+  --accent-text:#1A3A9E;
+  --ok:         #1A7F4E;
+  --ok-bg:      #EAF6F0;
+  --warn:       #9A4F0A;
+  --warn-bg:    #FDF3E7;
+  --danger:     #C0392B;
+  --radius:     6px;
+  --shadow:     0 1px 3px rgba(0,0,0,.08);
+}
+
+/* ── Reset & base ───────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 14px;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+code, .mono { font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+button { font-family: inherit; cursor: pointer; }
+select { font-family: inherit; }
+
+/* ── Top progress bar ───────────────────────────────────────────── */
+#topbar {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 20px;
+  display: flex; align-items: center; gap: 20px;
+}
+#topbar h1 { font-size: 15px; font-weight: 600; color: var(--text); white-space: nowrap; }
+.topbar-stat { font-size: 13px; color: var(--text2); white-space: nowrap; }
+.topbar-stat strong { color: var(--text); }
+#conf-bar-wrap {
+  flex: 1; max-width: 200px;
+  display: flex; align-items: center; gap: 8px;
+}
+#conf-bar-track {
+  flex: 1; height: 6px; background: var(--bg2);
+  border-radius: 3px; overflow: hidden;
+}
+#conf-bar-fill {
+  height: 100%; background: var(--ok); border-radius: 3px;
+  transition: width .3s;
+  width: 0%;
+}
+.conf-label { font-size: 12px; color: var(--text3); white-space: nowrap; }
+#btn-export {
+  margin-left: auto;
+  background: var(--accent); color: #fff;
+  border: none; border-radius: var(--radius);
+  padding: 7px 16px; font-size: 13px; font-weight: 500;
+}
+#btn-export:hover { background: var(--accent-text); }
+#btn-export:disabled { opacity: .4; cursor: default; }
+
+/* ── Layout wrapper ─────────────────────────────────────────────── */
+#main { max-width: 1340px; margin: 0 auto; padding: 20px; }
+
+/* ── Panel A: file loader ───────────────────────────────────────── */
+#panel-loader {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 40px;
+  max-width: 540px; margin: 60px auto;
+  box-shadow: var(--shadow);
+}
+#panel-loader h2 { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
+#panel-loader p { color: var(--text2); margin-bottom: 28px; font-size: 13px; }
+.file-row { margin-bottom: 16px; }
+.file-row label { display: block; font-size: 12px; font-weight: 500; color: var(--text2); margin-bottom: 5px; text-transform: uppercase; letter-spacing: .04em; }
+.file-row input[type=file] {
+  display: block; width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg); color: var(--text); font-size: 13px;
+}
+.file-row input[type=file]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+#btn-load {
+  margin-top: 24px; width: 100%;
+  background: var(--accent); color: #fff;
+  border: none; border-radius: var(--radius);
+  padding: 10px; font-size: 14px; font-weight: 500;
+}
+#btn-load:hover { background: var(--accent-text); }
+#load-error { margin-top: 12px; color: var(--danger); font-size: 13px; display: none; }
+
+/* ── Panel B: patent header ─────────────────────────────────────── */
+#panel-header {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow);
+}
+.patent-meta { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+.patent-id { font-family: 'IBM Plex Mono', monospace; font-size: 16px; font-weight: 500; color: var(--accent); }
+.patent-title { font-size: 14px; font-weight: 500; flex: 1; min-width: 200px; }
+.patent-sub { font-size: 13px; color: var(--text2); }
+
+.section-label {
+  font-size: 11px; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text3);
+  margin-bottom: 8px;
+}
+
+/* chips row */
+.chips-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 4px 10px;
+  font-size: 13px; position: relative;
+}
+.chip-name { color: var(--text3); font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: .04em; }
+.chip-val { font-weight: 500; }
+.chip-approved { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); }
+.chip-disapproved { background: #fef2f2; border-color: var(--danger); color: var(--danger); }
+.chip-override { background: var(--accent-bg); border-color: var(--accent); }
+
+/* confidence badge */
+.conf-badge {
+  font-size: 11px; font-weight: 600; font-family: 'IBM Plex Mono', monospace;
+  padding: 2px 5px; border-radius: 3px;
+}
+.conf-high  { background: var(--ok-bg);   color: var(--ok); }
+.conf-med   { background: var(--warn-bg); color: var(--warn); }
+.conf-low   { background: #fef2f2;        color: var(--danger); }
+
+/* G1 topology badge */
+#g1-block { margin-top: 16px; display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.topology-badge {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--accent-bg); border: 1px solid var(--accent);
+  border-radius: var(--radius); padding: 8px 14px;
+  cursor: default;
+}
+.topology-badge.overridden { background: #fff8e1; border-color: #f0b429; }
+.topology-code { font-size: 20px; font-weight: 700; font-family: 'IBM Plex Mono', monospace; color: var(--accent-text); }
+.topology-reasoning {
+  font-size: 12px; color: var(--text2); max-width: 320px;
+  border-left: 2px solid var(--border); padding-left: 10px; margin-top: 4px;
+}
+
+/* inline override dropdown */
+.override-wrap { position: relative; display: inline-flex; align-items: center; }
+.override-btn {
+  margin-left: 4px;
+  background: none; border: none;
+  font-size: 11px; color: var(--text3);
+  padding: 2px 4px; border-radius: 3px;
+}
+.override-btn:hover { background: var(--bg2); color: var(--text); }
+.override-dropdown {
+  display: none; position: absolute; top: calc(100% + 4px); left: 0; z-index: 200;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: 0 4px 12px rgba(0,0,0,.12);
+  min-width: 160px; padding: 4px 0;
+}
+.override-dropdown.open { display: block; }
+.override-option {
+  padding: 7px 14px; cursor: pointer; font-size: 13px;
+}
+.override-option:hover { background: var(--bg2); }
+.override-option.selected { background: var(--accent-bg); color: var(--accent-text); font-weight: 500; }
+
+/* ── Panel C: figure grid ───────────────────────────────────────── */
+#panel-figures { display: flex; flex-direction: column; gap: 12px; }
+
+.fig-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  display: flex; min-height: 200px;
+}
+.fig-card.needs-review { border-color: #f0b429; border-width: 2px; }
+.fig-card.status-approved { border-left: 4px solid var(--ok); }
+.fig-card.status-rejected { border-left: 4px solid var(--danger); opacity: .7; }
+
+/* image pane */
+.fig-img-pane {
+  flex: 0 0 260px; max-width: 260px;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  border-right: 1px solid var(--border);
+  padding: 8px;
+}
+.fig-img-pane img {
+  max-width: 100%; max-height: 220px;
+  object-fit: contain; border-radius: 4px;
+}
+.fig-img-missing {
+  color: var(--text3); font-size: 12px; text-align: center; padding: 20px;
+}
+
+/* info pane */
+.fig-info-pane { flex: 1; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+
+.fig-header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.fig-num { font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 15px; }
+.match-badge {
+  font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 3px; text-transform: uppercase;
+}
+.match-matched    { background: var(--ok-bg);   color: var(--ok); }
+.match-unmatched  { background: #fef2f2;        color: var(--danger); }
+.match-no_label   { background: var(--bg2);     color: var(--text3); }
+.match-duplicate  { background: var(--warn-bg); color: var(--warn); }
+
+.fig-desc { font-size: 12px; color: var(--text2); line-height: 1.5; }
+.fig-desc mark { background: #fff3cd; border-radius: 2px; padding: 0 2px; }
+
+/* T2 chips in card */
+.fig-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* parts multi-select */
+.parts-wrap { display: flex; flex-wrap: wrap; gap: 5px; }
+.part-tag {
+  font-size: 11px; padding: 3px 8px;
+  border-radius: 3px; background: var(--bg2); border: 1px solid var(--border);
+  cursor: pointer; user-select: none; transition: background .15s;
+}
+.part-tag.selected { background: var(--accent-bg); border-color: var(--accent); color: var(--accent-text); }
+.part-tag[data-source=human] { border-style: dashed; }
+
+/* action buttons */
+.fig-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.btn { border: none; border-radius: var(--radius); padding: 6px 14px; font-size: 13px; font-weight: 500; }
+.btn-ok     { background: var(--ok-bg);   color: var(--ok);   border: 1px solid var(--ok); }
+.btn-ok:hover { background: #d2ede2; }
+.btn-ok.active { background: var(--ok); color: #fff; }
+.btn-danger { background: #fef2f2; color: var(--danger); border: 1px solid var(--danger); }
+.btn-danger:hover { background: #fde8e8; }
+.btn-danger.active { background: var(--danger); color: #fff; }
+.btn-warn   { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn); }
+.btn-warn:hover { background: #fae8d0; }
+.btn-warn.active { background: var(--warn); color: #fff; }
+
+/* ── hidden state ───────────────────────────────────────────────── */
+.hidden { display: none !important; }
+
+/* ── Scrollbar ──────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg2); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- ── Top bar ──────────────────────────────────────────────────── -->
+<div id="topbar">
+  <h1>AI Patent Review</h1>
+  <span class="topbar-stat" id="stat-figures">– / – figures reviewed</span>
+  <span class="topbar-stat" id="stat-overrides">– human overrides</span>
+  <div id="conf-bar-wrap">
+    <div id="conf-bar-track"><div id="conf-bar-fill"></div></div>
+    <span class="conf-label" id="conf-pct">–%</span>
+  </div>
+  <button id="btn-export" disabled>Export Final JSON</button>
+</div>
+
+<div id="main">
+
+  <!-- ── Panel A: file loader ─────────────────────────────────── -->
+  <div id="panel-loader">
+    <h2>Load Patent</h2>
+    <p>Select the three files for this patent to begin review.</p>
+
+    <div class="file-row">
+      <label>Labels JSON (labels/{patent_id}.json)</label>
+      <input type="file" id="load-base-json" accept=".json">
+    </div>
+    <div class="file-row">
+      <label>AI Pre-label JSON (ai_prelabel.json)</label>
+      <input type="file" id="load-ai-json" accept=".json">
+    </div>
+    <div class="file-row">
+      <label>Figure images — select all PNGs for this patent</label>
+      <input type="file" id="load-images" multiple accept="image/png,image/jpeg">
+    </div>
+
+    <button id="btn-load">Load Patent</button>
+    <div id="load-error"></div>
+  </div>
+
+  <!-- ── Panel B: patent header (hidden until loaded) ─────────── -->
+  <div id="panel-header" class="hidden"></div>
+
+  <!-- ── Panel C: figure review grid (hidden until loaded) ─────── -->
+  <div id="panel-figures" class="hidden"></div>
+
+</div>
+
+<script>
+'use strict';
+
+/* ================================================================
+   CONSTANTS
+   ================================================================ */
+const T1_SCOPE_OPTS   = ['Pioneering','Incremental','Derivative'];
+const T1_FIELD_OPTS   = ['Propulsion','Aerodynamics','Structure','Avionics','Operations'];
+const T1_TARGET_OPTS  = ['Efficiency','Safety','Noise','Manufacturing','Control'];
+const T1_DISAPPROVE   = ['Pure UAV','Out of Domain','Unreadable'];
+const G1_TOPOLOGY_OPTS= ['MR','FW','RC','TW','LW','HB','PFV','OTHER'];
+const T2_PERSPECTIVE  = ['Top','Front','Back','Side','Bottom/Down','Front-Isometric','Rear-Isometric','Generic 3D'];
+const T2_STYLE        = ['Line Drawing','Shaded Render','Solid/Filled Model','Schematic'];
+const T2_SYMMETRY     = ['Symmetric View','Asymmetric View'];
+const T2_PARTS        = [
+  'Whole Vehicle Layout','Primary Wing','Secondary/Canard Wing','Empennage/Tail',
+  'Rotor/Propeller Blade','Tilt Hinge/Mechanism','Fuselage Cross-section',
+  'Landing Gear/Skids','Internal Components/Batteries/Wiring'
+];
+
+/* ================================================================
+   STATE
+   ================================================================ */
+const STATE = {
+  patentId: null,
+  baseData: {},
+  aiData:   {},
+  images:   new Map(),   // filename → objectURL
+  overrides: {},         // "T1.scope" → value
+  figureStatus: {}       // figNumber → { approved: null|true|false, isMain: false }
+};
+
+/* ================================================================
+   UTILITY
+   ================================================================ */
+function confClass(c) {
+  if (c == null) return '';
+  if (c >= 0.85) return 'conf-high';
+  if (c >= 0.60) return 'conf-med';
+  return 'conf-low';
+}
+
+function confBadge(c) {
+  if (c == null) return '';
+  return `<span class="conf-badge ${confClass(c)}">${(c*100).toFixed(0)}%</span>`;
+}
+
+/* Deep-get a dot-path from an object: getPath(obj, 'T2.1.perspective') */
+function getPath(obj, path) {
+  return path.split('.').reduce((o,k) => (o != null ? o[k] : undefined), obj);
+}
+
+/* ================================================================
+   MERGE LOGIC
+   ================================================================ */
+function getMergedValue(path) {
+  if (STATE.overrides.hasOwnProperty(path)) {
+    return { value: STATE.overrides[path], source: 'human', confidence: null };
+  }
+  const aiVal = getPath(STATE.aiData, path);
+  if (aiVal !== undefined && aiVal !== null) {
+    // try to find confidence sibling
+    const parts = path.split('.');
+    let conf = null;
+    if (parts.length >= 2) {
+      const confPath = parts.slice(0,-1).concat('confidence').join('.');
+      const c = getPath(STATE.aiData, confPath);
+      if (typeof c === 'number') conf = c;
+    }
+    return { value: aiVal, source: 'ai', confidence: conf };
+  }
+  const baseVal = getPath(STATE.baseData, path);
+  if (baseVal !== undefined && baseVal !== null) {
+    return { value: baseVal, source: 'auto', confidence: null };
+  }
+  return { value: null, source: null, confidence: null };
+}
+
+/* ================================================================
+   EXPORT / BUILD FINAL JSON
+   ================================================================ */
+function buildFinalJSON() {
+  const ai  = STATE.aiData  || {};
+  const base = STATE.baseData || {};
+
+  // Deep clone base as starting point
+  const out = JSON.parse(JSON.stringify(base));
+
+  // Merge AI data
+  const aiT1 = ai.T1 || {};
+  const aiG1 = ai.G1 || {};
+  const aiM1 = ai.M1 || {};
+  const aiT2 = ai.T2 || {};
+
+  // T1
+  out.T1 = out.T1 || {};
+  for (const [k,v] of Object.entries(aiT1)) {
+    out.T1[k] = { value: v, source: 'ai' };
+  }
+  // T1 overrides
+  for (const field of ['scope','field','target','arch_count']) {
+    const path = `T1.${field}`;
+    if (STATE.overrides.hasOwnProperty(path)) {
+      out.T1[field] = { value: STATE.overrides[path], source: 'human' };
+    }
+  }
+  // approved toggle
+  {
+    const approvedPath = 'T1.approved';
+    if (STATE.overrides.hasOwnProperty(approvedPath)) {
+      out.T1.approved = { value: STATE.overrides[approvedPath], source: 'human' };
+    } else if (aiT1.approved !== undefined) {
+      out.T1.approved = { value: aiT1.approved, source: 'ai' };
+    }
+  }
+
+  // G1
+  out.G1 = out.G1 || {};
+  for (const [k,v] of Object.entries(aiG1)) {
+    out.G1[k] = { value: v, source: 'ai' };
+  }
+  if (STATE.overrides.hasOwnProperty('G1.topology')) {
+    out.G1.topology = { value: STATE.overrides['G1.topology'], source: 'human' };
+  }
+
+  // M1
+  out.M1 = out.M1 || {};
+  for (const [k,v] of Object.entries(aiM1)) {
+    out.M1[k] = { value: v, source: 'ai' };
+  }
+
+  // T2 per figure + merge with T3_image if present
+  out.T2 = {};
+  const allFigNums = new Set([
+    ...Object.keys(aiT2),
+    ...Object.keys(STATE.figureStatus)
+  ]);
+  // Also include figures from base T3_image array if present
+  if (Array.isArray(base.T3_image)) {
+    base.T3_image.forEach(img => {
+      if (img.fig_number != null) allFigNums.add(String(img.fig_number));
+    });
+  }
+
+  for (const figNum of allFigNums) {
+    const aiEntry = aiT2[figNum] || {};
+    const status  = STATE.figureStatus[figNum] || { approved: null, isMain: false };
+
+    const t2fig = {};
+    for (const [k,v] of Object.entries(aiEntry)) {
+      t2fig[k] = { value: v, source: 'ai' };
+    }
+    // field-level overrides for T2
+    for (const field of ['perspective','style','symmetry']) {
+      const p = `T2.${figNum}.${field}`;
+      if (STATE.overrides.hasOwnProperty(p)) {
+        t2fig[field] = { value: STATE.overrides[p], source: 'human' };
+      }
+    }
+    // parts override
+    const partsPath = `T2.${figNum}.parts`;
+    if (STATE.overrides.hasOwnProperty(partsPath)) {
+      t2fig.parts = { value: STATE.overrides[partsPath], source: 'human' };
+    }
+
+    t2fig.review_status = status.approved === true  ? 'approved'
+                        : status.approved === false ? 'rejected'
+                        : 'pending';
+    t2fig.is_main = status.isMain;
+    out.T2[figNum] = t2fig;
+  }
+
+  // Counts
+  const totalOverrides = Object.keys(STATE.overrides).length;
+  const aiLabelFields  = countAIFields(ai);
+
+  out.export_metadata = {
+    exported_at: new Date().toISOString(),
+    patent_id: STATE.patentId,
+    human_overrides_count: totalOverrides,
+    ai_labels_count: aiLabelFields
+  };
+
+  return out;
+}
+
+function countAIFields(ai, depth=0) {
+  let n = 0;
+  if (!ai || typeof ai !== 'object') return 0;
+  for (const v of Object.values(ai)) {
+    if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
+      n += countAIFields(v, depth+1);
+    } else {
+      n++;
+    }
+  }
+  return n;
+}
+
+function triggerDownload(obj) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = `${STATE.patentId || 'patent'}_reviewed.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ================================================================
+   RENDER — rebuilds Panel B + C from STATE
+   ================================================================ */
+function render() {
+  renderHeader();
+  renderFigures();
+  updateTopbar();
+}
+
+/* ── Top bar stats ───────────────────────────────────────────────── */
+function updateTopbar() {
+  const allFigs   = Object.keys(STATE.figureStatus);
+  const reviewed  = allFigs.filter(f => STATE.figureStatus[f].approved !== null).length;
+  const overrides = Object.keys(STATE.overrides).length;
+
+  document.getElementById('stat-figures').innerHTML =
+    `<strong>${reviewed}</strong> / ${allFigs.length} figures reviewed`;
+  document.getElementById('stat-overrides').innerHTML =
+    `<strong>${overrides}</strong> human override${overrides !== 1 ? 's' : ''}`;
+
+  // Avg confidence from all T2 + G1 + M1
+  const confs = [];
+  const ai = STATE.aiData;
+  if (ai.G1 && typeof ai.G1.confidence === 'number') confs.push(ai.G1.confidence);
+  if (ai.M1 && typeof ai.M1.confidence === 'number') confs.push(ai.M1.confidence);
+  const t2 = ai.T2 || {};
+  for (const fig of Object.values(t2)) {
+    if (typeof fig.confidence === 'number') confs.push(fig.confidence);
+  }
+  if (typeof (ai.overall_confidence) === 'number') confs.push(ai.overall_confidence);
+
+  const avg = confs.length ? confs.reduce((a,b)=>a+b,0)/confs.length : null;
+  const pct = avg != null ? Math.round(avg*100) : 0;
+  document.getElementById('conf-bar-fill').style.width = pct + '%';
+  document.getElementById('conf-bar-fill').style.background =
+    avg >= 0.85 ? 'var(--ok)' : avg >= 0.60 ? '#f0b429' : 'var(--danger)';
+  document.getElementById('conf-pct').textContent = avg != null ? pct+'%' : '–%';
+}
+
+/* ── Panel B: patent header ──────────────────────────────────────── */
+function renderHeader() {
+  const base  = STATE.baseData;
+  const ai    = STATE.aiData;
+  const pid   = STATE.patentId || 'Unknown';
+
+  const title    = base.title || base.patent_title || '';
+  const assignee = base.assignee || '';
+  const pubYear  = base.pub_year || base.publication_year || '';
+
+  // T1
+  const aiT1  = ai.T1  || {};
+  const t1Con = typeof aiT1.confidence === 'number' ? aiT1.confidence : null;
+
+  function chipHTML(fieldPath, label, opts, currentVal, source, confidence) {
+    const isOverride = STATE.overrides.hasOwnProperty(fieldPath);
+    const cls = isOverride ? 'chip chip-override' : 'chip';
+    const optsHTML = opts.map(o =>
+      `<div class="override-option${o===currentVal?' selected':''}"
+           data-action="set-override" data-field="${fieldPath}" data-value="${o}">${o}</div>`
+    ).join('');
+    return `<div class="${cls}">
+      <span class="chip-name">${label}</span>
+      <span class="chip-val">${currentVal ?? '<em style="color:var(--text3)">—</em>'}</span>
+      ${confidence != null ? confBadge(confidence) : ''}
+      <div class="override-wrap">
+        <button class="override-btn" data-action="open-dropdown" data-field="${fieldPath}" title="Override">▾</button>
+        <div class="override-dropdown" id="dd-${fieldPath.replace(/\./g,'_')}">
+          ${optsHTML}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  const scopeMV  = getMergedValue('T1.scope');
+  const fieldMV  = getMergedValue('T1.field');
+  const targetMV = getMergedValue('T1.target');
+  const archMV   = getMergedValue('T1.arch_count');
+  const approvedMV = getMergedValue('T1.approved');
+
+  const approvedVal = approvedMV.value;
+  const approvedCls = approvedVal === true ? 'chip chip-approved'
+                    : approvedVal === false ? 'chip chip-disapproved' : 'chip';
+  const approvedLabel = approvedVal === true ? '✓ Approved' : approvedVal === false ? '✗ Disapproved' : '?';
+  const isOverrideApproved = STATE.overrides.hasOwnProperty('T1.approved');
+  const approvedChip = `<div class="${approvedCls}${isOverrideApproved?' chip-override':''}">
+    <span class="chip-name">T1 Status</span>
+    <span class="chip-val">${approvedLabel}</span>
+    <div class="override-wrap">
+      <button class="override-btn" data-action="open-dropdown" data-field="T1.approved" title="Toggle">▾</button>
+      <div class="override-dropdown" id="dd-T1_approved">
+        <div class="override-option${approvedVal===true?' selected':''}" data-action="set-override" data-field="T1.approved" data-value="true">✓ Approved</div>
+        <div class="override-option${approvedVal===false?' selected':''}" data-action="set-override" data-field="T1.approved" data-value="false">✗ Disapproved</div>
+      </div>
+    </div>
+  </div>`;
+
+  const t1HTML = `
+    <div class="section-label">T1 Classification</div>
+    <div class="chips-row">
+      ${approvedChip}
+      ${chipHTML('T1.scope',     'Scope',     T1_SCOPE_OPTS,  scopeMV.value,  scopeMV.source,  t1Con)}
+      ${chipHTML('T1.field',     'Field',     T1_FIELD_OPTS,  fieldMV.value,  fieldMV.source,  t1Con)}
+      ${chipHTML('T1.target',    'Target',    T1_TARGET_OPTS, targetMV.value, targetMV.source, t1Con)}
+      <div class="chip">
+        <span class="chip-name">Arch Count</span>
+        <span class="chip-val">${archMV.value ?? '—'}</span>
+      </div>
+    </div>`;
+
+  // G1
+  const g1MV   = getMergedValue('G1.topology');
+  const g1Con  = getMergedValue('G1.confidence');
+  const g1Reas = getMergedValue('G1.reasoning');
+  const topoVal = g1MV.value || '—';
+  const isG1Override = STATE.overrides.hasOwnProperty('G1.topology');
+  const topoOptsHTML = G1_TOPOLOGY_OPTS.map(o =>
+    `<div class="override-option${o===topoVal?' selected':''}"
+         data-action="set-override" data-field="G1.topology" data-value="${o}">${o}</div>`
+  ).join('');
+
+  const g1HTML = `
+    <div style="margin-top:14px">
+      <div class="section-label">G1 Topology</div>
+      <div id="g1-block">
+        <div class="topology-badge${isG1Override?' overridden':''}">
+          <span class="topology-code">${topoVal}</span>
+          ${g1Con.value != null ? confBadge(g1Con.value) : ''}
+          <div class="override-wrap">
+            <button class="override-btn" data-action="open-dropdown" data-field="G1.topology" title="Override topology">▾</button>
+            <div class="override-dropdown" id="dd-G1_topology">
+              ${topoOptsHTML}
+            </div>
+          </div>
+        </div>
+        ${g1Reas.value ? `<div class="topology-reasoning">${g1Reas.value}</div>` : ''}
+      </div>
+    </div>`;
+
+  const t1ReasonMV = getMergedValue('T1.reasoning');
+  const t1ReasHTML = t1ReasonMV.value
+    ? `<div style="margin-top:10px; font-size:12px; color:var(--text2); font-style:italic;">${t1ReasonMV.value}</div>`
+    : '';
+
+  const headerEl = document.getElementById('panel-header');
+  headerEl.innerHTML = `
+    <div class="patent-meta">
+      <span class="patent-id">${pid}</span>
+      ${title ? `<span class="patent-title">${title}</span>` : ''}
+      ${assignee ? `<span class="patent-sub">${assignee}</span>` : ''}
+      ${pubYear  ? `<span class="patent-sub">${pubYear}</span>` : ''}
+    </div>
+    ${t1HTML}
+    ${t1ReasHTML}
+    ${g1HTML}`;
+}
+
+/* ── Panel C: figures ────────────────────────────────────────────── */
+function renderFigures() {
+  const ai   = STATE.aiData   || {};
+  const base = STATE.baseData || {};
+  const aiT2 = ai.T2 || {};
+
+  // Gather all known figure numbers
+  const figSet = new Set(Object.keys(aiT2));
+  // Also from base T3_image array
+  const t3Images = Array.isArray(base.T3_image) ? base.T3_image : [];
+  t3Images.forEach(img => {
+    const fn = img.fig_number != null ? String(img.fig_number) : null;
+    if (fn) figSet.add(fn);
+  });
+  // Initialize figureStatus for any new figures
+  for (const fn of figSet) {
+    if (!STATE.figureStatus[fn]) {
+      STATE.figureStatus[fn] = { approved: null, isMain: false };
+    }
+  }
+
+  const figNums = [...figSet].sort((a,b) => {
+    const na = parseFloat(a), nb = parseFloat(b);
+    if (!isNaN(na) && !isNaN(nb)) return na - nb;
+    return a.localeCompare(b);
+  });
+
+  const container = document.getElementById('panel-figures');
+  container.innerHTML = figNums.map(fn => renderFigCard(fn, aiT2[fn] || {}, t3Images)).join('');
+}
+
+function renderFigCard(figNum, aiEntry, t3Images) {
+  const status = STATE.figureStatus[figNum] || { approved: null, isMain: false };
+
+  // Find matching t3 entry
+  const t3 = t3Images.find(img => String(img.fig_number) === figNum) || {};
+
+  // Find image URL — try to match by filename from ai entry or by fig_number pattern
+  let imgUrl = null;
+  const aiFilename = aiEntry.filename || t3.filename || null;
+  if (aiFilename && STATE.images.has(aiFilename)) {
+    imgUrl = STATE.images.get(aiFilename);
+  } else {
+    // Fuzzy match: look for any image key containing the fig_number
+    for (const [name, url] of STATE.images.entries()) {
+      // match _F{figNum}.png or similar
+      const re = new RegExp(`[_]F(?:u)?${figNum.replace('Fu','')}[_.]`, 'i');
+      if (re.test(name)) { imgUrl = url; break; }
+    }
+  }
+
+  // Card border class
+  const needsReview = aiEntry.needs_review === true
+    || (typeof ai_overall_confidence !== 'undefined' && ai_overall_confidence < 0.70)
+    || ((STATE.aiData || {}).overall_confidence != null && STATE.aiData.overall_confidence < 0.70)
+    || (typeof aiEntry.confidence === 'number' && aiEntry.confidence < 0.60);
+
+  const statusCls = status.approved === true  ? 'status-approved'
+                  : status.approved === false ? 'status-rejected' : '';
+  const reviewCls = needsReview ? 'needs-review' : '';
+
+  // Match status badge from base
+  const matchStatus = t3.match_status || t3.matched_status || null;
+  const matchBadge  = matchStatus
+    ? `<span class="match-badge match-${matchStatus}">${matchStatus}</span>` : '';
+
+  // Description with highlight
+  const rawDesc = t3.description || t3.matched_description || t3.desc || '';
+  const descHTML = rawDesc
+    ? `<div class="fig-desc"><mark>${rawDesc}</mark></div>` : '';
+
+  // T2 chip builder for figure
+  function t2ChipHTML(fieldPath, label, opts) {
+    const mv = getMergedValue(fieldPath);
+    const val = mv.value;
+    const isOverride = STATE.overrides.hasOwnProperty(fieldPath);
+    const cls = isOverride ? 'chip chip-override' : 'chip';
+    const confidence = typeof aiEntry.confidence === 'number' ? aiEntry.confidence : null;
+    const optsHTML = opts.map(o =>
+      `<div class="override-option${o===val?' selected':''}"
+           data-action="set-override" data-field="${fieldPath}" data-value="${o}">${o}</div>`
+    ).join('');
+    return `<div class="${cls}">
+      <span class="chip-name">${label}</span>
+      <span class="chip-val">${val ?? '<em style="color:var(--text3)">—</em>'}</span>
+      ${confidence != null ? confBadge(confidence) : ''}
+      <div class="override-wrap">
+        <button class="override-btn" data-action="open-dropdown" data-field="${fieldPath}" title="Override">▾</button>
+        <div class="override-dropdown" id="dd-${fieldPath.replace(/\./g,'_')}">
+          ${optsHTML}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // Parts multi-select
+  const partsPath   = `T2.${figNum}.parts`;
+  const partsMV     = getMergedValue(partsPath);
+  const activeParts = Array.isArray(partsMV.value) ? partsMV.value : [];
+  const isPartsOverride = STATE.overrides.hasOwnProperty(partsPath);
+
+  const partsHTML = `
+    <div>
+      <div class="section-label" style="margin-bottom:5px">Parts ${isPartsOverride ? '<span style="color:var(--accent);font-size:10px">overridden</span>':''}</div>
+      <div class="parts-wrap" id="parts-${figNum}">
+        ${T2_PARTS.map(p => `<span class="part-tag${activeParts.includes(p)?' selected':''}"
+          data-action="toggle-part" data-fig="${figNum}" data-part="${p}"
+          ${isPartsOverride?'data-source="human"':''}>${p}</span>`).join('')}
+      </div>
+    </div>`;
+
+  // Action buttons
+  const approveActive = status.approved === true  ? 'active' : '';
+  const rejectActive  = status.approved === false ? 'active' : '';
+  const mainActive    = status.isMain ? 'active' : '';
+
+  return `<div class="fig-card ${statusCls} ${reviewCls}" id="card-${figNum}">
+    <div class="fig-img-pane">
+      ${imgUrl
+        ? `<img src="${imgUrl}" alt="Figure ${figNum}" loading="lazy">`
+        : `<div class="fig-img-missing">No image<br>Figure ${figNum}</div>`}
+    </div>
+    <div class="fig-info-pane">
+      <div class="fig-header">
+        <span class="fig-num">Fig. ${figNum}</span>
+        ${matchBadge}
+        ${needsReview ? '<span class="match-badge match-unmatched" style="background:var(--warn-bg);color:var(--warn)">Needs Review</span>' : ''}
+        ${status.isMain ? '<span class="match-badge match-matched">★ Main</span>' : ''}
+      </div>
+      ${descHTML}
+      <div class="fig-chips">
+        ${t2ChipHTML(`T2.${figNum}.perspective`, 'Perspective', T2_PERSPECTIVE)}
+        ${t2ChipHTML(`T2.${figNum}.style`,       'Style',       T2_STYLE)}
+        ${t2ChipHTML(`T2.${figNum}.symmetry`,    'Symmetry',    T2_SYMMETRY)}
+      </div>
+      ${partsHTML}
+      <div class="fig-actions">
+        <button class="btn btn-ok ${approveActive}"
+          data-action="approve-fig" data-fig="${figNum}">✓ Approve</button>
+        <button class="btn btn-danger ${rejectActive}"
+          data-action="reject-fig" data-fig="${figNum}">✗ Reject</button>
+        <button class="btn btn-warn ${mainActive}"
+          data-action="main-fig" data-fig="${figNum}">★ Set as Main</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ================================================================
+   FILE LOADING
+   ================================================================ */
+async function readFileAsText(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload  = e => res(e.target.result);
+    r.onerror = ()=> rej(new Error('File read error'));
+    r.readAsText(file);
+  });
+}
+
+async function handleLoad() {
+  const errEl = document.getElementById('load-error');
+  errEl.style.display = 'none';
+
+  const baseFile   = document.getElementById('load-base-json').files[0];
+  const aiFile     = document.getElementById('load-ai-json').files[0];
+  const imgFiles   = document.getElementById('load-images').files;
+
+  if (!baseFile && !aiFile) {
+    errEl.textContent = 'Please select at least the AI prelabel JSON.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  try {
+    if (baseFile) {
+      STATE.baseData = JSON.parse(await readFileAsText(baseFile));
+    }
+    if (aiFile) {
+      STATE.aiData = JSON.parse(await readFileAsText(aiFile));
+    }
+
+    // Patent ID from metadata or filename
+    STATE.patentId =
+      (STATE.aiData.metadata && STATE.aiData.metadata.patent_id) ||
+      (STATE.baseData.patent_id) ||
+      (baseFile ? baseFile.name.replace(/\.json$/i,'') : null) ||
+      'Unknown';
+
+    // Load images into Map
+    STATE.images.clear();
+    for (const file of imgFiles) {
+      STATE.images.set(file.name, URL.createObjectURL(file));
+    }
+
+    // Pre-populate figureStatus from aiData T2 keys
+    const t2 = STATE.aiData.T2 || {};
+    for (const fn of Object.keys(t2)) {
+      STATE.figureStatus[fn] = STATE.figureStatus[fn] || { approved: null, isMain: false };
+    }
+
+    // Hide loader, show review panels
+    document.getElementById('panel-loader').classList.add('hidden');
+    document.getElementById('panel-header').classList.remove('hidden');
+    document.getElementById('panel-figures').classList.remove('hidden');
+    document.getElementById('btn-export').disabled = false;
+
+    render();
+  } catch(e) {
+    errEl.textContent = 'Error loading files: ' + e.message;
+    errEl.style.display = 'block';
+  }
+}
+
+/* ================================================================
+   EVENT DELEGATION
+   ================================================================ */
+document.addEventListener('click', function(e) {
+  const t = e.target.closest('[data-action]');
+  if (!t) {
+    // Click outside — close all dropdowns
+    closeAllDropdowns();
+    return;
+  }
+
+  const action = t.dataset.action;
+
+  if (action === 'open-dropdown') {
+    e.stopPropagation();
+    const field = t.dataset.field;
+    const ddId  = 'dd-' + field.replace(/\./g,'_');
+    const dd    = document.getElementById(ddId);
+    if (!dd) return;
+    const isOpen = dd.classList.contains('open');
+    closeAllDropdowns();
+    if (!isOpen) dd.classList.add('open');
+    return;
+  }
+
+  if (action === 'set-override') {
+    e.stopPropagation();
+    const field = t.dataset.field;
+    let val     = t.dataset.value;
+    // Coerce boolean strings
+    if (val === 'true')  val = true;
+    if (val === 'false') val = false;
+    STATE.overrides[field] = val;
+    closeAllDropdowns();
+    render();
+    return;
+  }
+
+  if (action === 'approve-fig') {
+    const fig = t.dataset.fig;
+    const cur = STATE.figureStatus[fig] || { approved: null, isMain: false };
+    STATE.figureStatus[fig] = { ...cur, approved: cur.approved === true ? null : true };
+    render();
+    return;
+  }
+
+  if (action === 'reject-fig') {
+    const fig = t.dataset.fig;
+    const cur = STATE.figureStatus[fig] || { approved: null, isMain: false };
+    STATE.figureStatus[fig] = { ...cur, approved: cur.approved === false ? null : false };
+    render();
+    return;
+  }
+
+  if (action === 'main-fig') {
+    const fig = t.dataset.fig;
+    // Mutually exclusive — clear all others
+    for (const fn of Object.keys(STATE.figureStatus)) {
+      STATE.figureStatus[fn].isMain = false;
+    }
+    const cur = STATE.figureStatus[fig] || { approved: null, isMain: false };
+    STATE.figureStatus[fig] = { ...cur, isMain: true };
+    render();
+    return;
+  }
+
+  if (action === 'toggle-part') {
+    const fig  = t.dataset.fig;
+    const part = t.dataset.part;
+    const path = `T2.${fig}.parts`;
+
+    // Get current parts (override or AI)
+    let current;
+    if (STATE.overrides.hasOwnProperty(path)) {
+      current = [...STATE.overrides[path]];
+    } else {
+      const mv = getMergedValue(path);
+      current = Array.isArray(mv.value) ? [...mv.value] : [];
+    }
+
+    const idx = current.indexOf(part);
+    if (idx >= 0) current.splice(idx, 1);
+    else current.push(part);
+
+    STATE.overrides[path] = current;
+    render();
+    return;
+  }
+
+  closeAllDropdowns();
+});
+
+document.getElementById('btn-load').addEventListener('click', handleLoad);
+
+document.getElementById('btn-export').addEventListener('click', function() {
+  const final = buildFinalJSON();
+  triggerDownload(final);
+});
+
+function closeAllDropdowns() {
+  document.querySelectorAll('.override-dropdown.open').forEach(dd => dd.classList.remove('open'));
+}
+</script>
+</body>
+</html>

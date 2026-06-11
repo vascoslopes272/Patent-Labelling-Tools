@@ -31,9 +31,15 @@ DEFAULT_WEIGHTS = (
     "My_DataSet_Pipeline/models/doclayout_yolo_docstructbench_imgsz1024.pt"
 )
 
-YOLO_CONF = 0.40       # minimum detection confidence; below ~0.4 tends to be whole-page ghost boxes
-MIN_CROP_PX = 150      # discard crops smaller than this in either dimension
-IMGSZ = 1024           # DocStructBench model was trained at 1024
+YOLO_CONF    = 0.25    # lowered from 0.40 — recovers sub-figures detected at 0.25–0.39
+NMS_IOU      = 0.30    # IoU threshold for suppressing duplicate/nested figure boxes
+MIN_CROP_PX  = 150     # discard crops smaller than this in either dimension
+IMGSZ        = 1024    # DocStructBench model was trained at 1024
+
+# A single figure box taller than this (px) AND containing clear horizontal whitespace
+# is likely a wrapper around multiple sub-figures — split it vertically.
+SPLIT_HEIGHT_PX  = 1400
+SPLIT_GAP_PX     = 30   # minimum whitespace run (px) to treat as a split point
 
 # DocStructBench class names we care about (matched by NAME, not index).
 _FIGURE_CLASS = "figure"
@@ -49,7 +55,8 @@ _FIG_KEY_RE = re.compile(r"FI[GA][^A-Za-z0-9]{0,2}([0-9]+[A-Za-z]?)", re.IGNOREC
 
 def build_engine(weights: str = DEFAULT_WEIGHTS, device: str = "cuda:0"):
     """
-    Load DocLayout-YOLO + an EasyOCR reader once. Returns (model, reader, device).
+    Load DocLayout-YOLO + EasyOCR once. Returns (model, reader, device, None, None).
+    The last two slots are reserved for the lazy-loaded Qwen fallback (model, processor).
 
     Falls back to CPU if CUDA is unavailable. The EasyOCR reader downloads its
     detection/recognition models on first construction (~100 MB, one-time).
@@ -66,10 +73,96 @@ def build_engine(weights: str = DEFAULT_WEIGHTS, device: str = "cuda:0"):
 
     reader = easyocr.Reader(["en"], gpu=device.startswith("cuda"))
 
-    return model, reader, device
+    # Return a mutable list — Qwen slots (index 3, 4) are populated lazily on first OCR miss
+    return [model, reader, device, None, None]
 
 
 # ─── Detection ────────────────────────────────────────────────────────────────
+
+def _iou(a: list[int], b: list[int]) -> float:
+    """Intersection-over-union for two xyxy boxes."""
+    ix1, iy1 = max(a[0], b[0]), max(a[1], b[1])
+    ix2, iy2 = min(a[2], b[2]), min(a[3], b[3])
+    inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+    if inter == 0:
+        return 0.0
+    area_a = (a[2] - a[0]) * (a[3] - a[1])
+    area_b = (b[2] - b[0]) * (b[3] - b[1])
+    return inter / (area_a + area_b - inter)
+
+
+def _nms_figures(figures: list[dict], iou_thresh: float = NMS_IOU) -> list[dict]:
+    """
+    Suppress duplicate/nested figure boxes by IoU.
+    Keeps the higher-confidence box when two overlap above the threshold.
+    Also removes boxes that are almost entirely contained within a larger box
+    (the 'wrapper' suppression that previously merged sub-figures into one crop).
+    """
+    figures = sorted(figures, key=lambda f: f["conf"], reverse=True)
+    kept = []
+    for cand in figures:
+        ca = cand["box"]
+        discard = False
+        for k in kept:
+            ka = k["box"]
+            if _iou(ca, ka) > iou_thresh:
+                discard = True
+                break
+            # also suppress if cand is almost fully inside an already-kept box
+            inter_x = max(0, min(ca[2], ka[2]) - max(ca[0], ka[0]))
+            inter_y = max(0, min(ca[3], ka[3]) - max(ca[1], ka[1]))
+            inter   = inter_x * inter_y
+            area_c  = max(1, (ca[2] - ca[0]) * (ca[3] - ca[1]))
+            if inter / area_c > 0.85:
+                discard = True
+                break
+        if not discard:
+            kept.append(cand)
+    return kept
+
+
+def _split_large_figure(fig: dict, img_gray: np.ndarray) -> list[dict]:
+    """
+    If a figure box is suspiciously tall (YOLO wrapped multiple sub-figures into one),
+    find horizontal whitespace rows inside the crop and split at the largest gap.
+    Returns a list of sub-figure dicts (may be just [fig] if no good split point found).
+    """
+    x1, y1, x2, y2 = fig["box"]
+    h = y2 - y1
+    if h < SPLIT_HEIGHT_PX:
+        return [fig]
+
+    crop = img_gray[y1:y2, x1:x2]
+    # Row is "white" if >95% of pixels are above threshold 230
+    row_white = np.mean(crop > 230, axis=1) > 0.95
+
+    # Find runs of consecutive white rows
+    gaps: list[tuple[int, int]] = []  # (start_row, end_row) relative to crop
+    in_gap, gap_start = False, 0
+    for r, white in enumerate(row_white):
+        if white and not in_gap:
+            in_gap, gap_start = True, r
+        elif not white and in_gap:
+            run = r - gap_start
+            if run >= SPLIT_GAP_PX:
+                gaps.append((gap_start, r))
+            in_gap = False
+    if in_gap and (len(row_white) - gap_start) >= SPLIT_GAP_PX:
+        gaps.append((gap_start, len(row_white)))
+
+    if not gaps:
+        return [fig]
+
+    # Split at the midpoint of the largest gap
+    best = max(gaps, key=lambda g: g[1] - g[0])
+    split_y = y1 + (best[0] + best[1]) // 2
+
+    top = {"box": [x1, y1, x2, split_y], "conf": fig["conf"]}
+    bot = {"box": [x1, split_y, x2, y2],  "conf": fig["conf"]}
+
+    # Recurse in case each half is still too tall
+    return _split_large_figure(top, img_gray) + _split_large_figure(bot, img_gray)
+
 
 def detect_regions(model, img_path: Path, device: str = "cuda:0") -> tuple[list[dict], list[dict]]:
     """
@@ -77,8 +170,15 @@ def detect_regions(model, img_path: Path, device: str = "cuda:0") -> tuple[list[
 
     Returns (figures, captions); each item is {"box": [x1, y1, x2, y2], "conf": float}
     in original-image pixel coordinates.
+
+    Post-processing:
+    - NMS dedup: removes overlapping/nested boxes (lowered conf threshold picks up more)
+    - Large-crop split: wrapper boxes enclosing multiple sub-figures are split at whitespace
     """
-    img_np = np.array(Image.open(img_path).convert("RGB"))
+    img_pil  = Image.open(img_path).convert("RGB")
+    img_np   = np.array(img_pil)
+    img_gray = np.array(img_pil.convert("L"))
+
     results = model.predict(source=img_np, imgsz=IMGSZ, conf=YOLO_CONF,
                             device=device, verbose=False)
 
@@ -96,7 +196,14 @@ def detect_regions(model, img_path: Path, device: str = "cuda:0") -> tuple[list[
                 figures.append(rec)
             elif cls_name == _CAPTION_CLASS:
                 captions.append(rec)
-    return figures, captions
+
+    figures = _nms_figures(figures)
+
+    split_figures: list[dict] = []
+    for fig in figures:
+        split_figures.extend(_split_large_figure(fig, img_gray))
+
+    return split_figures, captions
 
 
 # ─── Caption matching + OCR ───────────────────────────────────────────────────
@@ -235,14 +342,114 @@ def read_label(reader, img: np.ndarray, cap_box: list[int] | None,
 
 # ─── Cropping ─────────────────────────────────────────────────────────────────
 
-def crop_and_save(img_path: Path, figures: list[dict], captions: list[dict],
-                  reader, out_dir: Path) -> list[dict]:
+def _auto_rotate(crop_bgr: np.ndarray) -> np.ndarray:
     """
-    For each detected figure: match a caption, OCR its label, crop the figure box
-    (drawing only — no caption, best for the downstream DINOv2 dataset) from the
-    original full-res image, and save with the project naming convention.
+    Detect and correct image rotation using the dominant text/line angle via Hough
+    transform on a binarised version of the crop.  Only corrects multiples of 90°
+    (portrait vs landscape) — fine-angle skew correction is left to the OCR engine.
+
+    Strategy: compute the fraction of non-white pixels in each of the four cardinal
+    orientations; if the image is wider than tall in one rotation but taller in the
+    original, it was likely scanned sideways.  Simpler heuristic: if the crop is
+    significantly taller than wide (portrait), check whether rotating 90° yields a
+    landscape aspect closer to the norm for patent sub-figures and whether the
+    binarised row-projection variance (text lines produce high variance) increases.
+    """
+    h, w = crop_bgr.shape[:2]
+    if h == 0 or w == 0:
+        return crop_bgr
+
+    gray = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
+    _, bw = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
+    def _row_var(img_bw: np.ndarray) -> float:
+        return float(np.var(np.sum(img_bw, axis=1)))
+
+    best_angle = 0
+    best_var   = _row_var(bw)
+
+    for angle in [90, 180, 270]:
+        rotated_bw = np.rot90(bw, k=angle // 90)
+        v = _row_var(rotated_bw)
+        if v > best_var * 1.15:   # need at least 15% improvement to commit
+            best_var   = v
+            best_angle = angle
+
+    if best_angle == 0:
+        return crop_bgr
+    return np.rot90(crop_bgr, k=best_angle // 90)
+
+
+def _qwen_label(img_crop_bgr: np.ndarray, qwen_model, qwen_processor) -> str | None:
+    """
+    Ask Qwen2.5-VL for the figure label of a single already-cropped image.
+    Returns a clean label like '3A' or None on failure.
+    """
+    import torch
+    from PIL import Image as PilImage
+    from qwen_vl_utils import process_vision_info
+
+    prompt = (
+        "This is a cropped patent drawing. "
+        "What is the figure label printed on it (e.g. 'FIG. 1', 'FIG. 2A', 'Fig. 3')? "
+        "Reply with ONLY the label, nothing else. If there is no label, reply 'none'."
+    )
+    pil_img = PilImage.fromarray(cv2.cvtColor(img_crop_bgr, cv2.COLOR_BGR2RGB))
+    messages = [{"role": "user", "content": [
+        {"type": "image", "image": pil_img},
+        {"type": "text",  "text": prompt},
+    ]}]
+    text = qwen_processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    image_inputs, video_inputs = process_vision_info(messages)
+    inputs = qwen_processor(
+        text=[text], images=image_inputs, videos=video_inputs,
+        padding=True, return_tensors="pt"
+    ).to("cuda")
+    with torch.no_grad():
+        gen_ids = qwen_model.generate(**inputs, max_new_tokens=32)
+        trimmed = [o[len(i):] for i, o in zip(inputs.input_ids, gen_ids)]
+        raw = qwen_processor.batch_decode(trimmed, skip_special_tokens=True,
+                                           clean_up_tokenization_spaces=False)[0].strip()
+    if raw.lower() == "none":
+        return None
+    m = _FIG_KEY_RE.search(raw)
+    return m.group(1) if m else None
+
+
+def _ensure_qwen(engine: list) -> bool:
+    """
+    Lazy-load Qwen into engine[3] / engine[4] on first call.
+    Returns True if Qwen is available, False if import fails.
+    engine is a mutable list [model, reader, device, qwen_model, qwen_processor].
+    """
+    if engine[3] is not None:
+        return True
+    try:
+        import sys, pathlib
+        sys.path.insert(0, str(pathlib.Path(__file__).parent))
+        import figure_matcher as fm
+        from config_loader import load_config
+        cfg = load_config()
+        qwen_model, qwen_proc = fm.build_engine(cfg)
+        engine[3] = qwen_model
+        engine[4] = qwen_proc
+        return True
+    except Exception as e:
+        print(f"    ⚠ Qwen fallback unavailable: {e}")
+        return False
+
+
+def crop_and_save(img_path: Path, figures: list[dict], captions: list[dict],
+                  engine, out_dir: Path) -> list[dict]:
+    """
+    For each detected figure: match a caption, OCR its label, auto-rotate the crop
+    to upright orientation, and save with the project naming convention.
+
+    If all EasyOCR passes fail, falls back to Qwen2.5-VL (loaded lazily).
+    engine is the mutable list returned by build_engine().
     """
     out_dir.mkdir(parents=True, exist_ok=True)
+    _, reader, _, _, _ = engine
     img = cv2.imread(str(img_path))
     if img is None:
         return []
@@ -263,16 +470,27 @@ def crop_and_save(img_path: Path, figures: list[dict], captions: list[dict],
                                              cap["box"] if cap else None,
                                              fig_box=fig["box"])
 
-        suffix = f"_F{clean_lbl}" if not needs_review else "_Fu"
+        # Qwen fallback when EasyOCR found nothing
+        method = "doclayout_easyocr"
+        if needs_review and _ensure_qwen(engine):
+            qwen_lbl = _qwen_label(crop, engine[3], engine[4])
+            if qwen_lbl:
+                clean_lbl, needs_review = qwen_lbl, False
+                method = "doclayout_qwen"
+
+        # Auto-rotate crop to upright before saving
+        crop = _auto_rotate(crop)
+
+        suffix   = f"_F{clean_lbl}" if not needs_review else "_Fu"
         out_path = out_dir / f"{img_path.stem}_crop_{idx}{suffix}.png"
         cv2.imwrite(str(out_path), crop)
 
         records.append({
-            "original": img_path.name,
-            "output": out_path.name,
-            "label": clean_lbl,
-            "box_px": [x1, y1, x2, y2],
-            "method": "doclayout_easyocr",
+            "original":    img_path.name,
+            "output":      out_path.name,
+            "label":       clean_lbl,
+            "box_px":      [x1, y1, x2, y2],
+            "method":      method,
             "needs_review": needs_review,
         })
     return records
@@ -295,8 +513,12 @@ def draw_regions(img_path: Path, figures: list[dict], captions: list[dict]) -> n
 # ─── Orchestration ────────────────────────────────────────────────────────────
 
 def process_image(engine, img_path: Path, out_dir: Path) -> dict:
-    """Detect + crop one sheet. engine = (model, reader, device)."""
-    model, reader, device = engine
+    """
+    Detect + crop one sheet.
+    engine is the mutable list [model, reader, device, qwen_model, qwen_processor]
+    returned by build_engine(). Qwen slots are populated lazily on first OCR miss.
+    """
+    model, reader, device = engine[0], engine[1], engine[2]
     figures, captions = detect_regions(model, img_path, device=device)
-    crops = crop_and_save(img_path, figures, captions, reader, out_dir)
+    crops = crop_and_save(img_path, figures, captions, engine, out_dir)
     return {"image": img_path.name, "figures": figures, "captions": captions, "crops": crops}
