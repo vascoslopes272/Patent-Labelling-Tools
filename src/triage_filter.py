@@ -31,8 +31,8 @@ from PIL import Image
 
 # ─── Prompts ──────────────────────────────────────────────────────────────────
 
-_PROMPT_KEEP = "a technical patent line drawing of an aircraft or mechanical component"
-_PROMPT_FLAG = "a table, chart, text page, or data grid with no technical drawing"
+_PROMPT_KEEP = "patent engineering drawing showing aircraft or vehicle structure and mechanical components with dimension lines and reference numerals"
+_PROMPT_FLAG = "a flowchart, state diagram, block diagram, process flow, or text page with boxes and arrows but no mechanical drawing of physical parts"
 
 # ─── Model loading ────────────────────────────────────────────────────────────
 
@@ -241,3 +241,133 @@ def run_triage(
         print(f"Summary written to: {summary_csv}")
     else:
         print("No patents processed.")
+
+
+# ─── Re-threshold without re-scoring ─────────────────────────────────────────
+
+def rethreshold_existing(
+    cfg: dict,
+    new_threshold: float,
+) -> None:
+    """
+    Re-apply a new threshold to all existing triage JSONs without re-running SigLIP.
+
+    Rules:
+    - Images already marked keep=False are NEVER upgraded back to keep=True.
+      (Confirmed discards stay discarded.)
+    - Images currently keep=True are re-evaluated: if score_drawing < new_threshold
+      they become keep=False.
+
+    Updates every <patent_id>.json in-place and rewrites triage_summary.csv.
+    """
+    triage_dir = Path(cfg["paths"]["triage"])
+    summary_rows = []
+
+    json_paths = sorted(p for p in triage_dir.glob("*.json")
+                        if p.stem != "triage_summary")
+    if not json_paths:
+        print("No triage JSONs found — run run_triage first.")
+        return
+
+    for json_path in json_paths:
+        with open(json_path) as fh:
+            data = json.load(fh)
+
+        changed = 0
+        for fig in data["figures"]:
+            if not fig["keep"]:
+                continue  # already discarded — never re-enable
+            new_keep = fig["score_drawing"] >= new_threshold
+            if not new_keep:
+                fig["keep"] = False
+                fig["pred"] = "table"
+                changed += 1
+
+        data["flagged"] = sum(1 for f in data["figures"] if not f["keep"])
+
+        with open(json_path, "w") as fh:
+            json.dump(data, fh, indent=2)
+
+        summary_rows.append({
+            "patent_id":     data["patent_id"],
+            "total_images":  data["total"],
+            "flagged_count": data["flagged"],
+            "flagged_ratio": round(data["flagged"] / data["total"], 4) if data["total"] else 0.0,
+        })
+        if changed:
+            print(f"  {data['patent_id']}: +{changed} newly discarded")
+
+    summary_csv = triage_dir / "triage_summary.csv"
+    fieldnames = ["patent_id", "total_images", "flagged_count", "flagged_ratio"]
+    with open(summary_csv, "w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(summary_rows)
+
+    total_imgs    = sum(r["total_images"]  for r in summary_rows)
+    total_flagged = sum(r["flagged_count"] for r in summary_rows)
+    print(f"\nRe-threshold complete (threshold={new_threshold}): "
+          f"{total_imgs} images | {total_flagged} flagged "
+          f"({100*total_flagged/max(1,total_imgs):.1f}%)")
+    print(f"Summary rewritten: {summary_csv}")
+
+
+# ─── Reset threshold (re-derives keep from raw scores) ───────────────────────
+
+def reset_threshold(
+    cfg: dict,
+    threshold: float,
+) -> None:
+    """
+    Re-derive keep for every image purely from score_drawing >= threshold.
+
+    Unlike rethreshold_existing, this works in BOTH directions — it can
+    re-enable images that were over-discarded by a previous rethreshold call.
+    Use this to correct an overly aggressive threshold.
+
+    Rewrites all <patent_id>.json files and triage_summary.csv in-place.
+    """
+    triage_dir = Path(cfg["paths"]["triage"])
+    summary_rows = []
+
+    json_paths = sorted(p for p in triage_dir.glob("*.json")
+                        if p.stem != "triage_summary")
+    if not json_paths:
+        print("No triage JSONs found — run run_triage first.")
+        return
+
+    for json_path in json_paths:
+        with open(json_path) as fh:
+            data = json.load(fh)
+
+        for fig in data["figures"]:
+            if fig["pred"] == "error":
+                continue  # leave error entries untouched
+            fig["keep"] = fig["score_drawing"] >= threshold
+            fig["pred"] = "drawing" if fig["keep"] else "table"
+
+        data["flagged"] = sum(1 for f in data["figures"] if not f["keep"])
+
+        with open(json_path, "w") as fh:
+            json.dump(data, fh, indent=2)
+
+        summary_rows.append({
+            "patent_id":     data["patent_id"],
+            "total_images":  data["total"],
+            "flagged_count": data["flagged"],
+            "flagged_ratio": round(data["flagged"] / data["total"], 4) if data["total"] else 0.0,
+        })
+
+    summary_csv = triage_dir / "triage_summary.csv"
+    fieldnames = ["patent_id", "total_images", "flagged_count", "flagged_ratio"]
+    with open(summary_csv, "w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(summary_rows)
+
+    total_imgs    = sum(r["total_images"]  for r in summary_rows)
+    total_flagged = sum(r["flagged_count"] for r in summary_rows)
+    print(f"Reset complete (threshold={threshold}): "
+          f"{total_imgs} images | {total_flagged} flagged "
+          f"({100*total_flagged/max(1,total_imgs):.1f}%)")
+    print(f"Summary rewritten: {summary_csv}")
