@@ -55,7 +55,7 @@ LOGIN_WAIT_SECONDS = 35    # seconds to log in and navigate to search before scr
 
 OUTPUT_DIR    = Path("patseer_drawings")   # overridden by notebook Cell 1 via cfg["paths"]["raw_images"]
 EXCEL_PATH    = Path("")   # overridden by notebook Cell 1; used to resolve record_ folder names from Excel row
-DELAY_SECS    = 2.5      # pause between patents – keep this ≥ 2 to avoid hammering the server
+DELAY_SECS    = 1.5      # pause between patents – keep this ≥ 1 to avoid hammering the server
 HEADLESS      = False    # set True to run without a visible browser window
 
 # ── Optional: reuse an existing Chrome session so you skip the login prompt.
@@ -290,6 +290,39 @@ def make_requests_session(driver: webdriver.Chrome) -> requests.Session:
     return session
 
 
+# Single JS round-trip: same selectors and same priority as before, but the
+# browser does the element iteration internally instead of one Selenium HTTP
+# call per element (this function is polled every 0.5s while waiting for the
+# next-record click, so per-call cost dominates the whole run).
+_POS_SCAN_JS = """
+const sels = ["[ng-bind*='currentRecord']", "[class*='recordCount']",
+              "[class*='record-count']", "[class*='recordNav']",
+              "[class*='pager']", "[class*='pagination']"];
+const targeted = [], fallback = [];
+const visible = el => el.offsetWidth || el.offsetHeight || el.getClientRects().length;
+for (const sel of sels) {
+    let els;
+    try { els = document.querySelectorAll(sel); } catch (e) { continue; }
+    for (const el of els) {
+        if (!visible(el)) continue;
+        const t = (el.innerText || '').trim();
+        if (t) targeted.push(t);
+    }
+}
+// Broad fallback: any short visible text containing '/'
+const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+let node;
+while ((node = walker.nextNode())) {
+    const v = node.nodeValue.trim();
+    if (v.length > 0 && v.length < 20 && v.includes('/')) {
+        const p = node.parentElement;
+        if (p && visible(p)) fallback.push(v);
+    }
+}
+return [targeted, fallback];
+"""
+
+
 def read_browser_record_position(driver: webdriver.Chrome) -> int | None:
     """Read the actual current record position from the PatSeer DetailsView UI.
 
@@ -297,18 +330,12 @@ def read_browser_record_position(driver: webdriver.Chrome) -> int | None:
     Returns the integer position, or None if it cannot be read.
     """
     try:
-        for sel in ["[ng-bind*='currentRecord']", "[class*='recordCount']",
-                    "[class*='record-count']", "[class*='recordNav']",
-                    "[class*='pager']", "[class*='pagination']"]:
-            for el in driver.find_elements(By.CSS_SELECTOR, sel):
-                text = el.text.strip()
-                m = re.search(r"\b(\d+)\s*[/of]+\s*\d+", text)
-                if m:
-                    return int(m.group(1))
-        # Broad fallback: any short text matching "N / M"
-        for el in driver.find_elements(By.XPATH,
-                "//*[contains(text(), '/') and string-length(normalize-space(.)) < 20]"):
-            text = el.text.strip()
+        targeted, fallback = driver.execute_script(_POS_SCAN_JS)
+        for text in targeted:
+            m = re.search(r"\b(\d+)\s*[/of]+\s*\d+", text)
+            if m:
+                return int(m.group(1))
+        for text in fallback:
             m = re.search(r"^\s*(\d+)\s*/\s*\d+\s*$", text)
             if m:
                 return int(m.group(1))
@@ -319,11 +346,54 @@ def read_browser_record_position(driver: webdriver.Chrome) -> int | None:
 
 _PATENT_ID_RE = re.compile(r"([A-Z]{2}\d{6,}[A-Z0-9]*)", re.IGNORECASE)
 
+# Selector that successfully yielded the patent ID on a previous record.
+# PatSeer renders the pub number in the same element on every record, so after
+# the first hit we query just that one selector — a single tiny JS call instead
+# of re-scanning the whole selector list on every poll.
+_ID_SELECTOR_CACHE: dict = {"css": None}
+
+# Same selectors and same priority order as before, checked inside ONE
+# JavaScript call (one Selenium round-trip instead of one per element).
+_ID_CSS_SELECTORS = [
+    "[class*='recordInfoContainer'][appnum]",
+    "[class*='recordInfoContainer'][recordnum]",
+    "[appnum]", "[recordnum]",
+    "[class*='record-title']", "[class*='recordTitle']",
+    "[class*='record-head']", "[class*='patent-number']",
+    "[class*='pubNum']", "[class*='pub-num']",
+    "[class*='recordNum']", "[class*='record-num']",
+    "[class*='appNum']", "[class*='app-num']",
+    "h1", "h2", "h3",
+]
+
+_ID_SCAN_JS = """
+const sels = arguments[0];
+const out = [];
+const visible = el => el.offsetWidth || el.offsetHeight || el.getClientRects().length;
+for (const sel of sels) {
+    let els;
+    try { els = document.querySelectorAll(sel); } catch (e) { continue; }
+    for (const el of els) {
+        const ap = el.getAttribute('appnum');
+        if (ap) out.push([sel, ap]);
+        const rn = el.getAttribute('recordnum');
+        if (rn) out.push([sel, rn]);
+        if (!visible(el)) continue;
+        const t = (el.textContent || '').trim();
+        if (t && t.length < 300) out.push([sel, t]);
+        if (out.length > 500) return out;
+    }
+}
+return out;
+"""
+
 
 def extract_patent_number(driver: webdriver.Chrome, record_idx: int) -> str:
     """Read the patent publication number from the DetailsView DOM.
 
     Tries sources in order of reliability:
+      0. The cached selector that worked on a previous record (the pub number
+         is always rendered in the same element — one cheap JS call)
       1. HTML attributes on the record container (appnum / recordnum)
       2. Text content of targeted title/heading elements
       3. Page title (document.title)
@@ -337,33 +407,24 @@ def extract_patent_number(driver: webdriver.Chrome, record_idx: int) -> str:
         m = _PATENT_ID_RE.search(text or "")
         return m.group(1).upper() if m else None
 
-    # ── 1. HTML attributes ────────────────────────────────────────────────────
-    try:
-        for attr_sel, attr_name in [
-            ("[class*='recordInfoContainer'][appnum]", "appnum"),
-            ("[class*='recordInfoContainer'][recordnum]", "recordnum"),
-            ("[appnum]", "appnum"),
-            ("[recordnum]", "recordnum"),
-        ]:
-            for el in driver.find_elements(By.CSS_SELECTOR, attr_sel):
-                found = _search(el.get_attribute(attr_name))
+    # ── 0. Cached selector from a previous record ─────────────────────────────
+    cached = _ID_SELECTOR_CACHE["css"]
+    if cached:
+        try:
+            for _sel, txt in (driver.execute_script(_ID_SCAN_JS, [cached]) or []):
+                found = _search(txt)
                 if found:
                     return found
-    except Exception:
-        pass
+        except Exception:
+            pass
 
-    # ── 2. Targeted text elements ─────────────────────────────────────────────
+    # ── 1+2. Attributes & targeted text elements (one JS round-trip) ─────────
     try:
-        for sel in ["[class*='record-title']", "[class*='recordTitle']",
-                    "[class*='record-head']", "[class*='patent-number']",
-                    "[class*='pubNum']", "[class*='pub-num']",
-                    "[class*='recordNum']", "[class*='record-num']",
-                    "[class*='appNum']",  "[class*='app-num']",
-                    "h1", "h2", "h3"]:
-            for el in driver.find_elements(By.CSS_SELECTOR, sel):
-                found = _search(el.text.strip())
-                if found:
-                    return found
+        for sel, txt in (driver.execute_script(_ID_SCAN_JS, _ID_CSS_SELECTORS) or []):
+            found = _search(txt)
+            if found:
+                _ID_SELECTOR_CACHE["css"] = sel
+                return found
     except Exception:
         pass
 
@@ -431,7 +492,7 @@ def click_next_patent(driver: webdriver.Chrome, timeout: int = 60) -> bool:
         if pos_before is not None:
             deadline = time.time() + timeout
             while time.time() < deadline:
-                time.sleep(0.5)
+                time.sleep(0.3)
                 pos_after = read_browser_record_position(driver)
                 if pos_after is not None and pos_after != pos_before:
                     return True
@@ -462,10 +523,78 @@ def click_drawings_tab(driver: webdriver.Chrome, wait: WebDriverWait) -> bool:
         tab = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
         driver.execute_script("arguments[0].scrollIntoView(true);", tab)
         driver.execute_script("arguments[0].click();", tab)
-        time.sleep(3.0)   # extra settle for slow connections
+        # Poll until the drawing panel has at least one img, up to 8s.
+        # Falls back to a 1s minimum so the DOM has time to start rendering.
+        deadline = time.time() + 8
+        while time.time() < deadline:
+            time.sleep(0.4)
+            try:
+                if driver.execute_script(_DRAWINGS_READY_JS):
+                    break
+            except Exception:
+                pass
+        else:
+            time.sleep(1.0)   # panel never lit up — give it one more second
         return True
     except TimeoutException:
         return False
+
+
+# All three collection passes run inside the browser in single JS calls.
+# _DRAWINGS_READY_JS uses a broad ANY-img check as the ready signal:
+# PatSeer renders drawings in many different container class names depending on
+# the record type, so checking every <img> on the page is more reliable than
+# targeting specific class names.  Icon/logo images are tiny (<50px) and are
+# excluded by the naturalWidth check.
+_DRAWINGS_READY_JS = """
+const allImgs = document.getElementsByTagName('img');
+for (const el of allImgs) {
+    const s = el.getAttribute('src') || el.getAttribute('data-src') || '';
+    if (s.indexOf('http') !== 0) continue;
+    // Skip tiny icons (naturalWidth available once image has loaded)
+    if (el.naturalWidth && el.naturalWidth < 50) continue;
+    return true;
+}
+return false;
+"""
+
+_COLLECT_TARGETED_JS = """
+const sels = arguments[0];
+const out = [];
+for (const sel of sels) {
+    let els;
+    try { els = document.querySelectorAll(sel); } catch (e) { continue; }
+    for (const el of els) {
+        for (const a of ['src', 'data-src', 'data-original', 'data-lazy']) {
+            const v = el.getAttribute(a);
+            if (v) out.push(v);
+        }
+    }
+}
+return out;
+"""
+
+_COLLECT_BROAD_JS = """
+const out = [];
+for (const img of document.getElementsByTagName('img')) {
+    const src = img.getAttribute('src') || img.getAttribute('data-src') || '';
+    if (src.indexOf('http') !== 0) continue;
+    // Skip only very tiny icons (< 50px) — 100px was too aggressive and
+    // caused thumbnails to be missed on some PatSeer record types.
+    if (img.naturalWidth && img.naturalWidth < 50) continue;
+    out.push(src);
+}
+return out;
+"""
+
+_COLLECT_HREF_JS = """
+const out = [];
+for (const a of document.querySelectorAll('a[href]')) {
+    const h = a.href || '';
+    if (/\\.(png|jpg|jpeg|gif|tif|tiff|bmp|webp)(\\?|$)/i.test(h)) out.push(h);
+}
+return out;
+"""
 
 
 def collect_image_urls(
@@ -479,19 +608,21 @@ def collect_image_urls(
     header when each URL is fetched.  file_type_filter applies a URL-heuristic
     pre-filter based on the filename segment embedded in the PatSeer CDN path.
     """
-    # Wait until at least one drawing image appears (up to 60s on slow connections),
-    # then add a small extra pause for any remaining lazy-loaded thumbnails.
+    # Wait until at least one drawing image appears (up to 60s on slow connections).
+    # Poll every 0.5s; once images appear, wait up to 1.5s more for lazy-loaded
+    # thumbnails to finish — but only up to that cap, not a full 2s every time.
     deadline = time.time() + 60
+    appeared_at: float | None = None
     while time.time() < deadline:
-        imgs = driver.find_elements(By.CSS_SELECTOR,
-            "div[class*='drawing'] img, div[class*='Drawing'] img, "
-            "div[class*='figure'] img, figure img")
-        if imgs and any(
-            (el.get_attribute("src") or "").startswith("http") for el in imgs
-        ):
-            break
-        time.sleep(1.0)
-    time.sleep(2.0)   # extra settle for lazy-loaded thumbnails on slow connections
+        try:
+            if driver.execute_script(_DRAWINGS_READY_JS):
+                if appeared_at is None:
+                    appeared_at = time.time()
+                elif time.time() - appeared_at >= 1.5:
+                    break   # images stable for 1.5s — done waiting
+        except Exception:
+            pass
+        time.sleep(0.5)
 
     seen: set[str] = set()
     urls: list[str] = []
@@ -526,36 +657,30 @@ def collect_image_urls(
         "a[class*='drawing'] img",
         "a[class*='thumbnail'] img",
     ]
-    for css in css_targeted:
-        for img in driver.find_elements(By.CSS_SELECTOR, css):
-            for attr in ("src", "data-src", "data-original", "data-lazy"):
-                _add(img.get_attribute(attr) or "")
+    try:
+        for src in driver.execute_script(_COLLECT_TARGETED_JS, css_targeted) or []:
+            _add(src)
+    except Exception:
+        pass
 
     # ── Pass 2: broad fallback — all <img> tags, filter by size + URL ────────
     if not urls:
-        for img in driver.find_elements(By.TAG_NAME, "img"):
-            src = img.get_attribute("src") or img.get_attribute("data-src") or ""
-            if not src.startswith("http"):
-                continue
-            # Skip tiny icons/logos (width or height < 100px in natural size)
-            try:
-                nat_w = driver.execute_script("return arguments[0].naturalWidth;",  img)
-                nat_h = driver.execute_script("return arguments[0].naturalHeight;", img)
-                if nat_w and nat_h and (int(nat_w) < 100 or int(nat_h) < 100):
+        try:
+            for src in driver.execute_script(_COLLECT_BROAD_JS) or []:
+                # Skip obvious non-drawing resources
+                if any(skip in src.lower() for skip in ("logo", "icon", "avatar", "spinner", "flag")):
                     continue
-            except Exception:
-                pass
-            # Skip obvious non-drawing resources
-            if any(skip in src.lower() for skip in ("logo", "icon", "avatar", "spinner", "flag")):
-                continue
-            _add(src)
+                _add(src)
+        except Exception:
+            pass
 
     # ── Pass 3: anchor hrefs pointing directly to image files ────────────────
     if not urls:
-        for a in driver.find_elements(By.CSS_SELECTOR, "a[href]"):
-            href = a.get_attribute("href") or ""
-            if re.search(r"\.(png|jpg|jpeg|gif|tif|tiff|bmp|webp)(\?|$)", href, re.IGNORECASE):
+        try:
+            for href in driver.execute_script(_COLLECT_HREF_JS) or []:
                 _add(href)
+        except Exception:
+            pass
 
     return urls
 
@@ -767,9 +892,20 @@ def main():
     else:
         print("  ⚠  Timeout — proceeding anyway.")
 
-    # ── Open DetailsView ──────────────────────────────────────────────────────
-    driver.get("https://app1.patseer.com/DetailsView")
-    time.sleep(5)
+    # ── Wait for the user to open DetailsView ─────────────────────────────────
+    # Navigate manually in Chrome: open your search, switch to Details View and
+    # land on the record you want to start from. Nothing is read until Enter,
+    # and Enter is only accepted once the browser is actually on Details View
+    # (URL contains "detailsview" or the "X / Y" record counter is readable).
+    while True:
+        input("\n  In Chrome, open the Details View on the record you want to "
+              "start from,\n  then press Enter here to begin downloading… ")
+        on_details = ("detailsview" in driver.current_url.lower()
+                      or read_browser_record_position(driver) is not None)
+        if on_details:
+            break
+        print("  ⚠  Not on the Details View page yet — open a record in "
+              "Details View in Chrome, then press Enter again.")
 
     start = START_FROM
     print(f"  Starting from record {start}…\n")
@@ -831,8 +967,15 @@ def main():
                 print(f"  Patent : {patent_num}")
 
                 # ── Step 5: skip if already downloaded ────────────────────────
-                manifest_path = OUTPUT_DIR / patent_num / f"{patent_num}_download_manifest.json"
-                if manifest_path.exists():
+                # Only skip on a *real* patent ID — never skip a record_XXXX
+                # folder, because those represent failed previous runs and must
+                # be retried.  (record_XXXX manifests exist but contain no images.)
+                already_done = False
+                if not patent_num.startswith("record_"):
+                    manifest_path = OUTPUT_DIR / patent_num / f"{patent_num}_download_manifest.json"
+                    if manifest_path.exists():
+                        already_done = True
+                if already_done:
                     print(f"  Manifest exists — skipping")
                     if idx < TOTAL_RECORDS:
                         click_next_patent(driver)
