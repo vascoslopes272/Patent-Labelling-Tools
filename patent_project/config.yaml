@@ -1,0 +1,11 @@
+# Configuration for the patent processing project
+
+paths:
+  base: "/home/vasco/Vasco Workspace/Tese_Vasco_Lnx/WSpaces/patent_project"
+  raw_images: "{{ paths.base }}/raw_images"
+  matched: "{{ paths.base }}/matched"
+  data: "{{ paths.base }}/data"
+
+# Processing parameters
+scan_limit: 10 # Limit the number of patents to process during development
+model_id: "Qwen/Qwen2.5-VL-7B-Instruct"

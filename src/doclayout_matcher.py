@@ -33,7 +33,7 @@ DEFAULT_WEIGHTS = (
 
 YOLO_CONF    = 0.25    # lowered from 0.40 — recovers sub-figures detected at 0.25–0.39
 NMS_IOU      = 0.30    # IoU threshold for suppressing duplicate/nested figure boxes
-MIN_CROP_PX  = 150     # discard crops smaller than this in either dimension
+MIN_CROP_PX  = 300     # discard crops smaller than this in either dimension (filters bad thin split slices)
 IMGSZ        = 1024    # DocStructBench model was trained at 1024
 
 # A single figure box taller than this (px) AND containing clear horizontal whitespace
@@ -41,14 +41,22 @@ IMGSZ        = 1024    # DocStructBench model was trained at 1024
 SPLIT_HEIGHT_PX  = 1400
 SPLIT_GAP_PX     = 30   # minimum whitespace run (px) to treat as a split point
 
+# Context padding around the figure box for the Qwen fallback. The caption ("FIG. n")
+# is usually printed OUTSIDE the YOLO figure box — without this margin Qwen never sees it.
+# 350px below matches the EasyOCR Pass-4 caption strip; smaller side/top pads catch
+# rotated labels printed beside or above the drawing.
+QWEN_PAD_BELOW_PX = 350
+QWEN_PAD_SIDE_PX  = 150
+
 # DocStructBench class names we care about (matched by NAME, not index).
 _FIGURE_CLASS = "figure"
 _CAPTION_CLASS = "figure_caption"
 
 # Robust to EasyOCR misreads of the separator character:
 #   "FIG. 1A"  "Fig. 2a"  "FIG 3"  "Fig_4a"  "Fig: 1"  "Fia. 2"  "Fig1"
-# Accepts any 0-2 non-alphanumeric chars between FIG[URE] and the number.
-_FIG_KEY_RE = re.compile(r"FI[GA][^A-Za-z0-9]{0,2}([0-9]+[A-Za-z]?)", re.IGNORECASE)
+#   "FIGURE 1A" (spelled out — e.g. US2020148347) and plural "FIGS. 2"
+# Accepts any 0-2 non-alphanumeric chars between FIG[URE](S) and the number.
+_FIG_KEY_RE = re.compile(r"FI[GA](?:URE)?S?[^A-Za-z0-9]{0,2}([0-9]+[A-Za-z]?)", re.IGNORECASE)
 
 
 # ─── Engine ───────────────────────────────────────────────────────────────────
@@ -243,101 +251,122 @@ def _match_caption(fig_box: list[int], captions: list[dict]) -> dict | None:
 
 
 def _ocr_for_label(reader, crop: np.ndarray) -> str | None:
+    """Try OCR at each cardinal rotation; return label or None."""
+    lbl, _ = _ocr_for_label_and_rotation(reader, crop)
+    return lbl
+
+
+def _ocr_for_label_and_rotation(reader, crop: np.ndarray) -> tuple[str | None, int]:
     """
-    Try OCR at 0° first; if no FIG match, retry with rotation_info so EasyOCR
-    also tests 90 / 180 / 270° — handles landscape captions on portrait sheets.
-    Returns the matched label string or None.
+    Try OCR at 0°, then 90°, 180°, 270° explicitly.
+    Returns (label, rotation_degrees) where rotation_degrees is the angle that
+    needed to be applied to the crop to make the label readable upright.
+
+    Trying each angle independently (rather than passing rotation_info) lets us
+    know *which* angle worked, so the caller can apply the same rotation to the
+    saved crop — making the output image always upright.
     """
-    for kwargs in [{"detail": 0}, {"detail": 0, "rotation_info": [90, 180, 270]}]:
+    for degrees in [0, 180, 90, 270]:   # 180° first after 0° — most common flip
+        rotated = np.rot90(crop, k=degrees // 90)
         try:
-            texts = reader.readtext(crop, **kwargs)
+            texts = reader.readtext(rotated, detail=0)
         except Exception:
             continue
         joined = " ".join(texts)
         m = _FIG_KEY_RE.search(joined)
         if m:
-            return m.group(1)
-    return None
+            return m.group(1), degrees
+    return None, 0
 
 
 def read_label(reader, img: np.ndarray, cap_box: list[int] | None,
-               fig_box: list[int] | None = None) -> tuple[str | None, bool]:
+               fig_box: list[int] | None = None) -> tuple[str | None, bool, int]:
     """
     OCR the caption region (with rotation fallback) and extract a clean figure label.
 
-    If cap_box is None or yields no match, falls back to scanning the figure box itself
-    for an embedded rotated label (e.g. 'Fig. 1' printed vertically inside the drawing).
-
-    Returns (clean_label, needs_review). 'FIG. 2A' -> ('2A', False); unreadable -> (None, True).
+    Returns (clean_label, needs_review, rotation_degrees).
+    rotation_degrees is the angle that needed to be applied to the REGION crop to
+    make the label readable — the caller applies the same rotation to the figure crop
+    so the saved image is always upright. 0 means no rotation needed (or unknown).
     """
     h, w = img.shape[:2]
 
-    def _read_region(box):
+    def _read_region(box) -> tuple[str | None, int]:
         x1, y1, x2, y2 = box
         pad = 4
         x1, y1 = max(0, x1 - pad), max(0, y1 - pad)
         x2, y2 = min(w, x2 + pad), min(h, y2 + pad)
         region = img[y1:y2, x1:x2]
         if region.size == 0:
-            return None
-        return _ocr_for_label(reader, region)
+            return None, 0
+        return _ocr_for_label_and_rotation(reader, region)
 
-    # Pass 1: dedicated caption box (with rotation)
+    # Pass 1: dedicated caption box
     if cap_box is not None:
-        lbl = _read_region(cap_box)
+        lbl, rot = _read_region(cap_box)
         if lbl:
-            return lbl, False
+            return lbl, False, rot
 
     if fig_box is not None:
         fx1, fy1, fx2, fy2 = fig_box
         fw, fh = fx2 - fx1, fy2 - fy1
 
-        # Pass 2: top-left corner of the figure box (top 25% height × left 45% width).
-        # Patents almost always print "Fig. N" or "FIG. N" in the upper-left of the
-        # sub-figure area. This small focused crop avoids the noisy reference numerals
-        # that fill the rest of the drawing and confuse EasyOCR.
-        corner = [fx1, fy1, fx1 + int(fw * 0.45), fy1 + int(fh * 0.25)]
-        lbl = _read_region(corner)
+        # Pass 2: top-left corner (top 25% × left 45%)
+        lbl, rot = _read_region([fx1, fy1, fx1 + int(fw * 0.45), fy1 + int(fh * 0.25)])
         if lbl:
-            return lbl, False
+            return lbl, False, rot
 
-        # Pass 3: top-right corner (some patents put the label on the right)
-        corner_r = [fx2 - int(fw * 0.45), fy1, fx2, fy1 + int(fh * 0.25)]
-        lbl = _read_region(corner_r)
+        # Pass 3: top-right corner
+        lbl, rot = _read_region([fx2 - int(fw * 0.45), fy1, fx2, fy1 + int(fh * 0.25)])
         if lbl:
-            return lbl, False
+            return lbl, False, rot
 
-        # Pass 4: fixed 350px strip directly below the figure box.
-        # Patent captions are always a short text line; 350px covers large-font USPTO labels
-        # and cases where there is a gap between the figure boundary and the caption.
-        # Using a below-only strip avoids picking up the caption of the figure above.
-        below_strip = [fx1, fy2, fx2, min(h, fy2 + 350)]
-        lbl = _read_region(below_strip)
+        # Pass 4: 350px strip below the figure box
+        lbl, rot = _read_region([fx1, fy2, fx2, min(h, fy2 + 350)])
         if lbl:
-            return lbl, False
+            return lbl, False, rot
 
-        # Pass 4b: bottom 15% of the figure box (center region).
-        # Catches captions printed inside the drawing near the bottom center — common
-        # when YOLO merges multiple sub-figures into one detection box.
-        bottom_center = [fx1 + int(fw * 0.1), fy2 - int(fh * 0.15),
-                         fx2 - int(fw * 0.1), fy2]
-        lbl = _read_region(bottom_center)
+        # Pass 4b: bottom 15% center of figure box
+        lbl, rot = _read_region([fx1 + int(fw * 0.1), fy2 - int(fh * 0.15),
+                                  fx2 - int(fw * 0.1), fy2])
         if lbl:
-            return lbl, False
+            return lbl, False, rot
 
-        # Pass 5: side margins + above (rotated captions beside/above the drawing).
-        margin_x = max(10, int(fw * 0.15))
+        # Pass 5: side margins + above
+        margin_x     = max(10, int(fw * 0.15))
         margin_above = max(10, int(fh * 0.08))
         for region_box in [
-            [max(0, fx1 - margin_x), fy1, fx1, fy2],          # left strip
-            [fx2, fy1, min(w, fx2 + margin_x), fy2],           # right strip
-            [fx1, max(0, fy1 - margin_above), fx2, fy1],        # above strip
+            [max(0, fx1 - margin_x), fy1, fx1, fy2],
+            [fx2, fy1, min(w, fx2 + margin_x), fy2],
+            [fx1, max(0, fy1 - margin_above), fx2, fy1],
         ]:
-            lbl = _read_region(region_box)
+            lbl, rot = _read_region(region_box)
             if lbl:
-                return lbl, False
+                return lbl, False, rot
 
-    return None, True
+        # Pass 6: bottom strip of the entire sheet — catches labels printed at the very
+        # bottom page margin, outside all figure boxes (common on rotated/flipped sheets).
+        sheet_bottom_box = [0, max(0, h - 350), w, h]
+        lbl, rot = _read_region(sheet_bottom_box)
+        if lbl:
+            return lbl, False, rot
+
+        # Pass 7: bottom corners of the figure box (labels often tucked into corners
+        # of rotated sheets where top-corner passes miss them).
+        lbl, rot = _read_region([fx1, fy2 - int(fh * 0.25), fx1 + int(fw * 0.45), fy2])
+        if lbl:
+            return lbl, False, rot
+        lbl, rot = _read_region([fx2 - int(fw * 0.45), fy2 - int(fh * 0.25), fx2, fy2])
+        if lbl:
+            return lbl, False, rot
+
+        # Pass 8: whole figure box at all 4 rotations — last resort; slow but recovers
+        # sheets where the label is embedded inside the drawing area.
+        lbl, rot = _ocr_for_label_and_rotation(reader, img[fy1:fy2, fx1:fx2])
+        if lbl:
+            return lbl, False, rot
+
+    return None, True, 0
 
 
 # ─── Cropping ─────────────────────────────────────────────────────────────────
@@ -416,14 +445,19 @@ def _qwen_label(img_crop_bgr: np.ndarray, qwen_model, qwen_processor) -> str | N
     return m.group(1) if m else None
 
 
+_QWEN_UNAVAILABLE = False   # set True after first failed load — suppresses repeated warnings
+
 def _ensure_qwen(engine: list) -> bool:
     """
     Lazy-load Qwen into engine[3] / engine[4] on first call.
     Returns True if Qwen is available, False if import fails.
     engine is a mutable list [model, reader, device, qwen_model, qwen_processor].
     """
+    global _QWEN_UNAVAILABLE
     if engine[3] is not None:
         return True
+    if _QWEN_UNAVAILABLE:
+        return False
     try:
         import sys, pathlib
         sys.path.insert(0, str(pathlib.Path(__file__).parent))
@@ -436,7 +470,39 @@ def _ensure_qwen(engine: list) -> bool:
         return True
     except Exception as e:
         print(f"    ⚠ Qwen fallback unavailable: {e}")
+        _QWEN_UNAVAILABLE = True
         return False
+
+
+def _infer_sheet_rotation(reader, img: np.ndarray) -> int:
+    """
+    When no FIG label is found, infer the correct upright rotation from all readable
+    text on the sheet.  Tries 0°, 90°, 180°, 270°; picks the rotation that produces
+    the most total readable characters (longest joined OCR output).
+
+    Uses a small downscale (max 600px on the long edge) so the full-sheet scan stays fast.
+    Returns the rotation angle (0 / 90 / 180 / 270) to apply to bring the sheet upright.
+    Returns 0 if no rotation clearly wins (i.e. difference is small).
+    """
+    h, w = img.shape[:2]
+    scale = min(1.0, 600 / max(h, w, 1))
+    small = cv2.resize(img, (max(1, int(w * scale)), max(1, int(h * scale))))
+
+    scores: dict[int, int] = {}
+    for degrees in [0, 90, 180, 270]:
+        rotated = np.rot90(small, k=degrees // 90)
+        try:
+            texts = reader.readtext(rotated, detail=0)
+        except Exception:
+            scores[degrees] = 0
+            continue
+        scores[degrees] = sum(len(t) for t in texts)
+
+    best_angle = max(scores, key=scores.__getitem__)
+    # Only commit if the best rotation gives clearly more text than upright (0°)
+    if best_angle != 0 and scores[best_angle] > scores.get(0, 0) * 1.2:
+        return best_angle
+    return 0
 
 
 def crop_and_save(img_path: Path, figures: list[dict], captions: list[dict],
@@ -455,6 +521,8 @@ def crop_and_save(img_path: Path, figures: list[dict], captions: list[dict],
         return []
     h, w = img.shape[:2]
 
+    _sheet_rot_cache: int | None = None   # computed once per sheet, reused across _Fu crops
+
     records: list[dict] = []
     for idx, fig in enumerate(figures):
         x1, y1, x2, y2 = fig["box"]
@@ -466,20 +534,36 @@ def crop_and_save(img_path: Path, figures: list[dict], captions: list[dict],
             continue
 
         cap = _match_caption(fig["box"], captions)
-        clean_lbl, needs_review = read_label(reader, img,
-                                             cap["box"] if cap else None,
-                                             fig_box=fig["box"])
+        clean_lbl, needs_review, label_rotation = read_label(
+            reader, img,
+            cap["box"] if cap else None,
+            fig_box=fig["box"],
+        )
 
         # Qwen fallback when EasyOCR found nothing
         method = "doclayout_easyocr"
         if needs_review and _ensure_qwen(engine):
-            qwen_lbl = _qwen_label(crop, engine[3], engine[4])
+            qx1 = max(0, x1 - QWEN_PAD_SIDE_PX)
+            qy1 = max(0, y1 - QWEN_PAD_SIDE_PX)
+            qx2 = min(w, x2 + QWEN_PAD_SIDE_PX)
+            qy2 = min(h, y2 + QWEN_PAD_BELOW_PX)
+            qwen_lbl = _qwen_label(img[qy1:qy2, qx1:qx2], engine[3], engine[4])
             if qwen_lbl:
                 clean_lbl, needs_review = qwen_lbl, False
                 method = "doclayout_qwen"
 
-        # Auto-rotate crop to upright before saving
-        crop = _auto_rotate(crop)
+        # Rotate crop to match the orientation in which the label was readable.
+        # label_rotation is the angle that made the label text upright, so applying
+        # the same rotation to the crop makes the whole drawing upright.
+        if label_rotation != 0:
+            crop = np.rot90(crop, k=label_rotation // 90)
+        elif needs_review:
+            # No label found — use sheet-level text orientation as fallback.
+            # Computed once per sheet (cached), applied to every unlabelled crop.
+            if _sheet_rot_cache is None:
+                _sheet_rot_cache = _infer_sheet_rotation(reader, img)
+            if _sheet_rot_cache != 0:
+                crop = np.rot90(crop, k=_sheet_rot_cache // 90)
 
         suffix   = f"_F{clean_lbl}" if not needs_review else "_Fu"
         out_path = out_dir / f"{img_path.stem}_crop_{idx}{suffix}.png"
