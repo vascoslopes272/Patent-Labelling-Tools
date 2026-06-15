@@ -36,23 +36,36 @@ _PROMPT_FLAG = "a flowchart, state diagram, block diagram, process flow, or text
 
 # ─── Model loading ────────────────────────────────────────────────────────────
 
+def _best_cuda_device() -> str:
+    """Return the cuda device index with the most free VRAM, as 'cuda:N'."""
+    best_idx, best_free = 0, 0
+    for i in range(torch.cuda.device_count()):
+        free = torch.cuda.mem_get_info(i)[0]
+        if free > best_free:
+            best_free, best_idx = free, i
+    return f"cuda:{best_idx}"
+
+
 def load_siglip_model(cfg: dict) -> tuple:
     """
     Load SigLIP ViT-SO400M-14-SigLIP-384 via open_clip.
 
-    Weights are cached in cfg["paths"]["siglip_cache"] (models/SigLIP/).
-    Downloads ~3 GB on first call; subsequent calls are instant.
-    Returns (model, processor, device).
+    Speed optimisations applied here:
+    - fp16: halves VRAM (~1.7 GB vs ~3.3 GB) and uses tensor-core GEMM on RTX cards.
+    - GPU selection: picks the CUDA device with the most free VRAM, so it coexists
+      with Qwen (or any other model) loaded on the other GPU.
+    - Pre-computed text embeddings: the two prompt embeddings are computed once at
+      load time and stored in the returned processor tuple. score_image() and
+      score_batch() reuse them directly — no redundant encode_text() per image.
 
-    ``processor`` here is a (tokenizer, preprocess) pair stored as a tuple so
-    callers can unpack it:  model, (tokenizer, preprocess), device = load_siglip_model(cfg)
+    Weights are cached in cfg["paths"]["siglip_cache"] (models/SigLIP/).
+    Returns (model, processor, device) where processor = (preprocess, text_feats).
     """
     import os
     import open_clip
 
     cache_dir = Path(cfg["paths"]["siglip_cache"])
     cache_dir.mkdir(parents=True, exist_ok=True)
-    # Redirect HuggingFace Hub downloads to our models/SigLIP folder.
     os.environ["HF_HUB_CACHE"] = str(cache_dir)
     print(f"[SigLIP] Cache: {cache_dir}")
 
@@ -62,18 +75,84 @@ def load_siglip_model(cfg: dict) -> tuple:
     tokenizer = open_clip.get_tokenizer("hf-hub:timm/ViT-SO400M-14-SigLIP-384")
 
     if torch.cuda.is_available():
-        device = "cuda"
+        device = _best_cuda_device()
     elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         device = "mps"
     else:
         device = "cpu"
 
-    model = model.to(device).eval()
-    print(f"[SigLIP] Loaded ViT-SO400M-14-SigLIP-384 on {device}")
-    return model, (tokenizer, preprocess), device
+    model = model.to(device, dtype=torch.float16).eval()
+
+    # Pre-compute and normalise text embeddings once — reused for every image.
+    with torch.no_grad():
+        text_tokens = tokenizer([_PROMPT_KEEP, _PROMPT_FLAG]).to(device)
+        text_feats  = model.encode_text(text_tokens).float()
+        text_feats  = text_feats / text_feats.norm(dim=-1, keepdim=True)
+        text_feats  = text_feats.half()   # keep in fp16 for dot-product consistency
+
+    free_gb = torch.cuda.mem_get_info(torch.device(device).index)[0] / 1e9
+    print(f"[SigLIP] Loaded fp16 on {device}  ({free_gb:.1f} GB VRAM remaining)")
+    return model, (preprocess, text_feats), device
 
 
-# ─── Per-image scoring ────────────────────────────────────────────────────────
+# ─── Scoring ──────────────────────────────────────────────────────────────────
+
+def _make_result(name: str, probs: list[float] | None, threshold: float) -> dict:
+    """Build a standardised result dict from a [score_drawing, score_table] pair."""
+    if probs is None:
+        return {"file": name, "pred": "error", "score_drawing": 0.0, "score_table": 0.0, "keep": True}
+    s_draw, s_tab = probs[0], probs[1]
+    return {
+        "file":          name,
+        "pred":          "drawing" if s_draw >= s_tab else "table",
+        "score_drawing": round(s_draw, 4),
+        "score_table":   round(s_tab,  4),
+        "keep":          s_draw >= threshold,
+    }
+
+
+def score_batch(
+    img_paths: list[Path],
+    model,
+    processor: tuple,
+    device: str,
+    threshold: float = 0.60,
+) -> list[dict]:
+    """
+    Score a batch of images in a single forward pass.
+
+    processor = (preprocess, text_feats) as returned by load_siglip_model().
+    text_feats are pre-normalised fp16 tensors — no encode_text() call per batch.
+    Any image that fails to load falls back to keep=True (fail-safe).
+    """
+    preprocess, text_feats = processor
+    results: list[dict] = []
+
+    tensors, valid_names, failed_names = [], [], []
+    for p in img_paths:
+        try:
+            tensors.append(preprocess(Image.open(p).convert("RGB")))
+            valid_names.append(p.name)
+        except Exception:
+            failed_names.append(p.name)
+
+    if tensors:
+        batch = torch.stack(tensors).to(device, dtype=torch.float16)
+        with torch.no_grad():
+            img_feats = model.encode_image(batch).float()
+            img_feats = img_feats / img_feats.norm(dim=-1, keepdim=True)
+            logits = (img_feats.half() @ text_feats.T)
+            probs  = logits.softmax(dim=-1).cpu().tolist()
+        for name, p in zip(valid_names, probs):
+            results.append(_make_result(name, p, threshold))
+
+    for name in failed_names:
+        results.append(_make_result(name, None, threshold))
+
+    order = {p.name: i for i, p in enumerate(img_paths)}
+    results.sort(key=lambda r: order.get(r["file"], 9999))
+    return results
+
 
 def score_image(
     img_path: Path,
@@ -82,56 +161,80 @@ def score_image(
     device: str,
     threshold: float = 0.60,
 ) -> dict:
+    """Score a single image. Thin wrapper around score_batch for API compatibility."""
+    return score_batch([img_path], model, processor, device, threshold)[0]
+
+
+class _PatentDataset(torch.utils.data.Dataset):
+    """Minimal Dataset for parallel image loading via DataLoader workers."""
+    def __init__(self, paths: list[Path], preprocess):
+        self.paths     = paths
+        self.preprocess = preprocess
+
+    def __len__(self): return len(self.paths)
+
+    def __getitem__(self, idx):
+        p = self.paths[idx]
+        try:
+            tensor = self.preprocess(Image.open(p).convert("RGB"))
+            return tensor, p.name, True   # (tensor, name, ok)
+        except Exception:
+            # Return a zero tensor so the DataLoader batch stays uniform
+            dummy = torch.zeros(3, 384, 384)
+            return dummy, p.name, False
+
+
+def score_all(
+    img_paths: list[Path],
+    model,
+    processor: tuple,
+    device: str,
+    threshold: float = 0.60,
+    batch_size: int = 16,
+    num_workers: int = 4,
+) -> list[dict]:
     """
-    Run SigLIP zero-shot classification on a single image.
+    Score a large list of images using parallel I/O + batched GPU inference.
 
-    Returns a dict with keys:
-        file           – filename only (not the full path)
-        pred           – "drawing" | "table" | "error"
-        score_drawing  – softmax probability for the KEEP prompt
-        score_table    – softmax probability for the FLAG prompt
-        keep           – True when score_drawing >= threshold (fail-safe on error)
+    num_workers DataLoader workers preprocess images on CPU while the GPU runs
+    the previous batch — hides the I/O bottleneck for large patent folders.
+    Results are returned in the same order as img_paths.
     """
-    tokenizer, preprocess = processor
+    preprocess, text_feats = processor
+    dataset = _PatentDataset(img_paths, preprocess)
+    loader  = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        pin_memory=device.startswith("cuda"),
+        prefetch_factor=2 if num_workers > 0 else None,
+    )
 
-    try:
-        img = preprocess(Image.open(img_path).convert("RGB")).unsqueeze(0).to(device)
+    results_map: dict[str, dict] = {}
 
-        texts = tokenizer([_PROMPT_KEEP, _PROMPT_FLAG]).to(device)
+    for tensors, names, oks in loader:
+        names = list(names)
+        oks   = oks.tolist()
 
-        with torch.no_grad():
-            img_feat  = model.encode_image(img)
-            text_feat = model.encode_text(texts)
+        # Split valid / failed within the batch
+        valid_idx = [i for i, ok in enumerate(oks) if ok]
+        if valid_idx:
+            valid_tensors = tensors[valid_idx].to(device, dtype=torch.float16)
+            valid_names   = [names[i] for i in valid_idx]
+            with torch.no_grad():
+                img_feats = model.encode_image(valid_tensors).float()
+                img_feats = img_feats / img_feats.norm(dim=-1, keepdim=True)
+                logits    = (img_feats.half() @ text_feats.T)
+                probs     = logits.softmax(dim=-1).cpu().tolist()
+            for name, p in zip(valid_names, probs):
+                results_map[name] = _make_result(name, p, threshold)
 
-            # SigLIP uses sigmoid rather than softmax internally, but for a
-            # two-class argmax either normalisation works; we use softmax so
-            # the two scores sum to 1 and are easy to threshold.
-            img_feat  = img_feat  / img_feat.norm(dim=-1, keepdim=True)
-            text_feat = text_feat / text_feat.norm(dim=-1, keepdim=True)
-            logits = (img_feat @ text_feat.T).squeeze(0)
-            probs  = logits.softmax(dim=-1).cpu().tolist()
+        for i, (name, ok) in enumerate(zip(names, oks)):
+            if not ok:
+                results_map[name] = _make_result(name, None, threshold)
 
-        score_drawing, score_table = probs[0], probs[1]
-        pred = "drawing" if score_drawing >= score_table else "table"
-        keep = score_drawing >= threshold
-
-        return {
-            "file": img_path.name,
-            "pred": pred,
-            "score_drawing": round(score_drawing, 4),
-            "score_table":   round(score_table,   4),
-            "keep": keep,
-        }
-
-    except Exception:
-        # Fail safe: unknown images are always kept, never silently discarded.
-        return {
-            "file": img_path.name,
-            "pred": "error",
-            "score_drawing": 0.0,
-            "score_table":   0.0,
-            "keep": True,
-        }
+    # Return in original order
+    return [results_map[p.name] for p in img_paths]
 
 
 # ─── Per-patent triage ────────────────────────────────────────────────────────
@@ -143,19 +246,22 @@ def triage_patent(
     processor: tuple,
     device: str,
     threshold: float = 0.60,
+    batch_size: int = 16,
+    num_workers: int = 4,
 ) -> dict:
     """
-    Score all .png files in raw_dir/patent_id/.
+    Score all .png files in raw_dir/patent_id/ using batched inference.
+
+    batch_size=16 is a safe default for a 10 GB GPU with SigLIP fp16 (~1.7 GB weights).
+    Raise to 32 if VRAM is free; lower to 8 if you see OOM.
 
     Returns:
     {
         "patent_id": str,
         "total":     int,
-        "flagged":   int,          # images where keep=False
-        "figures":   [...]         # one score_image result per image, sorted by filename
+        "flagged":   int,
+        "figures":   [...]   # one result per image, sorted by filename
     }
-
-    Silently returns an empty result if the folder does not exist or has no PNGs.
     """
     patent_dir = raw_dir / patent_id
     if not patent_dir.is_dir():
@@ -165,18 +271,10 @@ def triage_patent(
     if not png_files:
         return {"patent_id": patent_id, "total": 0, "flagged": 0, "figures": []}
 
-    figures = [
-        score_image(p, model, processor, device, threshold=threshold)
-        for p in png_files
-    ]
-    flagged = sum(1 for f in figures if not f["keep"])
+    figures = score_all(png_files, model, processor, device, threshold, batch_size, num_workers)
 
-    return {
-        "patent_id": patent_id,
-        "total":     len(figures),
-        "flagged":   flagged,
-        "figures":   figures,
-    }
+    flagged = sum(1 for f in figures if not f["keep"])
+    return {"patent_id": patent_id, "total": len(figures), "flagged": flagged, "figures": figures}
 
 
 # ─── Full-dataset triage ──────────────────────────────────────────────────────
@@ -185,6 +283,8 @@ def run_triage(
     cfg: dict,
     threshold: float = 0.60,
     limit: int | None = None,
+    batch_size: int = 16,
+    num_workers: int = 4,
 ) -> None:
     """
     Score every image in raw_dir, writing one JSON per patent and a summary CSV.
@@ -214,7 +314,7 @@ def run_triage(
 
     for patent_path in patent_dirs:
         patent_id = patent_path.name
-        result    = triage_patent(patent_id, raw_dir, model, processor, device, threshold)
+        result    = triage_patent(patent_id, raw_dir, model, processor, device, threshold, batch_size, num_workers)
 
         if result["total"] == 0:
             continue
