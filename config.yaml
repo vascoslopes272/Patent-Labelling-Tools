@@ -12,6 +12,7 @@ paths:
   data:          "{{ paths.base }}/data"
   triage:        "{{ paths.base }}/triage"
   model_cache:   "/home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools/models/Qwen"
+  siglip_cache:  "/home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools/models/SigLIP"
 
 # ── EPO Open Patent Services API ─────────────────────────────────────────────
 # Register a free app at https://developers.epo.org/ and put credentials in .env:
