@@ -20,67 +20,138 @@ logger = logging.getLogger(__name__)
 _AI_MODEL = "claude-sonnet-4-20250514"
 
 _SYSTEM_PROMPT = """\
-You are an expert eVTOL patent analyst. You will receive patent figures and text.
-Analyze all provided figures together with the patent text and return ONLY a single
-valid JSON object. No markdown, no explanation, no preamble.
+You are an expert eVTOL patent analyst with deep knowledge of aircraft architecture taxonomy.
+You will receive patent figures and text. Analyze everything together and return ONLY a single
+valid JSON object conforming to the schema below. No markdown, no explanation, no preamble.
 
-TAXONOMY RULES:
-- MR (Multirotor): multiple independent fixed rotors, no fixed wing for primary lift
-- FW (Fixed Wing): fixed wing provides primary lift, propulsors for thrust
-- RC (Rotor Conversion / Tiltrotor): rotors tilt to transition helicopter→fixed-wing
-- TW (Tilt Wing): entire wing tilts with mounted propulsors
-- LW (Lifting Wing): wing tilts to provide both lift and thrust
-- HB (Helicopter-Biplane Hybrid): independent helicopter AND fixed-wing systems
-- PFV (Powered Fuselage / Vectored): thrust from body/ducts, no conventional rotors or wings
-- _Fu figures: label from visual content only (no text reference available)
+════════════ TAXONOMY RULES — MANDATORY ════════════
 
-CONFIDENCE:
-- >0.85 → high (AI likely correct)
-- 0.60-0.85 → medium (verify)
-- <0.60 → low (needs human review, set needs_review: true)
+G1 TOPOLOGY — use ONLY these exact codes:
+  TW   Tilt Wing         : the ENTIRE wing panel rotates to vector thrust
+  TP   Tilt Propulsors   : propulsors tilt independently; wing is FIXED
+  DS   Deflected Slipstream: fixed props + large structural flaps deflect flow
+  CVT  Combined (CVT)    : fixed lift rotors + tilting propulsors, OR ambiguous dual-rotation
+  SLC  Lift + Cruise     : separate fixed hover rotors AND fixed cruise propulsors (no tilt)
+  SRW  Stopped Rotor Wing: rotors stop/lock in cruise and act as wings
+  RC   Rotorcraft        : single-rotor, coaxial, or tandem helicopter
+  MR   Multirotor        : distributed fixed rotors, drone / multicopter layout
+  HB   Hoverbike         : motorcycle posture, rider interface visible
+  PFV  Personal Flying Vehicle: wearable suit, jetpack, standing platform
+
+FORBIDDEN — do NOT use: FW, LW, Lift+Cruise (write SLC), Slow Rotor Winged, Hybrid, Other
+
+CLASSIFICATION RULE: always driven by the MOST COMPLEX propulsive/structural system present.
+If multiple systems coexist, classify by the highest-complexity one.
+
+WING 1 RULE (mandatory for all winged topologies):
+  Wing 1 = the largest lifting surface by projected area/span.
+  If two surfaces are equal in size, Wing 1 = the FORWARD-MOST surface.
+  Never assign Wing 1 to a canard. Never assign Wing 1 to a tailplane.
+
+REJECTION CRITERIA — set approved=false and disapprove_reason when:
+  "Pure UAV"      : no passenger or AAM intent evident in text or figures
+  "Out of Domain" : not an aircraft (ground vehicle, marine, static structure, etc.)
+  "Unreadable"    : figures are corrupt, blank, or text is missing/illegible
+
+CONFIDENCE THRESHOLDS:
+  >= 0.85  → high confidence, AI likely correct
+  0.60–0.84→ medium, human should verify
+  < 0.60   → low, set needs_review: true
+
+T1 SCOPE — use ONLY:
+  "Whole Aircraft Architecture"        : patent claims or illustrates a complete aircraft layout
+  "Architectural Subsystem Enabler"    : a subsystem that enables a specific architecture
+  "Component-Level Generic"            : low-level component with no architecture specificity
+
+T1 FIELD — use ONLY:
+  "Aerodynamic/Structural" | "Mechanical/Kinematic" | "Propulsion/Electrical" |
+  "Control/Avionics" | "Other / Unidentified"
+
+T1 TARGET — use ONLY:
+  "Layout Convergence" | "Weight/Complexity Reduction" | "Aerodynamic Efficiency" |
+  "Redundancy/Safety" | "Other / Unidentified"
+
+T2 PERSPECTIVE — use ONLY:
+  "Top" | "Bottom/Down" | "Front" | "Back" | "Side" |
+  "Front-Isometric" | "Rear-Isometric" | "Generic 3D"
+
+T2 STYLE — use ONLY:
+  "Line Drawing" | "Shaded Render" | "Solid/Filled Model" | "Schematic"
+
+T2 SYMMETRY — use ONLY:
+  "Symmetric View" | "Asymmetric View"
+
+T2 PARTS — use ONLY items from this list (can be multiple):
+  "Whole Vehicle Layout", "Primary Wing", "Secondary/Canard Wing",
+  "Empennage/Tail", "Rotor/Propeller Blade", "Tilt Hinge/Mechanism",
+  "Fuselage Cross-section", "Landing Gear/Skids",
+  "Internal Components/Batteries/Wiring"
+
+WING CONFIG — use ONLY:
+  "W"   Standard Wings (discrete panels)
+  "BWB" Blended Wing Body
+  "FW"  Flying Wing (no distinct fuselage)
+  "LB"  Lifting Body
+
+EMP TYPE — use ONLY:
+  "Tailless" | "Conventional" | "Cruciform" | "T-Tail" | "V-Tail" |
+  "Inv_V-Tail" | "H-Tail" | "Fins"
+
+FUS SHAPE — use ONLY:
+  "Circular" | "Oval" | "Rectangular" | "Blended"
+
+GEAR ARCH — use ONLY:
+  "Skids" | "FixedWheel" | "RetrWheel" | "PadsHull"
+════════════════════════════════════════════════════
 """
 
 _USER_INSTRUCTION_TEMPLATE = """\
 Patent text (abstract + description of drawings):
 {text}
 
-Return ONLY this JSON schema, filled with your analysis:
+Analyze all figures above together with the patent text.
+Return ONLY the following JSON object — no markdown, no extra keys, no comments:
+
 {{
   "T1": {{
-    "approved": bool,
+    "approved": true | false,
     "disapprove_reason": "Pure UAV" | "Out of Domain" | "Unreadable" | null,
-    "scope": "Pioneering" | "Incremental" | "Derivative",
-    "field": "Propulsion" | "Aerodynamics" | "Structure" | "Avionics" | "Operations",
-    "target": "Efficiency" | "Safety" | "Noise" | "Manufacturing" | "Control",
-    "arch_count": int,
-    "reasoning": str  // max 40 words
+    "scope": "Whole Aircraft Architecture" | "Architectural Subsystem Enabler" | "Component-Level Generic",
+    "t1Field": "Aerodynamic/Structural" | "Mechanical/Kinematic" | "Propulsion/Electrical" | "Control/Avionics" | "Other / Unidentified",
+    "t1Target": "Layout Convergence" | "Weight/Complexity Reduction" | "Aerodynamic Efficiency" | "Redundancy/Safety" | "Other / Unidentified",
+    "arch_count": 1,
+    "confidence": 0.0,
+    "reasoning": "max 40 words"
   }},
   "G1": {{
-    "topology": "MR" | "FW" | "RC" | "TW" | "LW" | "HB" | "PFV" | "OTHER",
-    "confidence": float,
-    "reasoning": str  // max 30 words
+    "topType": "TW" | "TP" | "DS" | "CVT" | "SLC" | "SRW" | "RC" | "MR" | "HB" | "PFV",
+    "confidence": 0.0,
+    "reasoning": "max 30 words — cite the specific visual evidence (rotor positions, wing motion, etc.)"
   }},
   "M1": {{
-    "wing_conf": "W" | "BW" | "TW_conf" | "CW" | null,
-    "wing_count": int,
-    "emp_type": "Tailless" | "Conventional" | "V-tail" | "T-tail" | "H-tail" | "Fins" | null,
-    "fus_shape": "Circular" | "Oval" | "Rectangular" | "Blended" | null,
-    "gear_arch": "Skids" | "FixedWheel" | "RetrWheel" | "PadsHull" | null,
-    "confidence": float
+    "wingConf": "W" | "BWB" | "FW" | "LB" | null,
+    "wCount": 1,
+    "wing1_role": "Primary Lifting Surface — largest area or forward-most if equal",
+    "empType": "Tailless" | "Conventional" | "Cruciform" | "T-Tail" | "V-Tail" | "Inv_V-Tail" | "H-Tail" | "Fins" | null,
+    "fusShape": "Circular" | "Oval" | "Rectangular" | "Blended" | null,
+    "gearArch": "Skids" | "FixedWheel" | "RetrWheel" | "PadsHull" | null,
+    "latSym": true | false,
+    "confidence": 0.0
   }},
   "T2": {{
     "<fig_number>": {{
-      "perspective": "Top"|"Front"|"Back"|"Side"|"Bottom/Down"|"Front-Isometric"|"Rear-Isometric"|"Generic 3D",
-      "style": "Line Drawing"|"Shaded Render"|"Solid/Filled Model"|"Schematic",
-      "symmetry": "Symmetric View"|"Asymmetric View",
-      "parts": [],  // subset of: "Whole Vehicle Layout","Primary Wing","Secondary/Canard Wing",
-                    // "Empennage/Tail","Rotor/Propeller Blade","Tilt Hinge/Mechanism",
-                    // "Fuselage Cross-section","Landing Gear/Skids","Internal Components/Batteries/Wiring"
-      "confidence": float,
-      "needs_review": bool
+      "per": "Top" | "Bottom/Down" | "Front" | "Back" | "Side" | "Front-Isometric" | "Rear-Isometric" | "Generic 3D",
+      "acSty": "Line Drawing" | "Shaded Render" | "Solid/Filled Model" | "Schematic",
+      "sym": "Symmetric View" | "Asymmetric View",
+      "acCol": "B/W (Monochrome)" | "Grayscale" | "Full Color",
+      "bgSty": "Solid Fill" | "Shaded/Gradient" | "Grid/Pattern",
+      "bgCol": "White" | "Blueprint Blue" | "Dark" | "Grayscale",
+      "parts": ["Whole Vehicle Layout"],
+      "confidence": 0.0,
+      "needs_review": false
     }}
   }},
-  "overall_confidence": float
+  "overall_confidence": 0.0
 }}
 """
 

@@ -48,6 +48,13 @@ SPLIT_GAP_PX     = 30   # minimum whitespace run (px) to treat as a split point
 QWEN_PAD_BELOW_PX = 350
 QWEN_PAD_SIDE_PX  = 150
 
+# ── Merge parameters ──────────────────────────────────────────────────────────
+# Same-label merge: if two YOLO boxes on one sheet get the same FIG. label their
+# union bounding box is re-cropped as a single image (handles split rotor tips, etc.)
+# Fu merge: unlabelled boxes whose vertical bands overlap AND whose horizontal gap
+# is ≤ FU_MERGE_GAP_PX are merged the same way.
+FU_MERGE_GAP_PX   = 200   # max horizontal gap (px) between two _Fu boxes to merge
+
 # DocStructBench class names we care about (matched by NAME, not index).
 _FIGURE_CLASS = "figure"
 _CAPTION_CLASS = "figure_caption"
@@ -505,6 +512,90 @@ def _infer_sheet_rotation(reader, img: np.ndarray) -> int:
     return 0
 
 
+def _union_box(boxes: list[list[int]]) -> list[int]:
+    """Return the bounding box that contains all input xyxy boxes."""
+    return [
+        min(b[0] for b in boxes),
+        min(b[1] for b in boxes),
+        max(b[2] for b in boxes),
+        max(b[3] for b in boxes),
+    ]
+
+
+def _merge_labeled(labeled: list[dict]) -> list[dict]:
+    """
+    Group labeled crops by their figure label; merge each group into a single
+    union-bbox entry. Keeps the highest-confidence box's metadata as representative.
+    """
+    from collections import defaultdict
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for item in labeled:
+        groups[item["label"]].append(item)
+
+    merged = []
+    for lbl, items in groups.items():
+        if len(items) == 1:
+            merged.append(items[0])
+        else:
+            best = max(items, key=lambda x: x["conf"])
+            merged.append({
+                "box":   _union_box([x["box"] for x in items]),
+                "conf":  best["conf"],
+                "label": lbl,
+                "cap":   best.get("cap"),
+                "label_rotation": best.get("label_rotation", 0),
+                "method": best.get("method", "doclayout_easyocr"),
+                "needs_review": False,
+            })
+    return merged
+
+
+def _merge_fu(unlabeled: list[dict]) -> list[dict]:
+    """
+    Merge unlabelled (_Fu) boxes that sit in the same horizontal band and are
+    close enough horizontally (gap ≤ FU_MERGE_GAP_PX). Uses a simple greedy
+    sweep: sort boxes left-to-right; extend the current group while the next box
+    overlaps vertically and is within the gap threshold.
+    """
+    if not unlabeled:
+        return []
+
+    # Sort by left edge
+    items = sorted(unlabeled, key=lambda x: x["box"][0])
+    groups: list[list[dict]] = []
+    current = [items[0]]
+
+    for item in items[1:]:
+        prev_box  = _union_box([x["box"] for x in current])
+        curr_box  = item["box"]
+
+        # Vertical overlap check (y-bands must intersect)
+        v_overlap = min(prev_box[3], curr_box[3]) - max(prev_box[1], curr_box[1])
+        # Horizontal gap between the right edge of current group and left edge of next
+        h_gap = curr_box[0] - prev_box[2]
+
+        if v_overlap > 0 and h_gap <= FU_MERGE_GAP_PX:
+            current.append(item)
+        else:
+            groups.append(current)
+            current = [item]
+    groups.append(current)
+
+    merged = []
+    for grp in groups:
+        best = max(grp, key=lambda x: x["conf"])
+        merged.append({
+            "box":   _union_box([x["box"] for x in grp]),
+            "conf":  best["conf"],
+            "label": None,
+            "cap":   best.get("cap"),
+            "label_rotation": 0,
+            "method": best.get("method", "doclayout_easyocr"),
+            "needs_review": True,
+        })
+    return merged
+
+
 def crop_and_save(img_path: Path, figures: list[dict], captions: list[dict],
                   engine, out_dir: Path) -> list[dict]:
     """
@@ -521,26 +612,23 @@ def crop_and_save(img_path: Path, figures: list[dict], captions: list[dict],
         return []
     h, w = img.shape[:2]
 
-    _sheet_rot_cache: int | None = None   # computed once per sheet, reused across _Fu crops
-
-    records: list[dict] = []
-    for idx, fig in enumerate(figures):
+    # ── Pass 1: OCR every detected figure box ────────────────────────────────
+    annotated: list[dict] = []   # each item carries box + OCR result
+    for fig in figures:
         x1, y1, x2, y2 = fig["box"]
         x1, y1 = max(0, min(x1, w - 1)), max(0, min(y1, h - 1))
         x2, y2 = max(x1 + 1, min(x2, w)), max(y1 + 1, min(y2, h))
 
-        crop = img[y1:y2, x1:x2]
-        if crop.shape[0] < MIN_CROP_PX or crop.shape[1] < MIN_CROP_PX:
+        if (y2 - y1) < MIN_CROP_PX or (x2 - x1) < MIN_CROP_PX:
             continue
 
-        cap = _match_caption(fig["box"], captions)
+        cap = _match_caption([x1, y1, x2, y2], captions)
         clean_lbl, needs_review, label_rotation = read_label(
             reader, img,
             cap["box"] if cap else None,
-            fig_box=fig["box"],
+            fig_box=[x1, y1, x2, y2],
         )
 
-        # Qwen fallback when EasyOCR found nothing
         method = "doclayout_easyocr"
         if needs_review and _ensure_qwen(engine):
             qx1 = max(0, x1 - QWEN_PAD_SIDE_PX)
@@ -552,29 +640,59 @@ def crop_and_save(img_path: Path, figures: list[dict], captions: list[dict],
                 clean_lbl, needs_review = qwen_lbl, False
                 method = "doclayout_qwen"
 
-        # Rotate crop to match the orientation in which the label was readable.
-        # label_rotation is the angle that made the label text upright, so applying
-        # the same rotation to the crop makes the whole drawing upright.
+        annotated.append({
+            "box":            [x1, y1, x2, y2],
+            "conf":           fig["conf"],
+            "label":          clean_lbl,
+            "cap":            cap,
+            "label_rotation": label_rotation,
+            "method":         method,
+            "needs_review":   needs_review,
+        })
+
+    # ── Pass 2: merge split crops ─────────────────────────────────────────────
+    labeled   = [a for a in annotated if not a["needs_review"]]
+    unlabeled = [a for a in annotated if a["needs_review"]]
+
+    merged_labeled   = _merge_labeled(labeled)
+    merged_unlabeled = _merge_fu(unlabeled)
+    to_save = merged_labeled + merged_unlabeled
+
+    # ── Pass 3: crop, rotate, save ────────────────────────────────────────────
+    _sheet_rot_cache: int | None = None
+
+    records: list[dict] = []
+    for idx, item in enumerate(to_save):
+        x1, y1, x2, y2 = item["box"]
+        x1, y1 = max(0, min(x1, w - 1)), max(0, min(y1, h - 1))
+        x2, y2 = max(x1 + 1, min(x2, w)), max(y1 + 1, min(y2, h))
+
+        crop = img[y1:y2, x1:x2]
+        if crop.shape[0] < MIN_CROP_PX or crop.shape[1] < MIN_CROP_PX:
+            continue
+
+        label_rotation = item["label_rotation"]
+        needs_review   = item["needs_review"]
+
         if label_rotation != 0:
             crop = np.rot90(crop, k=label_rotation // 90)
         elif needs_review:
-            # No label found — use sheet-level text orientation as fallback.
-            # Computed once per sheet (cached), applied to every unlabelled crop.
             if _sheet_rot_cache is None:
                 _sheet_rot_cache = _infer_sheet_rotation(reader, img)
             if _sheet_rot_cache != 0:
                 crop = np.rot90(crop, k=_sheet_rot_cache // 90)
 
-        suffix   = f"_F{clean_lbl}" if not needs_review else "_Fu"
-        out_path = out_dir / f"{img_path.stem}_crop_{idx}{suffix}.png"
+        clean_lbl = item["label"]
+        suffix    = f"_F{clean_lbl}" if not needs_review else "_Fu"
+        out_path  = out_dir / f"{img_path.stem}_crop_{idx}{suffix}.png"
         cv2.imwrite(str(out_path), crop)
 
         records.append({
-            "original":    img_path.name,
-            "output":      out_path.name,
-            "label":       clean_lbl,
-            "box_px":      [x1, y1, x2, y2],
-            "method":      method,
+            "original":     img_path.name,
+            "output":       out_path.name,
+            "label":        clean_lbl,
+            "box_px":       [x1, y1, x2, y2],
+            "method":       item["method"],
             "needs_review": needs_review,
         })
     return records
