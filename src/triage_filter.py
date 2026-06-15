@@ -40,13 +40,21 @@ def load_siglip_model(cfg: dict) -> tuple:
     """
     Load SigLIP ViT-SO400M-14-SigLIP-384 via open_clip.
 
-    Downloads ~3 GB of weights on first call (cached by HuggingFace Hub).
+    Weights are cached in cfg["paths"]["siglip_cache"] (models/SigLIP/).
+    Downloads ~3 GB on first call; subsequent calls are instant.
     Returns (model, processor, device).
 
     ``processor`` here is a (tokenizer, preprocess) pair stored as a tuple so
     callers can unpack it:  model, (tokenizer, preprocess), device = load_siglip_model(cfg)
     """
+    import os
     import open_clip
+
+    cache_dir = Path(cfg["paths"]["siglip_cache"])
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    # Redirect HuggingFace Hub downloads to our models/SigLIP folder.
+    os.environ["HF_HUB_CACHE"] = str(cache_dir)
+    print(f"[SigLIP] Cache: {cache_dir}")
 
     model, _, preprocess = open_clip.create_model_and_transforms(
         "hf-hub:timm/ViT-SO400M-14-SigLIP-384"
