@@ -3,7 +3,7 @@ import datetime
 import pyautogui
 
 # Set your target time ("17:50" for 5:50 PM, or "05:50" for 5:50 AM)
-TARGET_TIME = "04:20" 
+TARGET_TIME = "03:20" 
 
 PROMPT_TEXT_1 = """Open UI_for_taxonomy_caracterization_10_0.html. Add AI pre-label loading capability. Make exactly three additions — one <input>, one function, one call. Do not touch any existing logic, locks, or rendering.
 

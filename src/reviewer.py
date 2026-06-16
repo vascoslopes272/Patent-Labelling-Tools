@@ -4,6 +4,7 @@ reviewer.py — assemble per-patent JSON (T1 + T3) and auto-fill visual fields.
 Public API
 ----------
 auto_fill_visual(description)                              → dict
+classify_t1_dimensions(text, sbert_model)                  → dict
 assemble_patent_json(patent_id, excel_row, match_results)  → dict
 write_patent_json(patent_id, data, labels_dir)             → Path
 process_patent(patent_id, cfg, excel_index, raw_dir)       → Path
@@ -15,23 +16,27 @@ from pathlib import Path
 from src.matcher import parse_description, match_images, label_from_filename
 
 
-# ─── Visual field keyword rules ────────────────────────────────────────────────
+# ─── Visual field keyword rules ─────────────────────────────────────────────
+# Field names AND values below match the master HTML wizard's T2 enums
+# exactly (per/acSty/sym/acCol/bgSty/bgCol) so this output can be ingested
+# by ingestAI() with zero mapping step.
 
 _PERSPECTIVE_RULES: list[tuple[list[str], str]] = [
-    (["top view", "top-view", "plan view"],            "Orthographic Top"),
-    (["front view", "front-view", "elevation view"],   "Orthographic Front"),
-    (["rear view", "back view"],                       "Orthographic Rear"),
-    (["bottom view"],                                  "Orthographic Bottom"),
-    (["side view", "side-view", "lateral view"],       "Orthographic Side"),
-    (["perspective view", "isometric", "3d view"],     "Isometric/3D Perspective"),
-    (["exploded"],                                     "Exploded View"),
-    (["cross-section", "cross section", "sectional"],  "Cross-Section"),
+    (["top view", "top-view", "plan view"],             "Top"),
+    (["bottom view"],                                   "Bottom/Down"),
+    (["front view", "front-view", "elevation view"],    "Front"),
+    (["rear view", "back view"],                         "Back"),
+    (["side view", "side-view", "lateral view"],         "Side"),
+    (["front-isometric", "front isometric"],             "Front-Isometric"),
+    (["rear-isometric", "rear isometric"],               "Rear-Isometric"),
+    (["perspective view", "isometric", "3d view"],       "Generic 3D"),
 ]
 
 _STYLE_RULES: list[tuple[list[str], str]] = [
-    (["schematic", "block diagram"],       "Schematic Block Diagram"),
-    (["cfd", "flow field", "flow plot"],   "CFD Plot"),
-    (["graph", "chart", "plot"],           "Graph/Chart"),
+    (["schematic", "block diagram", "flow field", "flow plot",
+      "cfd", "graph", "chart", "plot"],                  "Schematic"),
+    (["shaded", "rendered", "render"],                    "Shaded Render"),
+    (["solid model", "filled model", "solid/filled"],      "Solid/Filled Model"),
 ]
 
 _SYMMETRY_RULES: list[tuple[list[str], str]] = [
@@ -52,31 +57,108 @@ def auto_fill_visual(description: str | None) -> dict:
     """
     Keyword-scan a figure description line and return the visual field dict.
 
-    Fields that can be inferred get source="auto".
-    Unknown fields get value=None, source=None (filled later by taxonomy wizard).
-    Style defaults to "Line Drawing (Standard)" if no other style matches.
+    Field names/values match the master HTML wizard exactly (per/acSty/sym/
+    acCol/bgSty/bgCol/parts). Fields that can be inferred get source="auto".
+    Unknown fields get value=None, source=None (filled later by the wizard).
     """
     def _auto(value: str | None) -> dict:
         return {"value": value, "source": "auto" if value else None}
 
     if not description:
         return {
-            "perspective": {"value": None, "source": None},
-            "style":       {"value": None, "source": None},
-            "symmetry":    {"value": None, "source": None},
-            "color":       {"value": None, "source": None},
-            "background":  {"value": None, "source": None},
-            "parts":       [],
+            "per":   {"value": None, "source": None},
+            "acSty": {"value": None, "source": None},
+            "sym":   {"value": None, "source": None},
+            "acCol": {"value": None, "source": None},
+            "bgSty": {"value": None, "source": None},
+            "bgCol": {"value": None, "source": None},
+            "parts": [],
         }
 
     return {
-        "perspective": _auto(_first_match(description, _PERSPECTIVE_RULES)),
-        "style":       _auto(_first_match(description, _STYLE_RULES) or "Line Drawing (Standard)"),
-        "symmetry":    _auto(_first_match(description, _SYMMETRY_RULES)),
-        "color":       {"value": None, "source": None},
-        "background":  {"value": None, "source": None},
-        "parts":       [],
+        "per":   _auto(_first_match(description, _PERSPECTIVE_RULES)),
+        "acSty": _auto(_first_match(description, _STYLE_RULES) or "Line Drawing"),
+        "sym":   _auto(_first_match(description, _SYMMETRY_RULES)),
+        "acCol": {"value": None, "source": None},
+        "bgSty": {"value": None, "source": None},
+        "bgCol": {"value": None, "source": None},
+        "parts": [],
     }
+
+
+# ─── T1 dimension classification (SBERT semantic match) ────────────────────
+# The master HTML stores only option id/label strings, no definitions — these
+# one-sentence anchors are written here so SBERT has something to embed
+# against. Wording follows the same intent as the archived ai_labeler.py
+# Claude prompt, just turned into plain descriptive sentences.
+
+_T1_SCOPE_DEFS = {
+    "Whole Aircraft Architecture":     "this patent describes or claims a complete aircraft layout, covering the overall vehicle configuration as a whole",
+    "Architectural Subsystem Enabler": "this patent describes a subsystem or mechanism that enables a specific aircraft architecture, such as a tilting, folding, or actuation mechanism",
+    "Component-Level Generic":         "this patent describes a generic, low-level component or part with no architecture-specific context",
+}
+
+_T1_FIELD_DEFS = {
+    "Aerodynamic/Structural": "the innovation concerns aerodynamics or structural design, such as wings, fuselage, airframe, or lifting surfaces",
+    "Mechanical/Kinematic":   "the innovation concerns mechanical or kinematic systems, such as tilting, folding, hinges, or actuation mechanisms",
+    "Propulsion/Electrical":  "the innovation concerns propulsion or electrical systems, such as motors, rotors, propellers, batteries, or powertrains",
+    "Control/Avionics":       "the innovation concerns flight control, avionics, sensors, or guidance systems",
+    "Other / Unidentified":   "the innovation does not clearly fit aerodynamic, mechanical, propulsion, or control categories",
+}
+
+_T1_TARGET_DEFS = {
+    "Layout Convergence":          "the goal is to converge on or optimize the overall aircraft layout or configuration",
+    "Weight/Complexity Reduction": "the goal is to reduce weight, part count, or mechanical complexity",
+    "Aerodynamic Efficiency":      "the goal is to improve aerodynamic efficiency, lift, or drag performance",
+    "Redundancy/Safety":           "the goal is to improve safety, redundancy, or fault tolerance",
+    "Other / Unidentified":        "the goal does not clearly match layout, weight, aerodynamics, or safety objectives",
+}
+
+
+def classify_t1_dimensions(text: str | None, sbert_model=None) -> dict:
+    """
+    Pick the best-fitting option for each T1 dimension (scope, t1Field,
+    t1Target) by embedding `text` (title + abstract + description of
+    drawings) and each candidate definition with SBERT, then taking the
+    highest cosine similarity per dimension.
+
+    Returns {"scope": {...}, "t1Field": {...}, "t1Target": {...}}, each
+    {"value": str|None, "confidence": float, "source": "auto"|None} —
+    same {value, source} provenance convention as auto_fill_visual /
+    the master wizard.
+    """
+    def _empty() -> dict:
+        return {"value": None, "confidence": 0.0, "source": None}
+
+    result = {"scope": _empty(), "t1Field": _empty(), "t1Target": _empty()}
+
+    if not text or not text.strip() or sbert_model is None:
+        return result
+
+    import numpy as np
+
+    text_emb = sbert_model.encode(
+        [text], convert_to_numpy=True, normalize_embeddings=True
+    )
+
+    for dim_key, defs in (
+        ("scope",    _T1_SCOPE_DEFS),
+        ("t1Field",  _T1_FIELD_DEFS),
+        ("t1Target", _T1_TARGET_DEFS),
+    ):
+        ids     = list(defs.keys())
+        def_emb = sbert_model.encode(
+            [defs[i] for i in ids], convert_to_numpy=True, normalize_embeddings=True
+        )
+        sims   = (def_emb @ text_emb.T).flatten()
+        best_i = int(np.argmax(sims))
+        result[dim_key] = {
+            "value":      ids[best_i],
+            "confidence": round(float(sims[best_i]), 4),
+            "source":     "auto",
+        }
+
+    return result
 
 
 # ─── JSON assembly ─────────────────────────────────────────────────────────────
@@ -86,6 +168,7 @@ def assemble_patent_json(
     excel_row: dict,
     match_results: list[dict],
     description_of_drawings: str = "",
+    t1_dimensions: dict | None = None,
 ) -> dict:
     """Assemble the full per-patent JSON dict (T1 metadata + T3 image entries)."""
     t3_images = []
@@ -110,19 +193,23 @@ def assemble_patent_json(
             img_entry["duplicate_group"] = res["duplicate_group"]
         t3_images.append(img_entry)
 
+    t1 = {
+        "assignee":             excel_row.get("assignee"),
+        "pub_year":             excel_row.get("pub_year"),
+        "app_year":             excel_row.get("app_year"),
+        "title":                excel_row.get("title"),
+        "abstract":             excel_row.get("abstract"),
+        "backward_cites":       excel_row.get("backward_cites", []),
+        "forward_cites":        excel_row.get("forward_cites", []),
+        "innovation_objective": excel_row.get("innovation_objective"),
+    }
+    if t1_dimensions:
+        t1.update(t1_dimensions)   # scope, t1Field, t1Target — from classify_t1_dimensions()
+
     return {
         "patent_id":    patent_id,
         "record_number": excel_row.get("record_number"),
-        "T1": {
-            "assignee":             excel_row.get("assignee"),
-            "pub_year":             excel_row.get("pub_year"),
-            "app_year":             excel_row.get("app_year"),
-            "title":                excel_row.get("title"),
-            "abstract":             excel_row.get("abstract"),
-            "backward_cites":       excel_row.get("backward_cites", []),
-            "forward_cites":        excel_row.get("forward_cites", []),
-            "innovation_objective": excel_row.get("innovation_objective"),
-        },
+        "T1": t1,
         "description_of_drawings": description_of_drawings or None,
         "T3_images": t3_images,
     }
@@ -235,7 +322,23 @@ def process_patent(
                 res["T2_predictions"] = {}
                 res["G1_hint"]        = None
 
-    data = assemble_patent_json(patent_id, excel_row, match_results, desc_text)
+    # ── T1 dimension classification (SBERT: title + abstract + first claim + drawings desc) ──
+    # "First Claim" is short and information-dense — the single best statement
+    # of what the invention actually is. The full "Description" column is
+    # deliberately excluded: SBERT truncates ~256-384 tokens, so most of a
+    # multi-thousand-word description would never be read, and what survives
+    # tends to be generic background text rather than the invention itself.
+    classify_text = " ".join(
+        t for t in [
+            excel_row.get("title"),
+            excel_row.get("abstract"),
+            excel_row.get("first_claim"),
+            desc_text,
+        ] if t
+    )
+    t1_dimensions = classify_t1_dimensions(classify_text, sbert_model)
+
+    data = assemble_patent_json(patent_id, excel_row, match_results, desc_text, t1_dimensions)
     return write_patent_json(patent_id, data, cfg["paths"]["labels"])
 
 

@@ -268,9 +268,14 @@ def load_patseer_excel(path: Path) -> dict[str, dict]:
     Read the PatSeer Excel export and index rows by Record Number.
 
     Used to obtain the ordered list of patent IDs and T1 metadata fields
-    (title, assignee, pub/app year, abstract, citations) plus the Brief
-    Description of the Drawings text (column "Description of Drawings" or
-    common variants), stored as "description_of_drawings" in each entry.
+    (title, assignee, pub/app year, abstract, citations, first_claim) plus
+    the Brief Description of the Drawings text (column "Description of
+    Drawings" or common variants), stored as "description_of_drawings" in
+    each entry. The full "Description" column is intentionally NOT loaded —
+    SBERT truncates around ~256-384 tokens, so most of a multi-thousand-word
+    description would be dropped anyway and what survives is usually
+    boilerplate background text, not the invention itself. "First Claim" is
+    short and information-dense, so it's a much better SBERT input.
 
     Prints all column headers on first load so column names can be verified.
     """
@@ -320,6 +325,7 @@ def load_patseer_excel(path: Path) -> dict[str, dict]:
             "abstract":                _s("Abstract") or None,
             "backward_cites":          _cites("Backward Citations"),
             "forward_cites":           _cites("Forward Citations"),
+            "first_claim":             _s("First Claim") or _s("Independent Claims") or None,
             "innovation_objective":    (
                 _s("Summary of Invention") or _s("Advantages of Invention") or None
             ),
