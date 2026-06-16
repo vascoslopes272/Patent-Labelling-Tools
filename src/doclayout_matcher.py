@@ -35,6 +35,8 @@ YOLO_CONF    = 0.25    # lowered from 0.40 — recovers sub-figures detected at 
 NMS_IOU      = 0.30    # IoU threshold for suppressing duplicate/nested figure boxes
 MIN_CROP_PX  = 300     # discard crops smaller than this in either dimension (filters bad thin split slices)
 IMGSZ        = 1024    # DocStructBench model was trained at 1024
+CROP_PAD_FRAC = 0.15   # expand each YOLO box edge outward by this fraction of the
+                        # sheet dimension before cropping (15% of width/height per side)
 
 # A single figure box taller than this (px) AND containing clear horizontal whitespace
 # is likely a wrapper around multiple sub-figures — split it vertically.
@@ -55,6 +57,13 @@ QWEN_PAD_SIDE_PX  = 150
 # is ≤ FU_MERGE_GAP_PX are merged the same way.
 FU_MERGE_GAP_PX   = 200   # max horizontal gap (px) between two _Fu boxes to merge
 
+# Vertical-strip merge: YOLO sometimes slices one figure into thin horizontal bands
+# that all share the same x-span. Merge vertically-adjacent boxes whose x-spans
+# overlap by ≥ VMERGE_X_OVERLAP_FRAC of the smaller box's width AND whose vertical
+# gap is ≤ VMERGE_GAP_PX. Done before OCR so the full figure is cropped at once.
+VMERGE_X_OVERLAP_FRAC = 0.80   # 80% x-overlap → treat as same column
+VMERGE_GAP_PX         = 20     # max vertical gap (px) between two stacked boxes
+
 # DocStructBench class names we care about (matched by NAME, not index).
 _FIGURE_CLASS = "figure"
 _CAPTION_CLASS = "figure_caption"
@@ -64,6 +73,15 @@ _CAPTION_CLASS = "figure_caption"
 #   "FIGURE 1A" (spelled out — e.g. US2020148347) and plural "FIGS. 2"
 # Accepts any 0-2 non-alphanumeric chars between FIG[URE](S) and the number.
 _FIG_KEY_RE = re.compile(r"FI[GA](?:URE)?S?[^A-Za-z0-9]{0,2}([0-9]+[A-Za-z]?)", re.IGNORECASE)
+
+# Figure numbers above this are almost certainly component callouts (e.g. "203g")
+# misread as figure labels — patents rarely have more than 50 sheets.
+_MAX_FIG_NUMBER = 99
+
+def _valid_fig_label(label: str) -> bool:
+    """Return False if the numeric part of a label looks like a component callout."""
+    m = re.match(r"^([0-9]+)", label)
+    return bool(m) and int(m.group(1)) <= _MAX_FIG_NUMBER
 
 
 # ─── Engine ───────────────────────────────────────────────────────────────────
@@ -106,6 +124,16 @@ def _iou(a: list[int], b: list[int]) -> float:
     return inter / (area_a + area_b - inter)
 
 
+def _union_box(boxes: list[list[int]]) -> list[int]:
+    """Return the bounding box that contains all input xyxy boxes."""
+    return [
+        min(b[0] for b in boxes),
+        min(b[1] for b in boxes),
+        max(b[2] for b in boxes),
+        max(b[3] for b in boxes),
+    ]
+
+
 def _nms_figures(figures: list[dict], iou_thresh: float = NMS_IOU) -> list[dict]:
     """
     Suppress duplicate/nested figure boxes by IoU.
@@ -134,6 +162,55 @@ def _nms_figures(figures: list[dict], iou_thresh: float = NMS_IOU) -> list[dict]
         if not discard:
             kept.append(cand)
     return kept
+
+
+def _merge_vertical_strips(figures: list[dict]) -> list[dict]:
+    """
+    Merge vertically-adjacent figure boxes that share the same x-span (same column).
+    YOLO sometimes slices a single drawing into thin horizontal bands — this re-joins them.
+
+    Algorithm: sort top-to-bottom; greedily extend a group while the next box
+    shares ≥ VMERGE_X_OVERLAP_FRAC x-overlap with the group union AND the vertical
+    gap is ≤ VMERGE_GAP_PX. Each finished group becomes one union-bbox figure.
+    """
+    if not figures:
+        return figures
+
+    # Sort top-to-bottom by y1
+    sorted_figs = sorted(figures, key=lambda f: f["box"][1])
+
+    groups: list[list[dict]] = []
+    current = [sorted_figs[0]]
+
+    for fig in sorted_figs[1:]:
+        # Union box of current group
+        gx1 = min(f["box"][0] for f in current)
+        gx2 = max(f["box"][2] for f in current)
+        gy2 = max(f["box"][3] for f in current)
+
+        fx1, fy1, fx2, fy2 = fig["box"]
+
+        # x-overlap fraction relative to the smaller width
+        x_overlap = max(0, min(gx2, fx2) - max(gx1, fx1))
+        smaller_w = min(gx2 - gx1, fx2 - fx1)
+        x_frac = x_overlap / smaller_w if smaller_w > 0 else 0
+
+        v_gap = fy1 - gy2   # positive = gap, negative = overlap
+
+        if x_frac >= VMERGE_X_OVERLAP_FRAC and v_gap <= VMERGE_GAP_PX:
+            current.append(fig)
+        else:
+            groups.append(current)
+            current = [fig]
+    groups.append(current)
+
+    merged = []
+    for grp in groups:
+        merged.append({
+            "box":  _union_box([f["box"] for f in grp]),
+            "conf": max(f["conf"] for f in grp),
+        })
+    return merged
 
 
 def _split_large_figure(fig: dict, img_gray: np.ndarray) -> list[dict]:
@@ -212,13 +289,7 @@ def detect_regions(model, img_path: Path, device: str = "cuda:0") -> tuple[list[
             elif cls_name == _CAPTION_CLASS:
                 captions.append(rec)
 
-    figures = _nms_figures(figures)
-
-    split_figures: list[dict] = []
-    for fig in figures:
-        split_figures.extend(_split_large_figure(fig, img_gray))
-
-    return split_figures, captions
+    return figures, captions
 
 
 # ─── Caption matching + OCR ───────────────────────────────────────────────────
@@ -512,15 +583,6 @@ def _infer_sheet_rotation(reader, img: np.ndarray) -> int:
     return 0
 
 
-def _union_box(boxes: list[list[int]]) -> list[int]:
-    """Return the bounding box that contains all input xyxy boxes."""
-    return [
-        min(b[0] for b in boxes),
-        min(b[1] for b in boxes),
-        max(b[2] for b in boxes),
-        max(b[3] for b in boxes),
-    ]
-
 
 def _merge_labeled(labeled: list[dict]) -> list[dict]:
     """
@@ -611,6 +673,7 @@ def crop_and_save(img_path: Path, figures: list[dict], captions: list[dict],
     if img is None:
         return []
     h, w = img.shape[:2]
+    CROP_PAD_PX = int(min(h, w) * CROP_PAD_FRAC)
 
     # ── Pass 1: OCR every detected figure box ────────────────────────────────
     annotated: list[dict] = []   # each item carries box + OCR result
@@ -631,6 +694,7 @@ def crop_and_save(img_path: Path, figures: list[dict], captions: list[dict],
 
         method = "doclayout_easyocr"
         if needs_review and _ensure_qwen(engine):
+            # Pass A: padded figure box (catches labels just outside the detected region)
             qx1 = max(0, x1 - QWEN_PAD_SIDE_PX)
             qy1 = max(0, y1 - QWEN_PAD_SIDE_PX)
             qx2 = min(w, x2 + QWEN_PAD_SIDE_PX)
@@ -639,6 +703,15 @@ def crop_and_save(img_path: Path, figures: list[dict], captions: list[dict],
             if qwen_lbl:
                 clean_lbl, needs_review = qwen_lbl, False
                 method = "doclayout_qwen"
+
+        if needs_review and _ensure_qwen(engine):
+            # Pass B: bottom 20% of the full sheet — USPTO patents print "FIG. N" here,
+            # often inside the YOLO box so Pass A's crop is swamped by callout numbers.
+            strip_y1 = max(0, h - int(h * 0.20))
+            qwen_lbl = _qwen_label(img[strip_y1:h, 0:w], engine[3], engine[4])
+            if qwen_lbl:
+                clean_lbl, needs_review = qwen_lbl, False
+                method = "doclayout_qwen_strip"
 
         annotated.append({
             "box":            [x1, y1, x2, y2],
@@ -664,8 +737,11 @@ def crop_and_save(img_path: Path, figures: list[dict], captions: list[dict],
     records: list[dict] = []
     for idx, item in enumerate(to_save):
         x1, y1, x2, y2 = item["box"]
-        x1, y1 = max(0, min(x1, w - 1)), max(0, min(y1, h - 1))
-        x2, y2 = max(x1 + 1, min(x2, w)), max(y1 + 1, min(y2, h))
+        # Expand box by CROP_PAD_PX on all sides, clamped to image bounds
+        x1 = max(0, x1 - CROP_PAD_PX)
+        y1 = max(0, y1 - CROP_PAD_PX)
+        x2 = min(w, x2 + CROP_PAD_PX)
+        y2 = min(h, y2 + CROP_PAD_PX)
 
         crop = img[y1:y2, x1:x2]
         if crop.shape[0] < MIN_CROP_PX or crop.shape[1] < MIN_CROP_PX:

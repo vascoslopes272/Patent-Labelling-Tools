@@ -451,6 +451,8 @@ def reset_threshold(
         for fig in data["figures"]:
             if fig["pred"] == "error":
                 continue  # leave error entries untouched
+            if fig.get("locked"):
+                continue  # user-confirmed decision — never overridden by threshold
             fig["keep"] = fig["score_drawing"] >= threshold
             fig["pred"] = "drawing" if fig["keep"] else "table"
 
@@ -479,3 +481,229 @@ def reset_threshold(
           f"{total_imgs} images | {total_flagged} flagged "
           f"({100*total_flagged/max(1,total_imgs):.1f}%)")
     print(f"Summary rewritten: {summary_csv}")
+
+
+# ─── Lock / unlock confirmed decisions ───────────────────────────────────────
+
+def lock_discards(cfg: dict) -> None:
+    """
+    Stamp ``"locked": true`` on every image currently marked keep=False.
+
+    Locked images are permanently excluded from the active processing queue and
+    are never re-enabled by reset_threshold or rethreshold_existing, even if
+    you lower the threshold later.  Use this to preserve manual overrides (e.g.
+    images you flipped to KEEP via the Cell-10 UI) and confirmed SigLIP discards
+    before experimenting with a new threshold.
+
+    Call unlock_discards() to clear all locks and start fresh.
+    """
+    triage_dir = Path(cfg["paths"]["triage"])
+    json_paths = sorted(p for p in triage_dir.glob("*.json")
+                        if p.stem != "triage_summary")
+    if not json_paths:
+        print("No triage JSONs found — run run_triage first.")
+        return
+
+    total_locked = 0
+    for json_path in json_paths:
+        with open(json_path) as fh:
+            data = json.load(fh)
+        newly_locked = 0
+        for fig in data["figures"]:
+            if not fig["keep"] and not fig.get("locked"):
+                fig["locked"] = True
+                newly_locked += 1
+        if newly_locked:
+            with open(json_path, "w") as fh:
+                json.dump(data, fh, indent=2)
+            total_locked += newly_locked
+
+    print(f"lock_discards: {total_locked} images stamped as locked across "
+          f"{len(json_paths)} patents.")
+    print("These images will be skipped by reset_threshold and rethreshold_existing.")
+
+
+def lock_keeps(cfg: dict) -> None:
+    """
+    Stamp ``"locked": true`` on every image currently marked keep=True.
+
+    Use this to protect images you have already confirmed as KEEP (e.g. after a
+    manual review pass in Cell 8) so a more aggressive threshold cannot discard
+    them again.
+    """
+    triage_dir = Path(cfg["paths"]["triage"])
+    json_paths = sorted(p for p in triage_dir.glob("*.json")
+                        if p.stem != "triage_summary")
+    if not json_paths:
+        print("No triage JSONs found — run run_triage first.")
+        return
+
+    total_locked = 0
+    for json_path in json_paths:
+        with open(json_path) as fh:
+            data = json.load(fh)
+        newly_locked = 0
+        for fig in data["figures"]:
+            if fig["keep"] and not fig.get("locked"):
+                fig["locked"] = True
+                newly_locked += 1
+        if newly_locked:
+            with open(json_path, "w") as fh:
+                json.dump(data, fh, indent=2)
+            total_locked += newly_locked
+
+    print(f"lock_keeps: {total_locked} images stamped as locked.")
+
+
+def unlock_all(cfg: dict) -> None:
+    """
+    Remove all ``locked`` stamps from every triage JSON.
+
+    After calling this, reset_threshold and rethreshold_existing will re-evaluate
+    every image from its raw scores.  Use only when you want a clean slate.
+    """
+    triage_dir = Path(cfg["paths"]["triage"])
+    json_paths = sorted(p for p in triage_dir.glob("*.json")
+                        if p.stem != "triage_summary")
+    if not json_paths:
+        print("No triage JSONs found.")
+        return
+
+    total_unlocked = 0
+    for json_path in json_paths:
+        with open(json_path) as fh:
+            data = json.load(fh)
+        changed = False
+        for fig in data["figures"]:
+            if fig.pop("locked", None) is not None:
+                total_unlocked += 1
+                changed = True
+        if changed:
+            with open(json_path, "w") as fh:
+                json.dump(data, fh, indent=2)
+
+    print(f"unlock_all: {total_unlocked} locks removed.")
+
+
+def commit_review(cfg: dict, approved: set[tuple[str, str]]) -> dict:
+    """
+    Persist the outcome of a manual review session from the Cell-6 viewer.
+
+    For every non-locked discard image:
+      - If (patent_id, file) is in ``approved``: set keep=True, pred="drawing",
+        locked=True  (user confirmed it should stay)
+      - Otherwise: set locked=True, keep=False  (user confirmed discard)
+
+    Images already locked before this call are not touched.
+
+    Returns a stats dict: {"newly_kept": int, "newly_locked_discard": int}
+    """
+    triage_dir = Path(cfg["paths"]["triage"])
+    json_paths = sorted(p for p in triage_dir.glob("*.json")
+                        if p.stem != "triage_summary")
+
+    newly_kept            = 0
+    newly_locked_discard  = 0
+
+    for json_path in json_paths:
+        with open(json_path) as fh:
+            data = json.load(fh)
+        changed = False
+        for fig in data["figures"]:
+            if fig.get("locked") or fig["keep"]:
+                continue  # already settled — skip
+            key = (data["patent_id"], fig["file"])
+            if key in approved:
+                fig["keep"]   = True
+                fig["pred"]   = "drawing"
+                fig["locked"] = True
+                newly_kept   += 1
+            else:
+                fig["locked"] = True   # confirmed discard
+                newly_locked_discard += 1
+            changed = True
+        if changed:
+            data["flagged"] = sum(1 for f in data["figures"] if not f["keep"])
+            with open(json_path, "w") as fh:
+                json.dump(data, fh, indent=2)
+
+    # Rewrite summary CSV
+    summary_rows = []
+    for json_path in json_paths:
+        with open(json_path) as fh:
+            data = json.load(fh)
+        summary_rows.append({
+            "patent_id":     data["patent_id"],
+            "total_images":  data["total"],
+            "flagged_count": data["flagged"],
+            "flagged_ratio": round(data["flagged"] / data["total"], 4) if data["total"] else 0.0,
+        })
+    summary_csv = triage_dir / "triage_summary.csv"
+    import csv as _csv
+    with open(summary_csv, "w", newline="") as fh:
+        writer = _csv.DictWriter(fh, fieldnames=["patent_id", "total_images", "flagged_count", "flagged_ratio"])
+        writer.writeheader()
+        writer.writerows(summary_rows)
+
+    print(f"commit_review: {newly_kept} images flipped to KEEP (locked).")
+    print(f"               {newly_locked_discard} discards locked permanently.")
+    print(f"Summary rewritten: {summary_csv}")
+    return {"newly_kept": newly_kept, "newly_locked_discard": newly_locked_discard}
+
+
+def reset_review(cfg: dict) -> None:
+    """
+    Undo a commit_review call: remove all locks from images that are currently
+    keep=False (discards).  Locked KEEPs (user-approved) are preserved.
+
+    After calling this, the Cell-6 viewer will show those images again for
+    another review pass.  Use before reset_threshold if you want a full clean slate.
+    """
+    triage_dir = Path(cfg["paths"]["triage"])
+    json_paths = sorted(p for p in triage_dir.glob("*.json")
+                        if p.stem != "triage_summary")
+
+    total_unlocked = 0
+    for json_path in json_paths:
+        with open(json_path) as fh:
+            data = json.load(fh)
+        changed = False
+        for fig in data["figures"]:
+            if not fig["keep"] and fig.pop("locked", None) is not None:
+                total_unlocked += 1
+                changed = True
+        if changed:
+            with open(json_path, "w") as fh:
+                json.dump(data, fh, indent=2)
+
+    print(f"reset_review: {total_unlocked} discard locks removed.")
+    print("Run the Cell-6 viewer again to re-review those images.")
+
+
+def locked_stats(cfg: dict) -> None:
+    """Print a summary of locked vs unlocked images across all triage JSONs."""
+    triage_dir = Path(cfg["paths"]["triage"])
+    json_paths = sorted(p for p in triage_dir.glob("*.json")
+                        if p.stem != "triage_summary")
+
+    n_locked_discard = 0
+    n_locked_keep    = 0
+    n_free           = 0
+
+    for json_path in json_paths:
+        with open(json_path) as fh:
+            data = json.load(fh)
+        for fig in data["figures"]:
+            if fig.get("locked"):
+                if fig["keep"]:
+                    n_locked_keep += 1
+                else:
+                    n_locked_discard += 1
+            else:
+                n_free += 1
+
+    total = n_locked_discard + n_locked_keep + n_free
+    print(f"Triage lock status ({total} images total):")
+    print(f"  Locked DISCARD : {n_locked_discard:,}")
+    print(f"  Locked KEEP    : {n_locked_keep:,}")
+    print(f"  Free (unlocked): {n_free:,}")
