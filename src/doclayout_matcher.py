@@ -32,6 +32,8 @@ DEFAULT_WEIGHTS = (
 )
 
 YOLO_CONF    = 0.25    # lowered from 0.40 — recovers sub-figures detected at 0.25–0.39
+CAPTION_CONF = 0.15    # figure_caption only — more captions survive to OCR Pass 1
+                        # (figure boxes still filtered at YOLO_CONF, see detect_regions)
 NMS_IOU      = 0.30    # IoU threshold for suppressing duplicate/nested figure boxes
 MIN_CROP_PX  = 300     # discard crops smaller than this in either dimension (filters bad thin split slices)
 IMGSZ        = 1024    # DocStructBench model was trained at 1024
@@ -42,6 +44,12 @@ CROP_PAD_FRAC = 0.15   # expand each YOLO box edge outward by this fraction of t
 # is likely a wrapper around multiple sub-figures — split it vertically.
 SPLIT_HEIGHT_PX  = 1400
 SPLIT_GAP_PX     = 30   # minimum whitespace run (px) to treat as a split point
+
+# A single figure box wider than this (px) AND containing clear vertical whitespace
+# columns is likely a wrapper around side-by-side sub-figures (e.g. FIG. 8A/8B/8C
+# printed left-to-right on a landscape sheet) — split it horizontally.
+SPLIT_WIDTH_PX     = 1400
+SPLIT_GAP_PX_VERT  = 30   # minimum whitespace run (px, columns) to treat as a split point
 
 # Context padding around the figure box for the Qwen fallback. The caption ("FIG. n")
 # is usually printed OUTSIDE the YOLO figure box — without this margin Qwen never sees it.
@@ -256,6 +264,50 @@ def _split_large_figure(fig: dict, img_gray: np.ndarray) -> list[dict]:
     return _split_large_figure(top, img_gray) + _split_large_figure(bot, img_gray)
 
 
+def _split_wide_figure(fig: dict, img_gray: np.ndarray) -> list[dict]:
+    """
+    If a figure box is suspiciously wide (YOLO wrapped multiple side-by-side
+    sub-figures into one — e.g. FIG. 8A/8B/8C on a landscape sheet), find vertical
+    whitespace columns inside the crop and split at the widest gap.
+    Returns a list of sub-figure dicts (may be just [fig] if no good split point found).
+    """
+    x1, y1, x2, y2 = fig["box"]
+    w = x2 - x1
+    if w < SPLIT_WIDTH_PX:
+        return [fig]
+
+    crop = img_gray[y1:y2, x1:x2]
+    # Column is "white" if >95% of pixels are above threshold 230
+    col_white = np.mean(crop > 230, axis=0) > 0.95
+
+    # Find runs of consecutive white columns
+    gaps: list[tuple[int, int]] = []  # (start_col, end_col) relative to crop
+    in_gap, gap_start = False, 0
+    for c, white in enumerate(col_white):
+        if white and not in_gap:
+            in_gap, gap_start = True, c
+        elif not white and in_gap:
+            run = c - gap_start
+            if run >= SPLIT_GAP_PX_VERT:
+                gaps.append((gap_start, c))
+            in_gap = False
+    if in_gap and (len(col_white) - gap_start) >= SPLIT_GAP_PX_VERT:
+        gaps.append((gap_start, len(col_white)))
+
+    if not gaps:
+        return [fig]
+
+    # Split at the midpoint of the largest gap
+    best = max(gaps, key=lambda g: g[1] - g[0])
+    split_x = x1 + (best[0] + best[1]) // 2
+
+    left  = {"box": [x1, y1, split_x, y2], "conf": fig["conf"]}
+    right = {"box": [split_x, y1, x2, y2], "conf": fig["conf"]}
+
+    # Recurse in case each half is still too wide
+    return _split_wide_figure(left, img_gray) + _split_wide_figure(right, img_gray)
+
+
 def detect_regions(model, img_path: Path, device: str = "cuda:0") -> tuple[list[dict], list[dict]]:
     """
     Run DocLayout-YOLO on one sheet and split detections into figures and captions.
@@ -271,7 +323,10 @@ def detect_regions(model, img_path: Path, device: str = "cuda:0") -> tuple[list[
     img_np   = np.array(img_pil)
     img_gray = np.array(img_pil.convert("L"))
 
-    results = model.predict(source=img_np, imgsz=IMGSZ, conf=YOLO_CONF,
+    # Run at the lower CAPTION_CONF threshold so more figure_caption boxes survive,
+    # then filter figure boxes back up to YOLO_CONF manually (captions get the break,
+    # figures keep the stricter threshold that was already tuned).
+    results = model.predict(source=img_np, imgsz=IMGSZ, conf=CAPTION_CONF,
                             device=device, verbose=False)
 
     figures: list[dict] = []
@@ -285,7 +340,8 @@ def detect_regions(model, img_path: Path, device: str = "cuda:0") -> tuple[list[
             conf = float(box.conf[0])
             rec = {"box": [x1, y1, x2, y2], "conf": conf}
             if cls_name == _FIGURE_CLASS:
-                figures.append(rec)
+                if conf >= YOLO_CONF:
+                    figures.append(rec)
             elif cls_name == _CAPTION_CLASS:
                 captions.append(rec)
 
@@ -584,6 +640,18 @@ def _infer_sheet_rotation(reader, img: np.ndarray) -> int:
 
 
 
+def _review_hint_for_box(box: list[int]) -> str:
+    """Hint only — flags boxes that look like multiple merged sub-figures
+    (e.g. FIG.8A/8B/8C in one YOLO box) so a human reviewer can spot them
+    fast. Never changes the crop, box, or label."""
+    x1, y1, x2, y2 = box
+    box_w, box_h = x2 - x1, y2 - y1
+    if (box_w >= SPLIT_WIDTH_PX and box_w / max(box_h, 1) >= 1.8) or \
+       (box_h >= SPLIT_HEIGHT_PX and box_h / max(box_w, 1) >= 1.8):
+        return "possible_multi_fig"
+    return ""
+
+
 def _merge_labeled(labeled: list[dict]) -> list[dict]:
     """
     Group labeled crops by their figure label; merge each group into a single
@@ -600,14 +668,16 @@ def _merge_labeled(labeled: list[dict]) -> list[dict]:
             merged.append(items[0])
         else:
             best = max(items, key=lambda x: x["conf"])
+            union_box = _union_box([x["box"] for x in items])
             merged.append({
-                "box":   _union_box([x["box"] for x in items]),
+                "box":   union_box,
                 "conf":  best["conf"],
                 "label": lbl,
                 "cap":   best.get("cap"),
                 "label_rotation": best.get("label_rotation", 0),
                 "method": best.get("method", "doclayout_easyocr"),
                 "needs_review": False,
+                "review_hint": _review_hint_for_box(union_box),
             })
     return merged
 
@@ -646,14 +716,16 @@ def _merge_fu(unlabeled: list[dict]) -> list[dict]:
     merged = []
     for grp in groups:
         best = max(grp, key=lambda x: x["conf"])
+        union_box = _union_box([x["box"] for x in grp])
         merged.append({
-            "box":   _union_box([x["box"] for x in grp]),
+            "box":   union_box,
             "conf":  best["conf"],
             "label": None,
             "cap":   best.get("cap"),
             "label_rotation": 0,
             "method": best.get("method", "doclayout_easyocr"),
             "needs_review": True,
+            "review_hint": _review_hint_for_box(union_box),
         })
     return merged
 
@@ -721,6 +793,7 @@ def crop_and_save(img_path: Path, figures: list[dict], captions: list[dict],
             "label_rotation": label_rotation,
             "method":         method,
             "needs_review":   needs_review,
+            "review_hint":    _review_hint_for_box([x1, y1, x2, y2]),
         })
 
     # ── Pass 2: merge split crops ─────────────────────────────────────────────
@@ -770,6 +843,7 @@ def crop_and_save(img_path: Path, figures: list[dict], captions: list[dict],
             "box_px":       [x1, y1, x2, y2],
             "method":       item["method"],
             "needs_review": needs_review,
+            "review_hint":  item.get("review_hint", ""),
         })
     return records
 

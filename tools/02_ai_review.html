@@ -201,7 +201,7 @@ select { font-family: inherit; }
 }
 .fig-card.needs-review { border-color: #f0b429; border-width: 2px; }
 .fig-card.status-approved { border-left: 4px solid var(--ok); }
-.fig-card.status-rejected { border-left: 4px solid var(--danger); opacity: .7; }
+.fig-card.status-disapproved { border-left: 4px solid var(--danger); opacity: .7; }
 
 /* image pane */
 .fig-img-pane {
@@ -322,13 +322,16 @@ select { font-family: inherit; }
 /* ================================================================
    CONSTANTS
    ================================================================ */
-const T1_SCOPE_OPTS   = ['Pioneering','Incremental','Derivative'];
-const T1_FIELD_OPTS   = ['Propulsion','Aerodynamics','Structure','Avionics','Operations'];
-const T1_TARGET_OPTS  = ['Efficiency','Safety','Noise','Manufacturing','Control'];
-const T1_DISAPPROVE   = ['Pure UAV','Out of Domain','Unreadable'];
-const G1_TOPOLOGY_OPTS= ['MR','FW','RC','TW','LW','HB','PFV','OTHER'];
-const T2_PERSPECTIVE  = ['Top','Front','Back','Side','Bottom/Down','Front-Isometric','Rear-Isometric','Generic 3D'];
+const T1_SCOPE_OPTS   = ['Whole Aircraft Architecture','Architectural Subsystem Enabler','Component-Level Generic'];
+const T1_FIELD_OPTS   = ['Aerodynamic/Structural','Mechanical/Kinematic','Propulsion/Electrical','Control/Avionics','Other / Unidentified'];
+const T1_TARGET_OPTS  = ['Layout Convergence','Weight/Complexity Reduction','Aerodynamic Efficiency','Redundancy/Safety','Other / Unidentified'];
+const T1_DISAPPROVE   = ['Pure UAV','Out of Domain','Unreadable','Other'];
+const G1_TOPOLOGY_OPTS= ['TW','TP','DS','CVT','SLC','SRW','RC','MR','HB','PFV'];
+const T2_PERSPECTIVE  = ['Top','Bottom/Down','Front','Back','Side','Front-Isometric','Rear-Isometric','Generic 3D'];
 const T2_STYLE        = ['Line Drawing','Shaded Render','Solid/Filled Model','Schematic'];
+const T2_AC_COL       = ['B/W (Monochrome)','Grayscale','Full Color'];
+const T2_BG_STY       = ['Solid Fill','Shaded/Gradient','Grid/Pattern'];
+const T2_BG_COL       = ['White','Blueprint Blue','Dark','Grayscale'];
 const T2_SYMMETRY     = ['Symmetric View','Asymmetric View'];
 const T2_PARTS        = [
   'Whole Vehicle Layout','Primary Wing','Secondary/Canard Wing','Empennage/Tail',
@@ -398,7 +401,7 @@ function getMergedValue(path) {
    EXPORT / BUILD FINAL JSON
    ================================================================ */
 function buildFinalJSON() {
-  const ai  = STATE.aiData  || {};
+  const ai   = STATE.aiData  || {};
   const base = STATE.baseData || {};
 
   // Deep clone base as starting point
@@ -410,19 +413,18 @@ function buildFinalJSON() {
   const aiM1 = ai.M1 || {};
   const aiT2 = ai.T2 || {};
 
-  // T1
+  // ── T1 ──────────────────────────────────────────────────────────────
   out.T1 = out.T1 || {};
   for (const [k,v] of Object.entries(aiT1)) {
     out.T1[k] = { value: v, source: 'ai' };
   }
-  // T1 overrides
-  for (const field of ['scope','field','target','arch_count']) {
+  // T1 overrides — field names match master state keys
+  for (const field of ['scope','t1Field','t1Target','archCount']) {
     const path = `T1.${field}`;
     if (STATE.overrides.hasOwnProperty(path)) {
       out.T1[field] = { value: STATE.overrides[path], source: 'human' };
     }
   }
-  // approved toggle
   {
     const approvedPath = 'T1.approved';
     if (STATE.overrides.hasOwnProperty(approvedPath)) {
@@ -432,30 +434,65 @@ function buildFinalJSON() {
     }
   }
 
-  // G1
+  // ── G1 — key is topType (matches master ingestAI + G1_TOPOLOGY_OPTS) ──
   out.G1 = out.G1 || {};
   for (const [k,v] of Object.entries(aiG1)) {
     out.G1[k] = { value: v, source: 'ai' };
   }
-  if (STATE.overrides.hasOwnProperty('G1.topology')) {
-    out.G1.topology = { value: STATE.overrides['G1.topology'], source: 'human' };
+  if (STATE.overrides.hasOwnProperty('G1.topType')) {
+    out.G1.topType = { value: STATE.overrides['G1.topType'], source: 'human' };
   }
 
-  // M1
+  // ── M1 ──────────────────────────────────────────────────────────────
   out.M1 = out.M1 || {};
   for (const [k,v] of Object.entries(aiM1)) {
     out.M1[k] = { value: v, source: 'ai' };
   }
 
-  // T2 per figure + merge with T3_image if present
-  out.T2 = {};
+  // ── Physics locks (mirror master Audit B-02) ─────────────────────────
+  const topType = (out.G1.topType && (out.G1.topType.value != null ? out.G1.topType.value : out.G1.topType)) || null;
+  if (topType) {
+    if (topType === 'TP') {
+      for (let i = 1; i <= 4; i++) {
+        const k = `wTilt${i}`;
+        if (!out.M1[k] || out.M1[k].source !== 'human') out.M1[k] = { value: 'Fixed', source: 'lock' };
+      }
+    } else if (topType === 'TW') {
+      if (!out.M1.wTilt1 || out.M1.wTilt1.source !== 'human') out.M1.wTilt1 = { value: 'Tilt', source: 'lock' };
+      const empTypeVal = out.M1.empType && (out.M1.empType.value != null ? out.M1.empType.value : out.M1.empType);
+      if (empTypeVal && empTypeVal !== 'Tailless' && empTypeVal !== 'Fins') {
+        if (!out.M1.empKin || out.M1.empKin.source !== 'human') out.M1.empKin = { value: 'Fixed', source: 'lock' };
+      }
+    } else if (topType === 'RC' || topType === 'MR') {
+      for (let i = 1; i <= 4; i++) { delete out.M1[`wTilt${i}`]; }
+    }
+    if (topType === 'RC') {
+      const empKinVal = out.M1.empKin && (out.M1.empKin.value != null ? out.M1.empKin.value : out.M1.empKin);
+      if (empKinVal === 'Tilt' && (!out.M1.empKin || out.M1.empKin.source !== 'human')) {
+        out.M1.empKin = { value: 'Fixed', source: 'lock' };
+      }
+    }
+    // SLC/SRW: strip Tilting_Mechanism from any m3_*_orient
+    if (topType === 'SLC' || topType === 'SRW') {
+      for (const k of Object.keys(out)) {
+        if (k.startsWith('m3_') && k.endsWith('_orient')) {
+          const v = out[k] && (out[k].value != null ? out[k].value : out[k]);
+          if (v === 'Tilting_Mechanism') out[k] = { value: null, source: 'lock' };
+        }
+      }
+    }
+  }
+
+  // ── figures (master export key) — per-figure with master field names ──
+  out.figures = {};
+  let mainFigure = null;
   const allFigNums = new Set([
     ...Object.keys(aiT2),
     ...Object.keys(STATE.figureStatus)
   ]);
-  // Also include figures from base T3_image array if present
-  if (Array.isArray(base.T3_image)) {
-    base.T3_image.forEach(img => {
+  // Also include figures from base T3_images array if present
+  if (Array.isArray(base.T3_images)) {
+    base.T3_images.forEach(img => {
       if (img.fig_number != null) allFigNums.add(String(img.fig_number));
     });
   }
@@ -468,8 +505,8 @@ function buildFinalJSON() {
     for (const [k,v] of Object.entries(aiEntry)) {
       t2fig[k] = { value: v, source: 'ai' };
     }
-    // field-level overrides for T2
-    for (const field of ['perspective','style','symmetry']) {
+    // field-level overrides — master field names: per, acSty, acCol, bgSty, bgCol, sym
+    for (const field of ['per','acSty','acCol','bgSty','bgCol','sym']) {
       const p = `T2.${figNum}.${field}`;
       if (STATE.overrides.hasOwnProperty(p)) {
         t2fig[field] = { value: STATE.overrides[p], source: 'human' };
@@ -481,23 +518,20 @@ function buildFinalJSON() {
       t2fig.parts = { value: STATE.overrides[partsPath], source: 'human' };
     }
 
-    t2fig.review_status = status.approved === true  ? 'approved'
-                        : status.approved === false ? 'rejected'
-                        : 'pending';
-    t2fig.is_main = status.isMain;
-    out.T2[figNum] = t2fig;
+    // status uses master vocabulary: 'approved' / 'disapproved' / 'pending'
+    t2fig.status = status.approved === true  ? 'approved'
+                 : status.approved === false ? 'disapproved'
+                 : 'pending';
+    if (status.isMain) mainFigure = figNum;
+    out.figures[figNum] = t2fig;
   }
 
-  // Counts
-  const totalOverrides = Object.keys(STATE.overrides).length;
-  const aiLabelFields  = countAIFields(ai);
-
-  out.export_metadata = {
-    exported_at: new Date().toISOString(),
-    patent_id: STATE.patentId,
-    human_overrides_count: totalOverrides,
-    ai_labels_count: aiLabelFields
-  };
+  // ── Top-level master export fields ──────────────────────────────────
+  out.mainFigure  = mainFigure;
+  out.recordId    = STATE.patentId;
+  out.timestamp   = new Date().toISOString();
+  out.isDuplicate = false;
+  out.duplicateOf = null;
 
   return out;
 }
@@ -572,7 +606,7 @@ function renderHeader() {
 
   const title    = base.title || base.patent_title || '';
   const assignee = base.assignee || '';
-  const pubYear  = base.pub_year || base.publication_year || '';
+  const pubYear  = base.pubYear || '';
 
   // T1
   const aiT1  = ai.T1  || {};
@@ -599,9 +633,9 @@ function renderHeader() {
   }
 
   const scopeMV  = getMergedValue('T1.scope');
-  const fieldMV  = getMergedValue('T1.field');
-  const targetMV = getMergedValue('T1.target');
-  const archMV   = getMergedValue('T1.arch_count');
+  const fieldMV  = getMergedValue('T1.t1Field');
+  const targetMV = getMergedValue('T1.t1Target');
+  const archMV   = getMergedValue('T1.archCount');
   const approvedMV = getMergedValue('T1.approved');
 
   const approvedVal = approvedMV.value;
@@ -626,8 +660,8 @@ function renderHeader() {
     <div class="chips-row">
       ${approvedChip}
       ${chipHTML('T1.scope',     'Scope',     T1_SCOPE_OPTS,  scopeMV.value,  scopeMV.source,  t1Con)}
-      ${chipHTML('T1.field',     'Field',     T1_FIELD_OPTS,  fieldMV.value,  fieldMV.source,  t1Con)}
-      ${chipHTML('T1.target',    'Target',    T1_TARGET_OPTS, targetMV.value, targetMV.source, t1Con)}
+      ${chipHTML('T1.t1Field',   'Field',     T1_FIELD_OPTS,  fieldMV.value,  fieldMV.source,  t1Con)}
+      ${chipHTML('T1.t1Target',  'Target',    T1_TARGET_OPTS, targetMV.value, targetMV.source, t1Con)}
       <div class="chip">
         <span class="chip-name">Arch Count</span>
         <span class="chip-val">${archMV.value ?? '—'}</span>
@@ -635,14 +669,14 @@ function renderHeader() {
     </div>`;
 
   // G1
-  const g1MV   = getMergedValue('G1.topology');
+  const g1MV   = getMergedValue('G1.topType');
   const g1Con  = getMergedValue('G1.confidence');
   const g1Reas = getMergedValue('G1.reasoning');
   const topoVal = g1MV.value || '—';
-  const isG1Override = STATE.overrides.hasOwnProperty('G1.topology');
+  const isG1Override = STATE.overrides.hasOwnProperty('G1.topType');
   const topoOptsHTML = G1_TOPOLOGY_OPTS.map(o =>
     `<div class="override-option${o===topoVal?' selected':''}"
-         data-action="set-override" data-field="G1.topology" data-value="${o}">${o}</div>`
+         data-action="set-override" data-field="G1.topType" data-value="${o}">${o}</div>`
   ).join('');
 
   const g1HTML = `
@@ -653,8 +687,8 @@ function renderHeader() {
           <span class="topology-code">${topoVal}</span>
           ${g1Con.value != null ? confBadge(g1Con.value) : ''}
           <div class="override-wrap">
-            <button class="override-btn" data-action="open-dropdown" data-field="G1.topology" title="Override topology">▾</button>
-            <div class="override-dropdown" id="dd-G1_topology">
+            <button class="override-btn" data-action="open-dropdown" data-field="G1.topType" title="Override topology">▾</button>
+            <div class="override-dropdown" id="dd-G1_topType">
               ${topoOptsHTML}
             </div>
           </div>
@@ -690,7 +724,7 @@ function renderFigures() {
   // Gather all known figure numbers
   const figSet = new Set(Object.keys(aiT2));
   // Also from base T3_image array
-  const t3Images = Array.isArray(base.T3_image) ? base.T3_image : [];
+  const t3Images = Array.isArray(base.T3_images) ? base.T3_images : [];
   t3Images.forEach(img => {
     const fn = img.fig_number != null ? String(img.fig_number) : null;
     if (fn) figSet.add(fn);
@@ -739,7 +773,7 @@ function renderFigCard(figNum, aiEntry, t3Images) {
     || (typeof aiEntry.confidence === 'number' && aiEntry.confidence < 0.60);
 
   const statusCls = status.approved === true  ? 'status-approved'
-                  : status.approved === false ? 'status-rejected' : '';
+                  : status.approved === false ? 'status-disapproved' : '';
   const reviewCls = needsReview ? 'needs-review' : '';
 
   // Match status badge from base
@@ -812,9 +846,12 @@ function renderFigCard(figNum, aiEntry, t3Images) {
       </div>
       ${descHTML}
       <div class="fig-chips">
-        ${t2ChipHTML(`T2.${figNum}.perspective`, 'Perspective', T2_PERSPECTIVE)}
-        ${t2ChipHTML(`T2.${figNum}.style`,       'Style',       T2_STYLE)}
-        ${t2ChipHTML(`T2.${figNum}.symmetry`,    'Symmetry',    T2_SYMMETRY)}
+        ${t2ChipHTML(`T2.${figNum}.per`,   'Perspective', T2_PERSPECTIVE)}
+        ${t2ChipHTML(`T2.${figNum}.acSty`, 'AC Style',    T2_STYLE)}
+        ${t2ChipHTML(`T2.${figNum}.acCol`, 'AC Colour',   T2_AC_COL)}
+        ${t2ChipHTML(`T2.${figNum}.bgSty`, 'BG Style',    T2_BG_STY)}
+        ${t2ChipHTML(`T2.${figNum}.bgCol`, 'BG Colour',   T2_BG_COL)}
+        ${t2ChipHTML(`T2.${figNum}.sym`,   'Symmetry',    T2_SYMMETRY)}
       </div>
       ${partsHTML}
       <div class="fig-actions">
@@ -865,8 +902,10 @@ async function handleLoad() {
 
     // Patent ID from metadata or filename
     STATE.patentId =
+      STATE.baseData.recordId ||
+      STATE.baseData.recordNumber ||
       (STATE.aiData.metadata && STATE.aiData.metadata.patent_id) ||
-      (STATE.baseData.patent_id) ||
+      STATE.baseData.patent_id ||
       (baseFile ? baseFile.name.replace(/\.json$/i,'') : null) ||
       'Unknown';
 
@@ -928,6 +967,17 @@ document.addEventListener('click', function(e) {
     if (val === 'true')  val = true;
     if (val === 'false') val = false;
     STATE.overrides[field] = val;
+    // Physics locks on topology change — mirrors master Audit B-02
+    if (field === 'G1.topType') {
+      if (val === 'TP') {
+        for (let i = 1; i <= 4; i++) STATE.overrides[`M1.wTilt${i}`] = 'Fixed';
+      } else if (val === 'TW') {
+        STATE.overrides['M1.wTilt1'] = 'Tilt';
+        for (let i = 1; i <= 4; i++) STATE.overrides[`m3_wing${i}_orient`] = 'Fixed_Horizontal';
+      } else if (val === 'RC' || val === 'MR') {
+        for (let i = 1; i <= 4; i++) delete STATE.overrides[`M1.wTilt${i}`];
+      }
+    }
     closeAllDropdowns();
     render();
     return;

@@ -344,8 +344,9 @@ def classify_g1_hint(
     Returns
     -------
     ``{"value": str, "confidence": float, "source": "siglip"}``  or  ``None``
-    if skipped.  ``value`` is a G1_TOP_TYPES key (e.g. ``"TW"``, ``"MC"``,
-    ``"LC"``) matching the HTML ``topType`` field.
+    if skipped.  ``value`` is one of the master HTML's G1 topology codes
+    (``TW, TP, DS, CVT, SLC, SRW, RC, MR, HB, PFV``) matching the ``topType``
+    field exactly — see ``UI_for_taxonomy_caracterization_10.0.html`` ``TOP``.
     """
     import torch
     import torch.nn.functional as F
@@ -354,15 +355,19 @@ def classify_g1_hint(
     if nlp_confidence >= confidence_threshold:
         return None
 
+    # Definitions mirror the master wizard's G1 topology codes exactly
+    # (same wording used in the archived src/_archive/ai_labeler.py prompt).
     G1_TOP_TYPES = {
-        "MC":  "multirotor aircraft with multiple fixed rotors and no fixed wings",
-        "eH":  "conventional single main rotor helicopter layout",
-        "TW":  "tilt-wing aircraft where the entire wing rotates to vector thrust",
-        "TP":  "tilt-rotor aircraft with tilting propulsors mounted on fixed wings",
-        "LC":  "lift-plus-cruise with separate fixed lift rotors and a forward propulsor",
-        "CVT": "combined thrust aircraft mixing tilting and fixed lift propulsors",
-        "VT":  "vectored thrust where all propulsors tilt for both hover and cruise",
-        "OT":  "novel unconventional aircraft not fitting standard eVTOL configurations",
+        "TW":  "tilt wing aircraft where the entire wing panel rotates to vector thrust",
+        "TP":  "tilt propulsors aircraft where propulsors tilt independently while the wing stays fixed",
+        "DS":  "deflected slipstream aircraft with fixed propellers and large structural flaps that deflect airflow",
+        "CVT": "combined aircraft with fixed lift rotors plus tilting propulsors, or ambiguous dual-rotation thrust",
+        "SLC": "lift plus cruise aircraft with separate fixed hover rotors and fixed cruise propulsors, no tilting parts",
+        "SRW": "stopped rotor wing aircraft where the rotors stop and lock in cruise to act as a fixed wing",
+        "RC":  "rotorcraft, a single-rotor, coaxial, or tandem helicopter layout",
+        "MR":  "multirotor aircraft with distributed fixed rotors in a drone or multicopter layout",
+        "HB":  "hoverbike with a motorcycle riding posture and visible rider interface",
+        "PFV": "personal flying vehicle such as a wearable suit, jetpack, or standing platform",
     }
     TEMPLATE = "A patent drawing of an eVTOL aircraft: {}"
 
