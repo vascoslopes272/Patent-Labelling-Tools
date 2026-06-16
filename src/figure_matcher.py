@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import json
+import shutil
 from pathlib import Path
 import cv2
 import numpy as np
@@ -272,6 +273,45 @@ def process_patent(
         patent_summary["files"].extend(process_file(f, out_dir, desc, True, engine))
 
     return patent_summary
+
+def rename_matched_files(matches: list[dict], img_dir: Path, dest_dir: Path | None = None) -> dict:
+    """
+    Write matched figure crops to dest_dir (or img_dir if not given).
+    Raw files in img_dir are never modified — non-split files are copied
+    with shutil.copy2(), split crops are written fresh with cv2.imwrite().
+
+    Each entry in `matches` provides:
+        out_name   : destination filename
+        was_split  : True if this crop came from a split (D/FAT) sheet
+        src_path   : Path to copy from, when was_split is False
+        arr        : np.ndarray crop, when was_split is True
+        label      : figure label string, or None if unlabeled
+    """
+    dest_root = dest_dir if dest_dir is not None else img_dir
+    dest_root.mkdir(parents=True, exist_ok=True)
+
+    result = {"renamed_F": 0, "renamed_Fu": 0, "kept_originals": 0, "errors": []}
+
+    for m in matches:
+        out_name = m.get("out_name")
+        was_split = m.get("was_split", False)
+        try:
+            if was_split:
+                cv2.imwrite(str(dest_root / out_name), m["arr"])
+            else:
+                src_path = m["src_path"]
+                shutil.copy2(src_path, dest_root / out_name)
+                result["kept_originals"] += 1
+
+            if m.get("label"):
+                result["renamed_F"] += 1
+            else:
+                result["renamed_Fu"] += 1
+        except Exception as e:
+            result["errors"].append({"out_name": out_name, "error": str(e)})
+
+    return result
+
 
 def process_all_patents(
     df: pd.DataFrame,

@@ -76,6 +76,7 @@ def load_siglip_model(cfg: dict) -> tuple:
 
     if torch.cuda.is_available():
         device = _best_cuda_device()
+        torch.backends.cudnn.benchmark = True  # fixed 384x384 input size — safe speedup
     elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         device = "mps"
     else:
@@ -190,8 +191,8 @@ def score_all(
     processor: tuple,
     device: str,
     threshold: float = 0.60,
-    batch_size: int = 16,
-    num_workers: int = 4,
+    batch_size: int = 48,
+    num_workers: int = 8,
 ) -> list[dict]:
     """
     Score a large list of images using parallel I/O + batched GPU inference.
@@ -246,14 +247,14 @@ def triage_patent(
     processor: tuple,
     device: str,
     threshold: float = 0.60,
-    batch_size: int = 16,
-    num_workers: int = 4,
+    batch_size: int = 48,
+    num_workers: int = 8,
 ) -> dict:
     """
     Score all .png files in raw_dir/patent_id/ using batched inference.
 
-    batch_size=16 is a safe default for a 10 GB GPU with SigLIP fp16 (~1.7 GB weights).
-    Raise to 32 if VRAM is free; lower to 8 if you see OOM.
+    batch_size=48 is tuned for an 11 GB GPU with SigLIP fp16 (~1.7 GB weights) —
+    plenty of headroom. Lower it if you see OOM, raise it if VRAM stays mostly free.
 
     Returns:
     {
@@ -283,8 +284,9 @@ def run_triage(
     cfg: dict,
     threshold: float = 0.60,
     limit: int | None = None,
-    batch_size: int = 16,
-    num_workers: int = 4,
+    batch_size: int = 48,
+    num_workers: int = 8,
+    force: bool = False,
 ) -> None:
     """
     Score every image in raw_dir, writing one JSON per patent and a summary CSV.
@@ -294,21 +296,46 @@ def run_triage(
         triage_summary.csv    — one row per patent: patent_id, total_images,
                                 flagged_count, flagged_ratio
 
+    Already-processed patents are skipped (JSON exists → skip), so this is safe
+    to re-run after a crash or to pick up newly-added patent folders. This also
+    means any locked review decisions are preserved, since their files are never
+    rewritten.
+
+    To change the keep/discard threshold on already-scored images, do NOT call
+    this again — use rethreshold_existing() or reset_threshold() instead, which
+    re-apply a new threshold to the existing scores without re-running SigLIP
+    and without touching locked figures.
+
     Parameters
     ----------
     cfg       : config dict from load_config()
     threshold : score_drawing >= threshold → keep=True  (default 0.60)
     limit     : if set, process only the first N patent folders (for testing)
+    force     : if True, re-score and overwrite patents that already have a
+                triage JSON, DESTROYING any locked review decisions for them.
+                Only use this intentionally (e.g. raw images changed).
     """
     raw_dir    = Path(cfg["paths"]["raw_images"])
     triage_dir = Path(cfg["paths"]["triage"])
     triage_dir.mkdir(parents=True, exist_ok=True)
 
-    model, processor, device = load_siglip_model(cfg)
-
     patent_dirs = sorted(p for p in raw_dir.iterdir() if p.is_dir())
     if limit is not None:
         patent_dirs = patent_dirs[:limit]
+
+    if not force:
+        already_done = {p.stem for p in triage_dir.glob("*.json") if p.stem != "triage_summary"}
+        skipped = [p for p in patent_dirs if p.name in already_done]
+        patent_dirs = [p for p in patent_dirs if p.name not in already_done]
+        if skipped:
+            print(f"Skipping {len(skipped)} already-triaged patents (use force=True to re-score and "
+                  f"overwrite — this destroys any locked review decisions).")
+        if not patent_dirs:
+            print("Nothing to do — all patents already triaged. "
+                  "To change the threshold, use rethreshold_existing() or reset_threshold() instead.")
+            return
+
+    model, processor, device = load_siglip_model(cfg)
 
     summary_rows: list[dict] = []
 
@@ -333,19 +360,35 @@ def run_triage(
 
         print(f"  ✓ {patent_id}  total={result['total']}  flagged={result['flagged']}")
 
-    # Write summary CSV
+    # Rebuild summary CSV from every JSON on disk (not just this run's patents),
+    # so a partial/incremental run doesn't drop rows for already-triaged patents.
     summary_csv = triage_dir / "triage_summary.csv"
-    if summary_rows:
+    all_summary_rows = []
+    for json_path in sorted(triage_dir.glob("*.json")):
+        if json_path.stem == "triage_summary":
+            continue
+        with open(json_path) as fh:
+            data = json.load(fh)
+        total = data.get("total", 0)
+        flagged = data.get("flagged", 0)
+        all_summary_rows.append({
+            "patent_id":     data["patent_id"],
+            "total_images":  total,
+            "flagged_count": flagged,
+            "flagged_ratio": round(flagged / total, 4) if total else 0.0,
+        })
+
+    if all_summary_rows:
         fieldnames = ["patent_id", "total_images", "flagged_count", "flagged_ratio"]
         with open(summary_csv, "w", newline="") as fh:
             writer = csv.DictWriter(fh, fieldnames=fieldnames)
             writer.writeheader()
-            writer.writerows(summary_rows)
-        total_imgs    = sum(r["total_images"]  for r in summary_rows)
-        total_flagged = sum(r["flagged_count"] for r in summary_rows)
-        print(f"\nTriage complete: {len(summary_rows)} patents | "
+            writer.writerows(all_summary_rows)
+        total_imgs    = sum(r["total_images"]  for r in summary_rows) if summary_rows else 0
+        total_flagged = sum(r["flagged_count"] for r in summary_rows) if summary_rows else 0
+        print(f"\nTriage complete: {len(summary_rows)} patents newly scored | "
               f"{total_imgs} images | {total_flagged} flagged "
-              f"({100*total_flagged/max(1,total_imgs):.1f}%)")
+              f"({100*total_flagged/max(1,total_imgs):.1f}% of newly-scored)")
         print(f"Summary written to: {summary_csv}")
     else:
         print("No patents processed.")
@@ -383,6 +426,8 @@ def rethreshold_existing(
 
         changed = 0
         for fig in data["figures"]:
+            if fig.get("locked"):
+                continue  # user-confirmed decision — never overridden by threshold
             if not fig["keep"]:
                 continue  # already discarded — never re-enable
             new_keep = fig["score_drawing"] >= new_threshold
@@ -585,16 +630,25 @@ def unlock_all(cfg: dict) -> None:
     print(f"unlock_all: {total_unlocked} locks removed.")
 
 
-def commit_review(cfg: dict, approved: set[tuple[str, str]]) -> dict:
+def commit_review(
+    cfg: dict,
+    approved: set[tuple[str, str]],
+    reviewed_keys: set[tuple[str, str]] | None = None,
+) -> dict:
     """
     Persist the outcome of a manual review session from the Cell-6 viewer.
 
-    For every non-locked discard image:
-      - If (patent_id, file) is in ``approved``: set keep=True, pred="drawing",
-        locked=True  (user confirmed it should stay)
+    For every non-locked discard image whose (patent_id, file) is in
+    ``reviewed_keys`` (i.e. it was actually displayed/paged through this
+    session — pass None to fall back to the old "commit everything pending"
+    behaviour):
+      - If also in ``approved``: set keep=True, pred="drawing", locked=True
+        (user confirmed it should stay)
       - Otherwise: set locked=True, keep=False  (user confirmed discard)
 
-    Images already locked before this call are not touched.
+    Images already locked before this call, and images not in
+    ``reviewed_keys`` (pages you never scrolled to), are left untouched and
+    remain pending for a future review session.
 
     Returns a stats dict: {"newly_kept": int, "newly_locked_discard": int}
     """
@@ -613,6 +667,8 @@ def commit_review(cfg: dict, approved: set[tuple[str, str]]) -> dict:
             if fig.get("locked") or fig["keep"]:
                 continue  # already settled — skip
             key = (data["patent_id"], fig["file"])
+            if reviewed_keys is not None and key not in reviewed_keys:
+                continue  # never shown to the reviewer this session — leave pending
             if key in approved:
                 fig["keep"]   = True
                 fig["pred"]   = "drawing"
