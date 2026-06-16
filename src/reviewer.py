@@ -188,6 +188,8 @@ def assemble_patent_json(
             "review_candidates":    res.get("review_candidates", []),
             "needs_review":         res["needs_review"],
             "visual":               auto_fill_visual(res.get("matched_description")),
+            "T2_predictions": res.get("T2_predictions"),
+            "G1_hint":        res.get("G1_hint"),
         }
         if "duplicate_group" in res:
             img_entry["duplicate_group"] = res["duplicate_group"]
@@ -206,12 +208,16 @@ def assemble_patent_json(
     if t1_dimensions:
         t1.update(t1_dimensions)   # scope, t1Field, t1Target — from classify_t1_dimensions()
 
+    has_splits = any(r.get("match_status") in ("no_label", "human_required")
+                      for r in match_results)
+
     return {
         "patent_id":    patent_id,
         "record_number": excel_row.get("record_number"),
         "T1": t1,
         "description_of_drawings": description_of_drawings or None,
         "T3_images": t3_images,
+        "has_splits": has_splits,
     }
 
 
@@ -276,7 +282,19 @@ def process_patent(
 
     # Description from EPO/Google scrape or PatSeer Excel (written by Stage 00).
     text_path = Path(cfg["paths"]["text"]) / f"{patent_id}.txt"
-    desc_text  = text_path.read_text(encoding="utf-8") if text_path.exists() else ""
+    if text_path.exists():
+        desc_text = text_path.read_text(encoding="utf-8")
+    else:
+        # Fallback: read from data/descriptions.csv (written by Stage 00b)
+        import csv as _csv
+        _csv_path = Path(cfg["paths"]["data"]) / "descriptions.csv"
+        desc_text = ""
+        if _csv_path.exists():
+            with open(_csv_path, newline="", encoding="utf-8") as _f:
+                for row in _csv.DictReader(_f):
+                    if row.get("patent_id") == patent_id:
+                        desc_text = row.get("description_of_drawings", "")
+                        break
     parsed_desc = parse_description(desc_text, cfg)
 
     has_splits = any(label is None for label in ocr_labels)   # any _Fu → uncertain order
@@ -350,6 +368,7 @@ def run_stage01(
     siglip_bundle: "tuple | None" = None,
     skip_siglip: bool = False,
     limit: "int | None" = None,
+    patent_ids: list[str] | None = None,
 ) -> "pd.DataFrame":
     """
     Batch Stage 01 runner. Processes all patent folders in raw_images/.
@@ -373,6 +392,8 @@ def run_stage01(
     excel_idx = load_patseer_excel(cfg["paths"]["patseer_excel"])
 
     patent_dirs = sorted([d for d in raw_dir.iterdir() if d.is_dir()])
+    if patent_ids is not None:
+        patent_dirs = [d for d in patent_dirs if d.name in set(patent_ids)]
     if limit:
         patent_dirs = patent_dirs[:limit]
 

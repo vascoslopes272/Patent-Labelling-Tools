@@ -4,10 +4,12 @@ project:
 paths:
   base:          "/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_DS"
   raw_images:    "{{ paths.base }}/raw"
+  matched:       "{{ paths.base }}/matched"
+  structured:    "{{ paths.base }}/structured"
+  reviewed:      "{{ paths.base }}/reviewed"
   text:          "{{ paths.base }}/text"
   labels:        "{{ paths.base }}/labels"
   processed:     "{{ paths.base }}/processed"
-  matched:       "{{ paths.base }}/matched"
   patseer_excel: "/mnt/storage_11tb/Drive_files_to_syncronize/2 - Patente & Validation/3 -Raw_Patent_Exports_PatSeer_&Gold_Standard/1639__dataset_08_06_26.xlsx"
   data:          "{{ paths.base }}/data"
   triage:        "{{ paths.base }}/triage"
