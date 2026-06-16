@@ -707,6 +707,60 @@ def commit_review(
     return {"newly_kept": newly_kept, "newly_locked_discard": newly_locked_discard}
 
 
+def commit_batch(
+    cfg: dict,
+    batch: list[dict],
+    approved: set[tuple[str, str]],
+) -> dict:
+    """
+    Immediately persist decisions for a single page/batch of entries (as built
+    by the Cell-6 viewer's per-page "Commit & Next" button), without waiting
+    for a full session to finish. Only opens JSON files for patent_ids present
+    in ``batch`` — cheap to call after every page.
+
+    For each entry in ``batch`` whose (patent_id, file) is not already locked:
+      - If in ``approved``: set keep=True, pred="drawing", locked=True
+      - Otherwise: set locked=True, keep=False (confirmed discard)
+
+    Returns {"newly_kept": int, "newly_locked_discard": int}.
+    """
+    triage_dir = Path(cfg["paths"]["triage"])
+    by_patent: dict[str, list[dict]] = {}
+    for entry in batch:
+        by_patent.setdefault(entry["patent_id"], []).append(entry)
+
+    newly_kept           = 0
+    newly_locked_discard = 0
+
+    for patent_id, entries in by_patent.items():
+        json_path = triage_dir / f"{patent_id}.json"
+        if not json_path.exists():
+            continue
+        with open(json_path) as fh:
+            data = json.load(fh)
+        wanted_files = {e["file"] for e in entries}
+        changed = False
+        for fig in data["figures"]:
+            if fig["file"] not in wanted_files or fig.get("locked"):
+                continue
+            key = (patent_id, fig["file"])
+            if key in approved:
+                fig["keep"]   = True
+                fig["pred"]   = "drawing"
+                fig["locked"] = True
+                newly_kept   += 1
+            else:
+                fig["locked"] = True
+                newly_locked_discard += 1
+            changed = True
+        if changed:
+            data["flagged"] = sum(1 for f in data["figures"] if not f["keep"])
+            with open(json_path, "w") as fh:
+                json.dump(data, fh, indent=2)
+
+    return {"newly_kept": newly_kept, "newly_locked_discard": newly_locked_discard}
+
+
 def reset_review(cfg: dict) -> None:
     """
     Undo a commit_review call: remove all locks from images that are currently

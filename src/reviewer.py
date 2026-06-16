@@ -230,6 +230,123 @@ def write_patent_json(patent_id: str, data: dict, labels_dir: Path) -> Path:
     return dest
 
 
+def build_patent_html(
+    patent_id: str,
+    label_json_path: Path,
+    html_template_path: Path,
+    out_dir: Path,
+    pat_cur: int = 1,
+    pat_tot: int = 1,
+) -> Path:
+    """
+    Generate a per-patent review HTML file by injecting the AI label JSON
+    into the taxonomy wizard template as window.PIPELINE_PAYLOAD.
+
+    The HTML wizard's _restore_from_export() fires on load and pre-fills:
+      - T1_META   from the JSON T1 block
+      - S.topType from G1_hint (if confidence ≥ 0.60)
+      - S.figData from T2_predictions per figure (if confidence ≥ 0.50)
+
+    Parameters
+    ----------
+    label_json_path   : Path to labels/{patent_id}.json written by process_patent()
+    html_template_path: Path to UI_for_taxonomy_caracterization_10_0.html
+    out_dir           : Directory to write {patent_id}.html into
+    pat_cur / pat_tot : Position in batch for the throughput counter
+
+    Returns
+    -------
+    Path to the written per-patent HTML file.
+    """
+    import json as _json
+
+    data      = _json.loads(label_json_path.read_text(encoding="utf-8"))
+    t1        = data.get("T1", {})
+    t3_images = data.get("T3_images", [])
+
+    # ── Build figure list for restore payload ─────────────────────────────────
+    def _fig_num_from_fig_number(fig_number: str | None) -> str | None:
+        """'FIG. 2A' → '2A', None → None"""
+        if not fig_number:
+            return None
+        import re as _re
+        m = _re.search(r"FIG\.?\s*(\d+[A-Za-z]?)", fig_number, _re.IGNORECASE)
+        return m.group(1) if m else None
+
+    figures_payload = []
+    for img in t3_images:
+        preds = img.get("T2_predictions") or {}
+        fnum  = _fig_num_from_fig_number(img.get("fig_number"))
+        # For _Fu files (unmatched), use sequential _Fu index from filename
+        if fnum is None:
+            import re as _re
+            m = _re.search(r"_Fu(\d+)", img.get("file", ""), _re.IGNORECASE)
+            fnum = f"Fu{int(m.group(1))}" if m else None
+        if fnum is None:
+            continue
+        figures_payload.append({
+            "fNum":   fnum,
+            "file":   img.get("file", ""),
+            "fields": {
+                "per":   preds.get("per",   {"value": None, "confidence": 0.0}),
+                "sym":   preds.get("sym",   {"value": None, "confidence": 0.0}),
+                "acSty": preds.get("acSty", {"value": None, "confidence": 0.0}),
+                "acCol": preds.get("acCol", {"value": None, "confidence": 0.0}),
+                "bgSty": preds.get("bgSty", {"value": None, "confidence": 0.0}),
+                "bgCol": preds.get("bgCol", {"value": None, "confidence": 0.0}),
+                "parts": preds.get("parts", []),
+            },
+        })
+
+    # ── Build the full payload ────────────────────────────────────────────────
+    # Pick the highest-confidence G1_hint across all figures (first non-None wins)
+    g1_hint = None
+    for img in t3_images:
+        h = img.get("G1_hint")
+        if h and h.get("value"):
+            if g1_hint is None or h["confidence"] > g1_hint["confidence"]:
+                g1_hint = h
+
+    payload = {
+        "patentId": patent_id,
+        "t1Meta": {
+            "recordNumber":          data.get("record_number", patent_id),
+            "familyId":              t1.get("family_id", ""),
+            "assignee":              t1.get("assignee", ""),
+            "pubYear":               t1.get("pub_year", ""),
+            "appYear":               t1.get("app_year", ""),
+            "title":                 t1.get("title", ""),
+            "pdfLink":               f"https://patents.google.com/patent/{patent_id}/en",
+            "backwardCites":         t1.get("backward_cites", []),
+            "forwardCites":          t1.get("forward_cites", []),
+            "descriptionOfDrawings": data.get("description_of_drawings", ""),
+        },
+        "throughput": {
+            "figCur": "1",
+            "figTot": str(len(t3_images)),
+            "patCur": str(pat_cur),
+            "patTot": str(pat_tot),
+        },
+        "g1Hint":  g1_hint,
+        "figures": figures_payload,
+    }
+
+    # ── Inject into template ──────────────────────────────────────────────────
+    template = html_template_path.read_text(encoding="utf-8")
+    injection = (
+        f"\n<script>\n"
+        f"window.PIPELINE_PAYLOAD = {_json.dumps(payload, ensure_ascii=False, indent=2)};\n"
+        f"</script>\n"
+    )
+    # Insert just before </body>
+    out_html = template.replace("</body>", injection + "</body>", 1)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    dest = out_dir / f"{patent_id}.html"
+    dest.write_text(out_html, encoding="utf-8")
+    return dest
+
+
 def process_patent(
     patent_id: str,
     cfg: dict,
