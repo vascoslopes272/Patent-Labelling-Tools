@@ -1,204 +1,222 @@
+"""
+timer.py
+Sends two prompts to VSCode Claude at scheduled times using clipboard paste.
+CLIPBOARD METHOD — the entire prompt is pasted atomically with Ctrl+V.
+Never uses typewrite(), which breaks on newlines, special chars, and long strings.
+
+Schedule:
+  Prompt 1 → 04:20
+  Prompt 2 → 04:50  (30 min later)
+
+Usage:
+  1. pip install pyautogui pyperclip
+  2. Click inside the VSCode chat input so the cursor is blinking there.
+  3. python timer.py
+"""
+
 import time
 import datetime
 import pyautogui
+import pyperclip
 
-# Set your target time ("17:50" for 5:50 PM, or "05:50" for 5:50 AM)
-TARGET_TIME = "03:20" 
+TARGET_TIME_P1 = "04:20"
+TARGET_TIME_P2 = "04:50"
 
-PROMPT_TEXT_1 = """Open UI_for_taxonomy_caracterization_10_0.html. Add AI pre-label loading capability. Make exactly three additions — one <input>, one function, one call. Do not touch any existing logic, locks, or rendering.
+# ─────────────────────────────────────────────────────────────────────────────
+# PROMPT 1 — 00b2: Crop quality post-processing + ipywidgets crop review UI
+# ─────────────────────────────────────────────────────────────────────────────
 
-Addition 1 — file input button in the HTML
-Find the .wiz-eyebrow div at the very top of the <body>. Immediately after the closing </div> of that eyebrow element, add:
-html<div id="ai-load-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:1rem;padding:10px 14px;background:var(--accent-bg);border:1px solid var(--accent-bdr);border-radius:var(--r);">
-  <span style="font-size:11px;font-family:var(--mono);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--accent-text);">AI Pre-Label</span>
-  <input type="file" id="ai-prelabel-input" accept=".json" style="font-size:12px;color:var(--text2);">
-  <span id="ai-load-status" style="font-size:12px;font-family:var(--mono);color:var(--text3);"></span>
-</div>
+PROMPT_1 = """You are working inside the Patent-Labelling-Tools repository for eVTOL patents. The pipeline processes ~1500 patents and ~30000 figures. Read the existing code carefully before writing anything. Do NOT touch any cell, module, or file that is already working. Add only the two new cells described below.
 
-Addition 2 — the ingestAI(data) function
-Add this function anywhere before the closing </script> tag, after buildExport():
-javascriptfunction ingestAI(data) {
-  // ── T1 ───────────────────────────────────────────────────────
-  if (data.T1) {
-    var t1 = data.T1;
-    if (t1.approved    != null) S.isApproved         = t1.approved;
-    if (t1.disapprove_reason)   S.t1DisapproveReason = t1.disapprove_reason;
-    if (t1.scope)               S.t1Scope            = t1.scope;
-    if (t1.t1Field)             S.t1Field            = t1.t1Field;
-    if (t1.t1Target)            S.t1Target           = t1.t1Target;
-    if (t1.innovTarget && !t1.t1Target) S.t1Target   = t1.innovTarget; // fallback key
-    if (t1.arch_count  != null) S.archCount          = parseInt(t1.arch_count) || 1;
-  }
+HARD CONSTRAINTS (non-negotiable):
+- Raw files in the raw/ directory are NEVER deleted, moved, or modified.
+- Do not re-run YOLO or EasyOCR. This is a pure post-processing pass on already-saved crops.
+- Use only libraries already in requirements.txt: opencv-python, numpy, pandas, ipywidgets, Pillow.
 
-  // ── G1 ───────────────────────────────────────────────────────
-  if (data.G1 && data.G1.topType) {
-    S.topType  = data.G1.topType;
-    S.g1Focus  = ['TW','TP','DS','CVT','SLC','SRW'].indexOf(S.topType) > -1 ? 'winged'
-               : ['RC','MR'].indexOf(S.topType) > -1 ? 'wingless' : 'other';
+────────────────────────────────────────────────────────────────
+TASK 1 — New Cell 5b in notebooks/00b2_figure_crop_&_Brief_DD_matching.ipynb
+Insert this cell immediately after the existing Cell 5 (the one that saves needs_human_review.csv).
 
-    // Apply all physics locks — mirrors Audit B-02 exactly
-    if (S.topType === 'TP') {
-      for (var i = 1; i <= 4; i++) { S['wTilt' + i] = 'Fixed'; }
-    } else if (S.topType === 'TW') {
-      S.wTilt1 = 'Tilt';
-      for (var i = 1; i <= 4; i++) { S['m3_wing' + i + '_orient'] = 'Fixed_Horizontal'; }
-    } else if (S.topType === 'RC' || S.topType === 'MR') {
-      for (var i = 1; i <= 4; i++) { S['wTilt' + i] = null; }
-    }
-  }
+Purpose: Compute a crop_quality flag for every row in crops_mapping.csv by inspecting the already-saved PNG files. Append the column and overwrite crops_mapping.csv in place.
 
-  // ── M1 ───────────────────────────────────────────────────────
-  if (data.M1) {
-    var m1 = data.M1;
-    if (m1.wingConf)    S.wingConf  = m1.wingConf;
-    if (m1.wCount != null) {
-      S.wCount = parseInt(m1.wCount) || 1;
-      // BWB/FW/LB have no discrete wings
-      if (['BWB','FW','LB'].indexOf(S.wingConf) > -1) S.wCount = 0;
-    }
-    if (m1.empType)     S.empType   = m1.empType;
-    if (m1.empKin)      S.empKin    = m1.empKin;
-    if (m1.fusShape)    S.fusShape  = m1.fusShape;
-    if (m1.fusKin)      S.fusKin    = m1.fusKin;
-    if (m1.gearArch)    S.gearArch  = m1.gearArch;
-    if (m1.latSym != null) S.latSym = !!m1.latSym;
+Logic (check in this order — first match wins, store as string):
+  "blank"     → mean pixel brightness of the crop > 248  (nearly white, YOLO false-positive on margin)
+  "too_small" → either dimension of the crop < 80 px
+  "low_conf"  → column "conf" exists in crops_mapping.csv AND value < 0.40
+  "merged"    → column "review_hint" exists AND value == "possible_multi_fig"
+  ""          → passes all checks (clean crop)
 
-    // TW empennage lock: must be Fixed
-    if (S.topType === 'TW' && S.empType && S.empType !== 'Tailless' && S.empType !== 'Fins') {
-      S.empKin = 'Fixed';
-    }
-    // RC empennage kin: only Fixed or Stabilator allowed
-    if (S.topType === 'RC' && S.empKin === 'Tilt') {
-      S.empKin = 'Fixed';
-    }
-  }
+Where to find the PNG files: for each row, the file is at:
+    Path(cfg["paths"]["matched"]) / row["patent_id"] / row["output"]
 
-  // ── Wings (per-wing detail, if provided) ─────────────────────
-  if (Array.isArray(data.wings)) {
-    data.wings.forEach(function(w, idx) {
-      var i = w.id || (idx + 1);
-      if (w.tilt) S['wTilt' + i] = w.tilt;
-      if (w.posV) S['wPosV' + i] = w.posV;
-      if (w.posL) S['wPosL' + i] = w.posL;
-      if (w.plan) {
-        if (['Str','Swp','Del','Oth'].indexOf(w.plan) > -1) {
-          S['wPlan' + i] = w.plan;
-        } else {
-          S['wPlan' + i] = 'Oth'; S['wPlanOth' + i] = w.plan;
-        }
-      }
-      if (i > 1 && w.role) S['wRole' + i] = w.role;
-    });
+If the file does not exist (e.g. triage-excluded), set crop_quality = "missing".
 
-    // Re-apply TP/TW tilt locks AFTER wing data (AI might have sent wrong tilt values)
-    if (S.topType === 'TP') {
-      for (var i = 1; i <= 4; i++) { S['wTilt' + i] = 'Fixed'; }
-    }
-    if (S.topType === 'TW') { S.wTilt1 = 'Tilt'; }
-  }
+After computing, overwrite crops_mapping.csv. Print a summary table:
+  crop_quality | count
+  -------------|------
+  (empty)      |  N
+  blank        |  N
+  too_small    |  N
+  low_conf     |  N
+  merged       |  N
+  missing      |  N
 
-  // ── T2 per-figure ─────────────────────────────────────────────
-  if (data.T2 && typeof data.T2 === 'object') {
-    Object.keys(data.T2).forEach(function(figNum) {
-      var fig = data.T2[figNum];
-      if (!fig || typeof fig !== 'object') return;
-      // Only write fields that are non-null and valid strings
-      ['per','acSty','acCol','bgSty','bgCol','sym'].forEach(function(key) {
-        if (fig[key] != null) figSet(figNum, key, fig[key]);
-      });
-      if (Array.isArray(fig.parts) && fig.parts.length > 0) {
-        figSet(figNum, 'parts', fig.parts);
-      }
-      // Do NOT auto-approve figures — human must confirm each one
-    });
-  }
+────────────────────────────────────────────────────────────────
+TASK 2 — New Cell 5c in notebooks/00b2_figure_crop_&_Brief_DD_matching.ipynb
+Insert this cell immediately after Cell 5b. This is an ipywidgets interactive crop reviewer.
 
-  // ── M3 propulsion cards ───────────────────────────────────────
-  if (Array.isArray(data.propulsionCards)) {
-    data.propulsionCards.forEach(function(card) {
-      var key = card.component;
-      if (!key) return;
-      ['count','chord','orient','bmech','rmech','zone','zoneChord','zoneSpan','notes'].forEach(function(f) {
-        if (card[f] != null) {
-          S['m3_' + key + '_' + f] = card[f];
-        }
-      });
-      // TW wing orient lock: override any AI value
-      if (S.topType === 'TW' && key.indexOf('wing') > -1) {
-        S['m3_' + key + '_orient'] = 'Fixed_Horizontal';
-      }
-      // SLC/SRW: strip Tilting_Mechanism if AI hallucinated it
-      if (['SLC','SRW'].indexOf(S.topType) > -1) {
-        if (S['m3_' + key + '_orient'] === 'Tilting_Mechanism') {
-          S['m3_' + key + '_orient'] = null;
-        }
-      }
-    });
-  }
+Purpose: Show only the crops that need human attention — i.e. rows where needs_review == True OR crop_quality != "" — and allow the reviewer to Keep / Relabel / Reject each one.
 
-  // ── Confidence summary in status bar ─────────────────────────
-  var confs = [];
-  if (data.T1 && data.T1.confidence != null) confs.push(data.T1.confidence);
-  if (data.G1 && data.G1.confidence != null) confs.push(data.G1.confidence);
-  if (data.M1 && data.M1.confidence != null) confs.push(data.M1.confidence);
-  if (data.overall_confidence != null) confs.push(data.overall_confidence);
-  var avgConf = confs.length ? (confs.reduce(function(a,b){return a+b;},0)/confs.length) : null;
-  var confPct = avgConf != null ? Math.round(avgConf * 100) + '%' : '–';
-  var confColor = avgConf >= 0.85 ? 'var(--ok)' : avgConf >= 0.60 ? 'var(--warn)' : 'var(--danger)';
-  document.getElementById('ai-load-status').innerHTML =
-    '✓ Pre-labels loaded &nbsp;·&nbsp; AI confidence: <b style="color:' + confColor + '">' + confPct + '</b>' +
-    (data.G1 && data.G1.reasoning ? ' &nbsp;·&nbsp; <i style="color:var(--text3);">' + data.G1.reasoning + '</i>' : '');
+UI layout:
+  - A header showing "X crops need attention (Y patents)"
+  - A progress counter: "Reviewed: N / X"
+  - Navigation: [◄ Prev] [patent N/total] [Next ►] — navigates between patents
+  - For each patent: a scrollable grid of cards (3 columns), one card per flagged crop
+  - Each card contains:
+      * The crop image embedded as base64 PNG, max 220px wide, max 200px tall, object-fit: contain
+      * A colored badge: red for "blank"/"too_small"/"missing", orange for "low_conf"/"merged", yellow for needs_review with no quality issue
+      * The label text: current label from filename (e.g. "3B") or "Fu" if None
+      * The crop_quality value in small grey text
+      * Three buttons on one row: [✓ Keep]  [✎ Relabel]  [✗ Reject]
 
-  render();
-}
+Button behaviour:
+  Keep    → sets crop_quality to "" (confirmed clean), updates crops_mapping.csv row in memory
+  Relabel → reveals a text input + [Apply] button; on Apply: renames the file from *_Fu.png
+             to *_F{new_label}.png (using Path.rename — this is in matched/, not raw/),
+             updates the "output", "label", "needs_review", and "crop_quality" columns in memory
+  Reject  → sets crop_quality = "rejected" in memory. Does NOT delete or move the file.
 
-Addition 3 — wire the file input
-Find the line document.querySelector('.wiz').addEventListener('input', function(e){ and add this block immediately before it:
-javascriptdocument.getElementById('ai-prelabel-input').addEventListener('change', function(e) {
-  var file = e.target.files[0];
-  if (!file) return;
-  var reader = new FileReader();
-  reader.onload = function(ev) {
-    try {
-      var data = JSON.parse(ev.target.result);
-      ingestAI(data);
-    } catch(err) {
-      document.getElementById('ai-load-status').textContent = '✗ Invalid JSON: ' + err.message;
-    }
-  };
-  reader.readAsText(file);
-});
+On every Keep/Relabel/Reject action: immediately call
+    results_df.to_csv(crops_csv, index=False)
+so progress is saved incrementally and survives kernel restarts.
 
-Do not touch anything else. All physics locks, canGo() gates, keyboard shortcuts, buildExport(), and render functions stay exactly as they are. The human still steps through every tab and confirms or overrides the AI values — the wizard just starts pre-filled."""
+Use ipywidgets Output widget for rendering. No JavaScript. No external CSS files."""
 
-PROMPT_TEXT_2 = """Now, I want you to read this document very well, and see if the AI review notebook and the human review HTML that we are talking about are really in sync. The master copy, the best one, the one that you must follow is the one on the path: 
-/mnt/storage_11tb/Drive_files_to_syncronize/UI_for_taxonomy_caracterization_10.0.html
+# ─────────────────────────────────────────────────────────────────────────────
+# PROMPT 2 — 01 notebook: crop quality pre-filter + JSON collector cell
+# ─────────────────────────────────────────────────────────────────────────────
 
-Based strictly on the rules of this master HTML, write and apply all the necessary modifications to both the AI review notebook and the human review HTML so that they conform to it perfectly. 
+PROMPT_2 = """You are working inside the Patent-Labelling-Tools repository for eVTOL patents. Read ALL existing code carefully before writing anything. Make only the two targeted additions described below. Do NOT rewrite, rename, or restructure any existing module (reviewer.py, cross_modal.py, excel_schema.py, doclayout_matcher.py, gpu_worker.py must not be modified beyond the single optional parameter addition in Task 1).
 
-Take all the time necessary. Look closely at the locks and heuristics within it, because each page is associated with the previous one (for example, a rotorcraft (G1) can have wings, but in the M3 prop section, it won't have propulsors on the wings). Ensure all dependency logic, state conditions, and schema fields strictly track this file."""
+HARD CONSTRAINTS:
+- Raw files are never deleted or modified.
+- The master taxonomy reference is the HTML file at the repo root: UI_for_taxonomy_caracterization_10_0.html
+- SigLIP (ViT-SO400M-14-SigLIP-384) is the only vision model for classification. DINOv2 is NOT used here.
 
-print(f"⏰ Timer active. Waiting until {TARGET_TIME}...")
-print("⚠️ CRITICAL: Click your mouse inside the chat box right now so the cursor is blinking there!")
+────────────────────────────────────────────────────────────────
+TASK 1 — Crop quality pre-filter in notebooks/01_review.ipynb
 
-while True:
-    now = datetime.datetime.now().strftime("%H:%M")
-    if now == TARGET_TIME:
-        # Taps the keys to type your first prompt and hits enter
-        print("🚀 Sending Prompt 1...")
-        pyautogui.typewrite(PROMPT_TEXT_1, interval=0.01)
-        pyautogui.press('enter')
-        print("📨 Prompt 1 sent!")
-        
-        # Wait 20 minutes (20 minutes * 60 seconds = 1200 seconds)
-        print("⏳ Waiting 20 minutes before feeding the second prompt...")
-        time.sleep(20 * 60)
-        
-        # Taps the keys to type your second prompt and hits enter
-        print("🚀 Sending Prompt 2...")
-        pyautogui.typewrite(PROMPT_TEXT_2, interval=0.01)
-        pyautogui.press('enter')
-        print("🎉 Both prompts sent successfully!")
-        break
-        
-    time.sleep(5)  # Checks every 5 seconds
+Find the main processing loop cell — the one that iterates over patent_ids and calls reviewer.process_patent(). Add the following logic at the TOP of that cell, before the loop begins:
+
+Step A — Load crops_mapping.csv once:
+    crops_csv = Path(cfg["paths"]["data"]) / "crops_mapping.csv"
+    crops_df = pd.read_csv(crops_csv, dtype=str) if crops_csv.exists() else pd.DataFrame()
+
+Step B — Build a skip_files dict and a cap_files dict keyed by patent_id:
+    SKIP_QUALITIES = {"blank", "too_small", "rejected", "missing"}
+    CAP_QUALITIES  = {"low_conf", "merged"}
+    skip_files_map = {}
+    cap_files_map  = {}
+    if not crops_df.empty and "crop_quality" in crops_df.columns:
+        for pid, grp in crops_df.groupby("patent_id"):
+            skip_files_map[pid] = set(grp.loc[grp["crop_quality"].isin(SKIP_QUALITIES), "output"])
+            cap_files_map[pid]  = set(grp.loc[grp["crop_quality"].isin(CAP_QUALITIES),  "output"])
+
+Step C — Inside the loop, pass skip_files to process_patent():
+    skip = skip_files_map.get(patent_id, set())
+    cap  = cap_files_map.get(patent_id, set())
+    record = reviewer.process_patent(..., skip_files=skip)   # add this kwarg
+
+Step D — After process_patent() returns, cap SigLIP confidence for degraded crops:
+    For every figure result in record["figures"] whose filename is in cap:
+        for any confidence value > 0.55 in T2_predictions, G1_hint, m1/m2/m3 sub-dicts,
+        clip it to 0.55. This prevents noisy crops from dominating patent-level aggregation.
+
+Step E — Add skip_files=None as an optional parameter to reviewer.process_patent() in src/reviewer.py.
+    At the top of the image_files assembly block (just before match_images() is called),
+    add: if skip_files: image_files = [f for f in image_files if f.name not in skip_files]
+    No other change to reviewer.py.
+
+────────────────────────────────────────────────────────────────
+TASK 2 — HTML wizard JSON collector cell in notebooks/01_review.ipynb
+
+Add a new final cell at the bottom of 01_review.ipynb. This cell runs independently of the main loop and can be re-run at any time.
+
+Purpose: Collect JSON files exported by the HTML wizard (UI_for_taxonomy_caracterization_10_0.html) and write them into reviewed_patents.xlsx via excel_schema.append_reviewed_rows().
+
+Logic:
+1. Read html_review_exports path from config: cfg["paths"].get("html_review_exports").
+   If the key is absent, default to Path(cfg["paths"]["data"]) / "html_exports".
+   Create the directory and a processed/ subdirectory if they do not exist.
+   Also add the key to config.yaml with the default path if it was absent (write back with yaml.dump).
+
+2. Scan the html_exports/ directory for *.json files (not inside processed/).
+
+3. For each JSON file:
+   a. Read and parse it.
+   b. Extract patent_id from the JSON (key: "patentId" or "patent_id" — check both).
+   c. Call excel_schema.build_patent_rows(patent_id, record_dict, patent_img_dir) where
+      record_dict is the parsed JSON and patent_img_dir is matched/<patent_id>/.
+   d. Call excel_schema.append_reviewed_rows(rows, reviewed_xlsx_path).
+   e. Move the JSON file to html_exports/processed/<filename> using Path.rename().
+   f. Print: "  ✓ Ingested patent_id from filename.json"
+
+4. At the end print a summary:
+   "Ingested N JSON exports → reviewed_patents.xlsx now contains M patents."
+   where M is the count of unique Patent_ID values in the reviewed sheet.
+
+Use only pandas, pathlib, yaml, and excel_schema (already in the repo). No new dependencies."""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Timer logic — clipboard paste, all at once
+# ─────────────────────────────────────────────────────────────────────────────
+
+def send_prompt(label: str, text: str):
+    """Copy text to clipboard and paste into the focused window atomically."""
+    print(f"\n🚀 Sending {label}...")
+    pyperclip.copy(text)
+    time.sleep(0.4)                   # let clipboard settle
+    pyautogui.hotkey("ctrl", "v")     # paste entire prompt at once
+    time.sleep(0.6)                   # let the UI receive the paste
+    pyautogui.press("enter")          # submit
+    print(f"📨 {label} sent! ({len(text)} chars)")
+
+
+def wait_until(target_hhmm: str, label: str):
+    print(f"⏳ Waiting for {target_hhmm} to send {label}...")
+    while True:
+        now = datetime.datetime.now().strftime("%H:%M")
+        if now == target_hhmm:
+            return
+        time.sleep(10)   # check every 10 seconds
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Main
+# ─────────────────────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    print("=" * 60)
+    print("  eVTOL Patent Pipeline — Overnight Prompt Timer")
+    print("=" * 60)
+    print(f"  Prompt 1 → {TARGET_TIME_P1}  (00b2 crop quality + review UI)")
+    print(f"  Prompt 2 → {TARGET_TIME_P2}  (01 crop filter + JSON collector)")
+    print()
+    print("⚠️  BEFORE LEAVING:")
+    print("    1. Click inside the VSCode chat input box")
+    print("    2. Make sure the cursor is blinking there")
+    print("    3. Do NOT touch the keyboard or mouse after that")
+    print("=" * 60)
+
+    # ── Prompt 1 ──────────────────────────────────────────────────────────────
+    wait_until(TARGET_TIME_P1, "Prompt 1")
+    send_prompt("Prompt 1", PROMPT_1)
+
+    # ── Wait 30 minutes ───────────────────────────────────────────────────────
+    print(f"\n⏳ Waiting 30 minutes for Prompt 2 at {TARGET_TIME_P2}...")
+    wait_until(TARGET_TIME_P2, "Prompt 2")
+    send_prompt("Prompt 2", PROMPT_2)
+
+    print("\n🎉 Both prompts sent. Pipeline will run overnight.")
+    print("   Check crops_mapping.csv and reviewed_patents.xlsx in the morning.")

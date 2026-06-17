@@ -466,6 +466,7 @@ def process_patent(
     sbert_model=None,
     siglip_bundle: tuple | None = None,
     skip_siglip: bool = False,
+    skip_files: set | None = None,
 ) -> dict:
     """
     Full Stage 01 pipeline for one patent.
@@ -518,6 +519,9 @@ def process_patent(
         labeled   = sorted(patent_img_dir.glob(f"{patent_id}_*_F[0-9]*.png"))
         unlabeled = sorted(patent_img_dir.glob(f"{patent_id}_*_Fu*.png"))
         image_files = labeled + unlabeled
+
+    if skip_files:
+        image_files = [f for f in image_files if f.name not in skip_files]
 
     ocr_labels = [label_from_filename(p.name) for p in image_files]
 
