@@ -33,15 +33,22 @@ from tqdm import tqdm
 
 # ─── Model loading ────────────────────────────────────────────────────────────
 
-def load_siglip_model() -> tuple:
+def load_siglip_model(cache_dir: "Path | str | None" = None) -> tuple:
     """
     Load the SigLIP ViT-SO400M-14 model via open_clip.
 
-    Downloads ~3 GB of weights on first call (cached by HuggingFace Hub).
+    Downloads ~3 GB of weights on first call. When `cache_dir` is given
+    (cfg["paths"]["siglip_cache"]), weights are cached there instead of the
+    default `~/.cache/huggingface` so the project stays self-contained.
     Returns (model, tokenizer, preprocess, device).
     """
+    import os
     import open_clip
     import torch
+
+    if cache_dir is not None:
+        Path(cache_dir).mkdir(parents=True, exist_ok=True)
+        os.environ["HF_HUB_CACHE"] = str(cache_dir)
 
     model, _, preprocess = open_clip.create_model_and_transforms(
         "hf-hub:timm/ViT-SO400M-14-SigLIP-384"
@@ -111,7 +118,7 @@ def compute_visual_score(
 
 def verify_matches(
     match_results: list[dict],
-    raw_dir: Path,
+    patent_dir: Path,
     patent_id: str,
     model,
     tokenizer,
@@ -135,8 +142,11 @@ def verify_matches(
     Parameters
     ----------
     match_results : Output of matcher.match_images().
-    raw_dir       : cfg["paths"]["raw_images"].
-    patent_id     : Used to locate the image folder (raw_dir / patent_id).
+    patent_dir    : Already-resolved directory containing this patent's image
+                    files (matched/{patent_id}_{record_number}/ — folder names
+                    in matched/ carry a record-number suffix the bare patent_id
+                    does not, so callers must resolve the folder first).
+    patent_id     : Used only for log/progress labelling.
     skip_siglip   : When True, skip all SigLIP calls (fast "quick check" mode).
                     siglip_score will be None; composite_confidence = match_confidence.
 
@@ -144,7 +154,6 @@ def verify_matches(
     -------
     Updated copy of match_results (new dicts, originals untouched).
     """
-    patent_dir = raw_dir / patent_id
     updated: list[dict] = []
 
     for result in tqdm(match_results, desc=f"SigLIP {patent_id}", leave=False):
@@ -216,6 +225,54 @@ def verify_matches(
     return updated
 
 
+# ─── Shared image encoding ─────────────────────────────────────────────────────
+
+def encode_image_features(img_path: Path, model, preprocess, device: str):
+    """
+    Encode an image once and return its normalized SigLIP feature vector.
+
+    process_patent() calls this once per figure and passes the result into
+    every classify_*_fields() call for that figure (T2/G1/M1/M2/M3), instead
+    of each classifier re-running model.encode_image() on the same crop —
+    that redundancy was ~20 forward passes per figure before this existed.
+
+    Returns None if the image cannot be loaded.
+    """
+    import torch
+    import torch.nn.functional as F
+    from PIL import Image
+
+    try:
+        image = Image.open(img_path).convert("RGB")
+        img_t = preprocess(image).unsqueeze(0).to(device)
+    except Exception:
+        return None
+
+    with torch.no_grad():
+        if device == "cuda":
+            with torch.cuda.amp.autocast():
+                feat = model.encode_image(img_t)
+        else:
+            feat = model.encode_image(img_t)
+        feat = F.normalize(feat, dim=-1)
+    return feat
+
+
+def _text_features(texts: list[str], model, tokenizer, device: str):
+    import torch
+    import torch.nn.functional as F
+
+    toks = tokenizer(texts).to(device)
+    with torch.no_grad():
+        if device == "cuda":
+            with torch.cuda.amp.autocast():
+                feat = model.encode_text(toks)
+        else:
+            feat = model.encode_text(toks)
+        feat = F.normalize(feat, dim=-1)
+    return feat
+
+
 # ─── Zero-shot T2 taxonomy classification ─────────────────────────────────────
 
 def classify_t2_fields(
@@ -224,6 +281,7 @@ def classify_t2_fields(
     tokenizer,
     preprocess,
     device: str,
+    img_feat=None,
 ) -> dict:
     """
     Zero-shot classify a patent figure crop on T2 taxonomy axes using SigLIP.
@@ -248,10 +306,6 @@ def classify_t2_fields(
 
     Returns empty dict if model is None or image cannot be loaded.
     """
-    import torch
-    import torch.nn.functional as F
-    from PIL import Image
-
     PARTS_THRESHOLD = 0.20
 
     T2_PER    = ["Top", "Bottom/Down", "Front", "Back", "Side",
@@ -279,19 +333,14 @@ def classify_t2_fields(
 
     if model is None:
         return {}
-    try:
-        image = Image.open(img_path).convert("RGB")
-        img_t = preprocess(image).unsqueeze(0).to(device)
-    except Exception:
+    feat = img_feat if img_feat is not None else encode_image_features(img_path, model, preprocess, device)
+    if feat is None:
         return {}
 
     def _score(candidates: list, template: str) -> list:
         texts     = [template.format(c) for c in candidates]
-        toks      = tokenizer(texts).to(device)
-        with torch.no_grad():
-            img_feat  = F.normalize(model.encode_image(img_t),  dim=-1)
-            text_feat = F.normalize(model.encode_text(toks),    dim=-1)
-            raw       = (img_feat @ text_feat.T).squeeze(0).cpu().tolist()
+        text_feat = _text_features(texts, model, tokenizer, device)
+        raw       = (feat @ text_feat.T).squeeze(0).cpu().tolist()
         return [float(max(0.0, min(1.0, s))) for s in raw]
 
     result: dict = {}
@@ -334,6 +383,7 @@ def classify_g1_hint(
     device: str,
     nlp_confidence: float = 0.0,
     confidence_threshold: float = 0.55,
+    img_feat=None,
 ) -> "dict | None":
     """
     Conditionally classify G1 architecture type using SigLIP zero-shot.
@@ -348,10 +398,6 @@ def classify_g1_hint(
     (``TW, TP, DS, CVT, SLC, SRW, RC, MR, HB, PFV``) matching the ``topType``
     field exactly — see ``UI_for_taxonomy_caracterization_10.0.html`` ``TOP``.
     """
-    import torch
-    import torch.nn.functional as F
-    from PIL import Image
-
     if nlp_confidence >= confidence_threshold:
         return None
 
@@ -373,20 +419,14 @@ def classify_g1_hint(
 
     if model is None:
         return None
-    try:
-        image = Image.open(img_path).convert("RGB")
-        img_t = preprocess(image).unsqueeze(0).to(device)
-    except Exception:
+    feat = img_feat if img_feat is not None else encode_image_features(img_path, model, preprocess, device)
+    if feat is None:
         return None
 
-    ids   = list(G1_TOP_TYPES.keys())
-    texts = [TEMPLATE.format(G1_TOP_TYPES[k]) for k in ids]
-    toks  = tokenizer(texts).to(device)
-
-    with torch.no_grad():
-        img_feat  = F.normalize(model.encode_image(img_t), dim=-1)
-        text_feat = F.normalize(model.encode_text(toks),   dim=-1)
-        scores    = (img_feat @ text_feat.T).squeeze(0).cpu().tolist()
+    ids       = list(G1_TOP_TYPES.keys())
+    texts     = [TEMPLATE.format(G1_TOP_TYPES[k]) for k in ids]
+    text_feat = _text_features(texts, model, tokenizer, device)
+    scores    = (feat @ text_feat.T).squeeze(0).cpu().tolist()
 
     scores = [float(max(0.0, min(1.0, s))) for s in scores]
     best_i = scores.index(max(scores))
@@ -396,3 +436,231 @@ def classify_g1_hint(
         "confidence": round(scores[best_i], 4),
         "source":     "siglip",
     }
+
+
+# ─── Zero-shot M1 structural classification ───────────────────────────────────
+
+def classify_m1_fields(
+    img_path: Path,
+    model,
+    tokenizer,
+    preprocess,
+    device: str,
+    img_feat=None,
+) -> dict:
+    """
+    Zero-shot classify M1 structural/airframe fields from a patent figure.
+
+    Returns predictions keyed by the exact M1 field names used by the HTML wizard:
+    fusShape, fusKin, gearArch, latSym — each with {value, confidence, source}.
+    """
+    if model is None:
+        return {}
+    feat = img_feat if img_feat is not None else encode_image_features(img_path, model, preprocess, device)
+    if feat is None:
+        return {}
+
+    def _best(candidates: list[tuple], template: str) -> dict:
+        ids    = [c[0] for c in candidates]
+        descs  = [template.format(c[1]) for c in candidates]
+        tf_    = _text_features(descs, model, tokenizer, device)
+        sims   = (feat @ tf_.T).squeeze(0).cpu().tolist()
+        sims   = [float(max(0.0, min(1.0, s))) for s in sims]
+        best_i = sims.index(max(sims))
+        return {"value": ids[best_i], "confidence": round(sims[best_i], 4), "source": "siglip"}
+
+    FUS_SHAPE = [
+        ("Circular",    "aircraft with a circular or cylindrical tubular fuselage"),
+        ("Oval",        "aircraft with an oval or elliptical fuselage cross-section"),
+        ("Rectangular", "aircraft with a rectangular or box-shaped fuselage"),
+        ("Blended",     "aircraft with a blended wing body or lifting body fuselage merged into the wings"),
+    ]
+    FUS_KIN = [
+        ("Fixed",    "aircraft with a conventional fixed fuselage that does not tilt or pivot"),
+        ("Variable", "aircraft with a variable incidence or tilting fuselage body that rotates during transition"),
+    ]
+    GEAR_ARCH = [
+        ("Skids",      "aircraft with fixed skid-type landing gear or runners underneath"),
+        ("FixedWheel", "aircraft with fixed non-retractable wheeled landing gear"),
+        ("RetrWheel",  "aircraft with retractable wheeled landing gear that folds into the body"),
+        ("PadsHull",   "aircraft with hull pads, pontoons, or belly-contact landing surfaces"),
+    ]
+    LAT_SYM = [
+        ("true",  "aircraft that is laterally symmetric with mirror-identical left and right halves"),
+        ("false", "aircraft that is laterally asymmetric with different left and right sides"),
+    ]
+
+    try:
+        result = {
+            "fusShape": _best(FUS_SHAPE, "A patent drawing of an eVTOL {}"),
+            "fusKin":   _best(FUS_KIN,   "A patent drawing of an eVTOL {}"),
+            "gearArch": _best(GEAR_ARCH, "A patent drawing of an eVTOL {}"),
+            "latSym":   _best(LAT_SYM,   "A patent drawing of an eVTOL {}"),
+        }
+        # Convert latSym value to bool
+        result["latSym"]["value"] = result["latSym"]["value"] == "true"
+        return result
+    except Exception:
+        return {}
+
+
+# ─── Zero-shot M2 aerodynamic classification ──────────────────────────────────
+
+def classify_m2_fields(
+    img_path: Path,
+    model,
+    tokenizer,
+    preprocess,
+    device: str,
+    img_feat=None,
+) -> dict:
+    """
+    Zero-shot classify M2 aerodynamic/lifting-surface fields from a patent figure.
+
+    Returns predictions for wingConf, empType, empKin, plus a wCount_hint integer.
+    Each field: {value, confidence, source}.
+    """
+    if model is None:
+        return {}
+    feat = img_feat if img_feat is not None else encode_image_features(img_path, model, preprocess, device)
+    if feat is None:
+        return {}
+
+    def _best(candidates: list[tuple], template: str) -> dict:
+        ids    = [c[0] for c in candidates]
+        descs  = [template.format(c[1]) for c in candidates]
+        tf_    = _text_features(descs, model, tokenizer, device)
+        sims   = (feat @ tf_.T).squeeze(0).cpu().tolist()
+        sims   = [float(max(0.0, min(1.0, s))) for s in sims]
+        best_i = sims.index(max(sims))
+        return {"value": ids[best_i], "confidence": round(sims[best_i], 4), "source": "siglip"}
+
+    WING_CONF = [
+        ("W",   "aircraft with one or more distinct standard wing panels attached to the fuselage"),
+        ("BWB", "aircraft with a blended wing body where fuselage and wings merge smoothly"),
+        ("FW",  "flying wing aircraft with no distinct fuselage, the entire body generates lift"),
+        ("LB",  "lifting body aircraft where the fuselage itself generates most of the lift without wings"),
+    ]
+    EMP_TYPE = [
+        ("Tailless",    "aircraft with no tail empennage, tailless or flying wing design"),
+        ("Conventional","aircraft with a conventional horizontal stabilizer at the base of the vertical tail"),
+        ("Cruciform",   "aircraft with cruciform tail where horizontal stabilizer is at mid-height on the vertical fin"),
+        ("T-Tail",      "aircraft with a T-tail where horizontal stabilizer is mounted at the top of the vertical fin"),
+        ("V-Tail",      "aircraft with a V-shaped tail combining horizontal and vertical stabilization"),
+        ("Inv_V-Tail",  "aircraft with an inverted V-tail pointing downward"),
+        ("H-Tail",      "aircraft with an H-tail or twin-boom tail with two vertical fins connected by a horizontal stabilizer"),
+        ("Fins",        "aircraft with minimal small stabilizing fins rather than a full tail empennage"),
+    ]
+    EMP_KIN = [
+        ("Fixed",       "aircraft with a fixed tail empennage that does not tilt or move"),
+        ("Tilt",        "aircraft where the entire aft tail assembly tilts together with the wing during transition"),
+        ("Stabilator",  "aircraft with an all-moving stabilator where the entire horizontal tail pivots for pitch control"),
+    ]
+    WCOUNT = [
+        ("1", "aircraft with one single main wing"),
+        ("2", "aircraft with two wings such as a biplane, canard-wing, or tandem wing configuration"),
+        ("3", "aircraft with three wing panels or lifting surfaces"),
+        ("4", "aircraft with four or more wing panels"),
+    ]
+
+    try:
+        return {
+            "wingConf": _best(WING_CONF, "A patent drawing of an eVTOL {}"),
+            "empType":  _best(EMP_TYPE,  "A patent drawing of an eVTOL {}"),
+            "empKin":   _best(EMP_KIN,   "A patent drawing of an eVTOL {}"),
+            "wCount":   _best(WCOUNT,    "A patent drawing of an eVTOL {}"),
+        }
+    except Exception:
+        return {}
+
+
+# ─── M3 propulsion classification ─────────────────────────────────────────────
+
+def classify_m3_fields(
+    img_path: Path,
+    model,
+    tokenizer,
+    preprocess,
+    device: str,
+    img_feat=None,
+) -> dict:
+    """
+    Zero-shot classify M3 propulsion sub-fields from a patent figure.
+
+    Returns predictions for chord, orient, bmech, rmech — each with {value, confidence, source}.
+    These are used to populate propulsion card fields in the HTML wizard.
+    """
+    if model is None:
+        return {}
+    feat = img_feat if img_feat is not None else encode_image_features(img_path, model, preprocess, device)
+    if feat is None:
+        return {}
+
+    def _best(candidates: list[tuple], template: str) -> dict:
+        ids    = [c[0] for c in candidates]
+        descs  = [template.format(c[1]) for c in candidates]
+        tf_    = _text_features(descs, model, tokenizer, device)
+        sims   = (feat @ tf_.T).squeeze(0).cpu().tolist()
+        sims   = [float(max(0.0, min(1.0, s))) for s in sims]
+        best_i = sims.index(max(sims))
+        return {"value": ids[best_i], "confidence": round(sims[best_i], 4), "source": "siglip"}
+
+    CHORD = [
+        ("Front", "rotors or propellers positioned at the front leading edge pulling the aircraft forward"),
+        ("Back",  "rotors or propellers positioned at the back trailing edge pushing the aircraft"),
+    ]
+    ORIENT = [
+        ("Fixed_Vertical",    "rotors oriented vertically for hovering lift with no tilting mechanism"),
+        ("Fixed_Horizontal",  "propulsors oriented horizontally for forward cruise thrust with no tilting"),
+        ("Tilting_Mechanism", "rotors or propulsors with a visible tilting or vectoring mechanism that rotates between hover and cruise"),
+    ]
+    BLADE_MECH = [
+        ("Open",   "open free rotor or propeller blades exposed to airflow"),
+        ("Ducted", "rotors inside a duct or shroud or enclosed fan housing"),
+        ("Folded", "folding or stowable rotor blades that collapse when not in use"),
+    ]
+    RETRACT_MECH = [
+        ("Exposed",     "non-retractable rotors permanently exposed outside the aircraft structure"),
+        ("Retractable", "retractable rotors that fold or retract into the aircraft structure during cruise"),
+    ]
+
+    try:
+        return {
+            "chord": _best(CHORD,       "A patent drawing showing an eVTOL with {}"),
+            "orient": _best(ORIENT,     "A patent drawing showing an eVTOL with {}"),
+            "bmech":  _best(BLADE_MECH, "A patent drawing showing an eVTOL with {}"),
+            "rmech":  _best(RETRACT_MECH, "A patent drawing showing an eVTOL with {}"),
+        }
+    except Exception:
+        return {}
+
+
+# ─── Aggregate per-figure predictions to patent-level ─────────────────────────
+
+def aggregate_architecture_predictions(
+    per_figure_preds: list[dict],
+    fields: list[str],
+) -> dict:
+    """
+    Aggregate per-figure SigLIP predictions to a single patent-level prediction
+    by taking the highest-confidence figure for each field.
+
+    Parameters
+    ----------
+    per_figure_preds : List of dicts, each from classify_m1_fields() or classify_m2_fields().
+    fields           : Which keys to aggregate (e.g. ["fusShape", "fusKin", "gearArch"]).
+
+    Returns
+    -------
+    Dict keyed by field, each value: {value, confidence, source}.
+    """
+    result: dict = {}
+    for field in fields:
+        best: dict | None = None
+        for pred in per_figure_preds:
+            entry = pred.get(field)
+            if entry and entry.get("value") is not None:
+                if best is None or entry["confidence"] > best["confidence"]:
+                    best = entry
+        result[field] = best or {"value": None, "confidence": 0.0, "source": None}
+    return result

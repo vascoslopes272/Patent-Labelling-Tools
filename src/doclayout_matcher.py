@@ -35,21 +35,20 @@ YOLO_CONF    = 0.25    # lowered from 0.40 — recovers sub-figures detected at 
 CAPTION_CONF = 0.15    # figure_caption only — more captions survive to OCR Pass 1
                         # (figure boxes still filtered at YOLO_CONF, see detect_regions)
 NMS_IOU      = 0.30    # IoU threshold for suppressing duplicate/nested figure boxes
-MIN_CROP_PX  = 300     # discard crops smaller than this in either dimension (filters bad thin split slices)
+MIN_CROP_PX  = 450     # discard crops smaller than this in either dimension (filters bad thin split slices)
 IMGSZ        = 1024    # DocStructBench model was trained at 1024
-CROP_PAD_FRAC = 0.15   # expand each YOLO box edge outward by this fraction of the
-                        # sheet dimension before cropping (15% of width/height per side)
+CROP_PAD_PX_FIXED = 60  # fixed padding (px) around each YOLO box — enough to capture
+                         # the "FIG. X" caption just outside the box without bleeding
+                         # into adjacent figures on high-res sheets (replaces % padding)
 
 # A single figure box taller than this (px) AND containing clear horizontal whitespace
 # is likely a wrapper around multiple sub-figures — split it vertically.
-SPLIT_HEIGHT_PX  = 1400
-SPLIT_GAP_PX     = 30   # minimum whitespace run (px) to treat as a split point
+SPLIT_HEIGHT_PX  = 1500  # only attempt split on very tall wrapper boxes
+SPLIT_GAP_PX     = 120  # gap must be large enough to distinguish two-figure separation
+                          # from internal whitespace within a single figure
 
-# A single figure box wider than this (px) AND containing clear vertical whitespace
-# columns is likely a wrapper around side-by-side sub-figures (e.g. FIG. 8A/8B/8C
-# printed left-to-right on a landscape sheet) — split it horizontally.
-SPLIT_WIDTH_PX     = 1400
-SPLIT_GAP_PX_VERT  = 30   # minimum whitespace run (px, columns) to treat as a split point
+SPLIT_WIDTH_PX     = 1500
+SPLIT_GAP_PX_VERT  = 120
 
 # Context padding around the figure box for the Qwen fallback. The caption ("FIG. n")
 # is usually printed OUTSIDE the YOLO figure box — without this margin Qwen never sees it.
@@ -172,6 +171,49 @@ def _nms_figures(figures: list[dict], iou_thresh: float = NMS_IOU) -> list[dict]
     return kept
 
 
+def _merge_coplanar_fragments(figures: list[dict], y_overlap_frac: float = 0.70) -> list[dict]:
+    """
+    Merge boxes that are side-by-side fragments of the same figure.
+    YOLO sometimes slices one figure into narrow vertical columns with the same
+    y-range — merge any group of boxes whose y-ranges overlap by ≥ y_overlap_frac
+    of the smaller box's height into one wide union box.
+    """
+    if not figures:
+        return figures
+
+    merged = []
+    used = [False] * len(figures)
+
+    for i, fig in enumerate(figures):
+        if used[i]:
+            continue
+        group = [fig]
+        used[i] = True
+        y1i, y2i = fig["box"][1], fig["box"][3]
+        hi = y2i - y1i
+
+        for j, other in enumerate(figures):
+            if used[j]:
+                continue
+            y1j, y2j = other["box"][1], other["box"][3]
+            hj = y2j - y1j
+            # y-overlap between the two boxes
+            overlap = max(0, min(y2i, y2j) - max(y1i, y1j))
+            if overlap / max(1, min(hi, hj)) >= y_overlap_frac:
+                group.append(other)
+                used[j] = True
+
+        if len(group) == 1:
+            merged.append(fig)
+        else:
+            merged.append({
+                "box":  _union_box([f["box"] for f in group]),
+                "conf": max(f["conf"] for f in group),
+            })
+
+    return merged
+
+
 def _merge_vertical_strips(figures: list[dict]) -> list[dict]:
     """
     Merge vertically-adjacent figure boxes that share the same x-span (same column).
@@ -233,8 +275,10 @@ def _split_large_figure(fig: dict, img_gray: np.ndarray) -> list[dict]:
         return [fig]
 
     crop = img_gray[y1:y2, x1:x2]
-    # Row is "white" if >95% of pixels are above threshold 230
-    row_white = np.mean(crop > 230, axis=1) > 0.95
+    # Row is a "gap" if fewer than 1.5% of pixels are genuinely black (< 80).
+    # Using a strict darkness threshold separates real whitespace/caption-text gaps
+    # from drawing content, even in light design-patent drawings with thin lines.
+    row_white = np.mean(crop < 80, axis=1) < 0.015
 
     # Find runs of consecutive white rows
     gaps: list[tuple[int, int]] = []  # (start_row, end_row) relative to crop
@@ -253,15 +297,13 @@ def _split_large_figure(fig: dict, img_gray: np.ndarray) -> list[dict]:
     if not gaps:
         return [fig]
 
-    # Split at the midpoint of the largest gap
+    # Split once at the midpoint of the largest gap — no recursion
     best = max(gaps, key=lambda g: g[1] - g[0])
     split_y = y1 + (best[0] + best[1]) // 2
 
     top = {"box": [x1, y1, x2, split_y], "conf": fig["conf"]}
     bot = {"box": [x1, split_y, x2, y2],  "conf": fig["conf"]}
-
-    # Recurse in case each half is still too tall
-    return _split_large_figure(top, img_gray) + _split_large_figure(bot, img_gray)
+    return [top, bot]
 
 
 def _split_wide_figure(fig: dict, img_gray: np.ndarray) -> list[dict]:
@@ -277,8 +319,8 @@ def _split_wide_figure(fig: dict, img_gray: np.ndarray) -> list[dict]:
         return [fig]
 
     crop = img_gray[y1:y2, x1:x2]
-    # Column is "white" if >95% of pixels are above threshold 230
-    col_white = np.mean(crop > 230, axis=0) > 0.95
+    # Column is a "gap" if fewer than 1.5% of pixels are genuinely black (< 80)
+    col_white = np.mean(crop < 80, axis=0) < 0.015
 
     # Find runs of consecutive white columns
     gaps: list[tuple[int, int]] = []  # (start_col, end_col) relative to crop
@@ -297,15 +339,13 @@ def _split_wide_figure(fig: dict, img_gray: np.ndarray) -> list[dict]:
     if not gaps:
         return [fig]
 
-    # Split at the midpoint of the largest gap
+    # Split once at the midpoint of the largest gap — no recursion
     best = max(gaps, key=lambda g: g[1] - g[0])
     split_x = x1 + (best[0] + best[1]) // 2
 
     left  = {"box": [x1, y1, split_x, y2], "conf": fig["conf"]}
     right = {"box": [split_x, y1, x2, y2], "conf": fig["conf"]}
-
-    # Recurse in case each half is still too wide
-    return _split_wide_figure(left, img_gray) + _split_wide_figure(right, img_gray)
+    return [left, right]
 
 
 def detect_regions(model, img_path: Path, device: str = "cuda:0") -> tuple[list[dict], list[dict]]:
@@ -344,6 +384,49 @@ def detect_regions(model, img_path: Path, device: str = "cuda:0") -> tuple[list[
                     figures.append(rec)
             elif cls_name == _CAPTION_CLASS:
                 captions.append(rec)
+
+    # NMS: remove duplicate/nested figure boxes
+    figures = _nms_figures(figures)
+
+    # Merge side-by-side column fragments of the same figure into one wide box
+    figures = _merge_coplanar_fragments(figures)
+
+    # Filter out boxes that are tiny relative to the largest box on the sheet —
+    # small detections are annotation artifacts, not real figures
+    if len(figures) > 1:
+        max_area = max((f["box"][2]-f["box"][0]) * (f["box"][3]-f["box"][1]) for f in figures)
+        figures  = [f for f in figures
+                    if (f["box"][2]-f["box"][0]) * (f["box"][3]-f["box"][1]) >= 0.12 * max_area]
+
+    # Only split if YOLO returned exactly one box (a wrapper around multiple sub-figures).
+    # When YOLO already found 2+ individual boxes, trust them — splitting further creates noise.
+    if len(figures) == 1:
+        fig = figures[0]
+        h_box = fig["box"][3] - fig["box"][1]
+        w_box = fig["box"][2] - fig["box"][0]
+
+        halves = _split_large_figure(fig, img_gray)
+        if len(halves) == 2:
+            h0 = halves[0]["box"][3] - halves[0]["box"][1]
+            h1 = halves[1]["box"][3] - halves[1]["box"][1]
+            # Reject split if one half is less than 20% of the other — it's a sliver
+            if min(h0, h1) >= 0.20 * max(h0, h1):
+                figures = halves
+
+        if len(figures) == 1:
+            halves = _split_wide_figure(fig, img_gray)
+            if len(halves) == 2:
+                w0 = halves[0]["box"][2] - halves[0]["box"][0]
+                w1 = halves[1]["box"][2] - halves[1]["box"][0]
+                if min(w0, w1) >= 0.20 * max(w0, w1):
+                    figures = halves
+
+        # After split: merge any coplanar fragments and re-apply area filter
+        if len(figures) > 1:
+            figures = _merge_coplanar_fragments(figures)
+            max_area = max((f["box"][2]-f["box"][0])*(f["box"][3]-f["box"][1]) for f in figures)
+            figures  = [f for f in figures
+                        if (f["box"][2]-f["box"][0])*(f["box"][3]-f["box"][1]) >= 0.12 * max_area]
 
     return figures, captions
 
@@ -745,7 +828,7 @@ def crop_and_save(img_path: Path, figures: list[dict], captions: list[dict],
     if img is None:
         return []
     h, w = img.shape[:2]
-    CROP_PAD_PX = int(min(h, w) * CROP_PAD_FRAC)
+    CROP_PAD_PX = CROP_PAD_PX_FIXED
 
     # ── Pass 1: OCR every detected figure box ────────────────────────────────
     annotated: list[dict] = []   # each item carries box + OCR result
@@ -874,3 +957,216 @@ def process_image(engine, img_path: Path, out_dir: Path) -> dict:
     figures, captions = detect_regions(model, img_path, device=device)
     crops = crop_and_save(img_path, figures, captions, engine, out_dir)
     return {"image": img_path.name, "figures": figures, "captions": captions, "crops": crops}
+
+
+def _worker_process(
+    subset: list[str],
+    device: str,
+    weights: str,
+    raw_dir: str,
+    matched_dir: str,
+    triage_dir: str,
+    result_queue,
+):
+    """
+    Runs in a separate process — builds its own engine on `device`, processes
+    its subset of patents, puts (rows, triage_skipped, logs) into result_queue.
+    Must be a module-level function so multiprocessing can pickle it.
+    """
+    import json, re, shutil, torch
+    from pathlib import Path
+
+    engine = build_engine(weights, device=device)
+    raw_dir     = Path(raw_dir)
+    matched_dir = Path(matched_dir)
+    triage_dir  = Path(triage_dir)
+
+    _CLEAN_RE   = re.compile(r"[^A-Za-z0-9]")
+    _NUM_SUFFIX = re.compile(r"_\d+$")
+    _DL_SUFFIX  = re.compile(r"PAFP$|PAF$", re.IGNORECASE)
+    _KIND_CODES = ["A1","A2","A3","B1","B2","C1","U1"]
+    _NON_SHEET  = re.compile(r"manifest|thumbnail|cover|abstract|front.?page", re.IGNORECASE)
+    _SHEET_RE   = re.compile(r"""
+        (?:
+            _[Dd]\d{3,}|PAFP_img\d|PAF_img\d|_img[af]?\d|fig_\d|record__fig_\d|
+            ^img[af]?\d|^pat\d|^FT_\d|^HDA\d|^\d+\.|^srep\d|sN_img\d
+        )""", re.VERBOSE | re.IGNORECASE)
+
+    def _c(pid):
+        p = _NUM_SUFFIX.sub("", pid)
+        c = _CLEAN_RE.sub("", p).upper()
+        c = _DL_SUFFIX.sub("", c)
+        for sfx in _KIND_CODES:
+            if c.endswith(sfx): return c[:-len(sfx)]
+        return c
+
+    def _is_sheet(f):
+        if f.suffix.lower() != ".png": return False
+        if _NON_SHEET.search(f.name): return False
+        return bool(_SHEET_RE.search(f.name))
+
+    def _excluded(pid):
+        p = triage_dir / f"{pid}.json"
+        if not p.exists(): return set()
+        try:
+            data = json.loads(p.read_text())
+            return {fig["file"] for fig in data.get("figures", [])
+                    if fig.get("keep") is False and fig.get("locked") is True}
+        except Exception:
+            return set()
+
+    folder_map = {_c(p.name): p for p in raw_dir.iterdir() if p.is_dir()}
+
+    rows: list[dict] = []
+    triage_skipped_total = 0
+    logs: list[str] = []
+
+    for excel_id in subset:
+        folder = folder_map.get(_c(excel_id))
+        if folder is None:
+            logs.append(f"  ⚠  [{device}] No raw folder for {excel_id} — skipping")
+            continue
+
+        out_dir = matched_dir / folder.name
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        files     = sorted(folder.iterdir())
+        img_files = [f for f in files if _is_sheet(f)]
+        fat_files = [f for f in files if re.search(r"_FAT\d", f.name)]
+        excl      = _excluded(folder.name)
+
+        if excl:
+            skipped = sum(1 for f in img_files + fat_files if f.name in excl)
+            triage_skipped_total += skipped
+            img_files = [f for f in img_files if f.name not in excl]
+            fat_files = [f for f in fat_files if f.name not in excl]
+
+        for f in fat_files:
+            out_path = out_dir / f"{f.stem}_Fu.png"
+            shutil.copy2(f, out_path)
+            rows.append({"patent_id": excel_id, "original": f.name, "output": out_path.name,
+                         "label": None, "method": "fat_copy", "needs_review": True, "review_hint": ""})
+
+        for img_path in img_files:
+            try:
+                res = process_image(engine, img_path, out_dir)
+                for c in res["crops"]:
+                    rows.append({"patent_id": excel_id, "original": c["original"],
+                                 "output": c["output"], "label": c["label"],
+                                 "method": c["method"], "needs_review": c["needs_review"],
+                                 "review_hint": c.get("review_hint", "")})
+            except Exception as e:
+                logs.append(f"    ❌ [{device}] {img_path.name}: {e}")
+
+        torch.cuda.empty_cache()
+        total    = sum(1 for r in rows if r["patent_id"] == excel_id)
+        labelled = sum(1 for r in rows if r["patent_id"] == excel_id and not r["needs_review"])
+        logs.append(f"  ✓ [{device}] {excel_id}  sheets={len(img_files)}  crops={total}  labelled={labelled}")
+
+    result_queue.put((rows, triage_skipped_total, logs))
+
+
+def process_patents_parallel(
+    patent_rows,
+    folder_map,
+    matched_dir: Path,
+    triage_dir: Path,
+    engines,
+    is_sheet_fn,
+    triage_excluded_fn,
+    cfg: dict,
+    weights: str = DEFAULT_WEIGHTS,
+) -> tuple[list[dict], int]:
+    """
+    Process patents across two GPUs using subprocess.Popen + CUDA_VISIBLE_DEVICES.
+    Each worker is a fresh Python process that sees only its assigned GPU as cuda:0,
+    so there is no CUDA re-init conflict and no GIL contention.
+    Results are exchanged via temp JSON files.
+    """
+    import json, os, subprocess, sys, tempfile, torch
+    from pathlib import Path as _Path
+
+    ids   = [str(r).strip() for r in patent_rows]
+    half  = len(ids) // 2
+    splits = [ids[:half], ids[half:]]
+    n_gpu  = torch.cuda.device_count()
+    # Map logical GPU indices to CUDA_VISIBLE_DEVICES values
+    gpu_ids = ["0", "1"] if n_gpu >= 2 else ["0", "0"]
+
+    worker_script = str(_Path(__file__).parent / "gpu_worker.py")
+    python_exe    = sys.executable
+
+    tmp_dir = _Path(tempfile.mkdtemp(prefix="dm_parallel_"))
+    procs   = []
+    result_paths = []
+
+    for i in range(2):
+        args_path   = tmp_dir / f"args_{i}.json"
+        result_path = tmp_dir / f"result_{i}.json"
+        result_paths.append(result_path)
+
+        args_path.write_text(json.dumps({
+            "patent_ids": splits[i],
+            "weights":    weights,
+            "raw_dir":    str(cfg["paths"]["raw_images"]),
+            "matched_dir": str(matched_dir),
+            "triage_dir":  str(triage_dir),
+        }))
+
+        env = os.environ.copy()
+        env["CUDA_VISIBLE_DEVICES"] = gpu_ids[i]
+
+        p = subprocess.Popen(
+            [python_exe, worker_script, str(args_path), str(result_path)],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        procs.append(p)
+        print(f"[GPU {gpu_ids[i]}] worker started (PID {p.pid})")
+
+    # Stream output from both processes as they run
+    import threading
+    def _stream(proc, label):
+        for line in proc.stdout:
+            print(f"[GPU {label}] {line}", end="", flush=True)
+
+    threads = [threading.Thread(target=_stream, args=(procs[i], gpu_ids[i]), daemon=True)
+               for i in range(2)]
+    for t in threads: t.start()
+    for p in procs:   p.wait()
+    for t in threads: t.join()
+
+    # Collect results
+    all_rows: list[dict] = []
+    triage_skipped_total = 0
+    for rp in result_paths:
+        if not rp.exists():
+            print(f"⚠  Result file missing: {rp} — worker may have crashed")
+            continue
+        data = json.loads(rp.read_text())
+        all_rows.extend(data["rows"])
+        triage_skipped_total += data["triage_skipped_total"]
+
+    # Cleanup temp dir
+    import shutil
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    return all_rows, triage_skipped_total
+
+
+def _core(pid: str) -> str:
+    """Normalise a patent ID to its bare alphanumeric core (duplicate of notebook helper)."""
+    import re as _re
+    _CLEAN_RE   = _re.compile(r"[^A-Za-z0-9]")
+    _NUM_SUFFIX = _re.compile(r"_\d+$")
+    _DL_SUFFIX  = _re.compile(r"PAFP$|PAF$", _re.IGNORECASE)
+    _KIND_CODES = ["A1","A2","A3","B1","B2","C1","U1"]
+    p = _NUM_SUFFIX.sub("", pid)
+    c = _CLEAN_RE.sub("", p).upper()
+    c = _DL_SUFFIX.sub("", c)
+    for sfx in _KIND_CODES:
+        if c.endswith(sfx):
+            return c[:-len(sfx)]
+    return c
