@@ -15,6 +15,7 @@ paths:
   triage:        "{{ paths.base }}/triage"
   source_excel:   "{{ paths.base }}/source_patents.xlsx"
   reviewed_excel: "{{ paths.base }}/reviewed_patents.xlsx"
+  html_review_exports: "{{ paths.data }}/html_exports"
   html_template: "/mnt/storage_11tb/Drive_files_to_syncronize/UI_for_taxonomy_caracterization_10.0.html"
   model_cache:   "/home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools/models/Qwen"
   siglip_cache:  "/home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools/models/SigLIP"
