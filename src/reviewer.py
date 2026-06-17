@@ -1,19 +1,26 @@
 """
-reviewer.py — assemble per-patent JSON (T1 + T3) and auto-fill visual fields.
+reviewer.py — assemble per-patent prediction records (T1 + T3) and auto-fill
+visual fields. Records are returned in-memory and exported to
+source_patents.xlsx by src/excel_schema.py — no per-patent JSON/HTML files.
 
 Public API
 ----------
 auto_fill_visual(description)                              → dict
 classify_t1_dimensions(text, sbert_model)                  → dict
 assemble_patent_json(patent_id, excel_row, match_results)  → dict
-write_patent_json(patent_id, data, labels_dir)             → Path
-process_patent(patent_id, cfg, excel_index, raw_dir)       → Path
+resolve_patent_image_dir(matched_dir, patent_id)           → Path
+process_patent(patent_id, cfg, excel_index, raw_dir)       → dict
+run_stage01(cfg, ...)                                       → pd.DataFrame
 """
 
-import json
 from pathlib import Path
 
 from src.matcher import parse_description, match_images, label_from_filename
+
+# Shown by 02_taxonomy_review.ipynb (and used by excel_schema.build_patent_rows)
+# whenever a patent has zero figures or a row's Image_Path doesn't resolve to
+# an existing file, so the review-UI image loop never crashes on a missing asset.
+PLACEHOLDER_IMAGE_PATH = Path(__file__).resolve().parent.parent / "assets" / "no_image_available.png"
 
 
 # ─── Visual field keyword rules ─────────────────────────────────────────────
@@ -433,226 +440,22 @@ def assemble_patent_json(
     }
 
 
-def write_patent_json(patent_id: str, data: dict, labels_dir: Path) -> Path:
-    """Write assembled JSON to labels_dir/<patent_id>.json."""
-    labels_dir.mkdir(parents=True, exist_ok=True)
-    dest = labels_dir / f"{patent_id}.json"
-    with open(dest, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-    return dest
-
-
-def build_patent_html(
-    patent_id: str,
-    label_json_path: Path,
-    html_template_path: Path,
-    out_dir: Path,
-    pat_cur: int = 1,
-    pat_tot: int = 1,
-) -> Path:
+def resolve_patent_image_dir(matched_dir: Path, patent_id: str) -> Path:
     """
-    Generate a per-patent review HTML file by injecting AI predictions into the
-    taxonomy wizard template and auto-triggering ingestAI() on page load.
+    Resolve the matched/ folder for a bare patent_id.
 
-    The injected payload follows the exact format consumed by ingestAI() in the
-    HTML wizard, so all dimensions (T1, G1, M1, M2, M3, T2) are pre-filled from
-    the pipeline predictions stored in labels/{patent_id}.json.
-
-    Parameters
-    ----------
-    label_json_path   : Path to labels/{patent_id}.json written by process_patent()
-    html_template_path: Path to UI_for_taxonomy_caracterization_10.0.html
-    out_dir           : Directory to write {patent_id}.html into
-    pat_cur / pat_tot : Position in batch for the throughput counter
-
-    Returns
-    -------
-    Path to the written per-patent HTML file.
+    matched/ folders are named "{patent_id}_{record_number}" (e.g.
+    "US2020031488A1_69179019"), not the bare patent_id used in batches.xlsx —
+    callers must resolve the folder via this function rather than assuming
+    matched_dir / patent_id exists directly. Returns the bare-id path
+    unresolved (non-existent) if no match is found, so callers can check
+    `.exists()` themselves.
     """
-    import json as _json
-    import re as _re
-
-    data      = _json.loads(label_json_path.read_text(encoding="utf-8"))
-    t1_block  = data.get("T1", {})
-    t3_images = data.get("T3_images", [])
-
-    def _fig_num(fig_number: str | None, filename: str) -> str | None:
-        if fig_number:
-            m = _re.search(r"FIG\.?\s*(\d+[A-Za-z]?)", fig_number, _re.IGNORECASE)
-            if m:
-                return m.group(1)
-        m = _re.search(r"_Fu(\d+)", filename, _re.IGNORECASE)
-        return f"Fu{int(m.group(1))}" if m else None
-
-    # ── T2 per-figure dict (keyed by figure number string) ────────────────────
-    t2_payload: dict = {}
-    for img in t3_images:
-        fnum = _fig_num(img.get("fig_number"), img.get("file", ""))
-        if fnum is None:
-            continue
-        preds = img.get("T2_predictions") or {}
-        t2_payload[fnum] = {
-            "per":   (preds.get("per")   or {}).get("value"),
-            "sym":   (preds.get("sym")   or {}).get("value"),
-            "acSty": (preds.get("acSty") or {}).get("value"),
-            "acCol": (preds.get("acCol") or {}).get("value"),
-            "bgSty": (preds.get("bgSty") or {}).get("value"),
-            "bgCol": (preds.get("bgCol") or {}).get("value"),
-            "parts": preds.get("parts", []),
-        }
-
-    # ── G1 — merged SigLIP+SBERT prediction from process_patent(), with a
-    # per-figure-aggregation fallback for label JSONs written before the merge
-    # was added ────────────────────────────────────────────────────────────
-    g1_hint: dict | None = data.get("G1_prediction")
-    if not g1_hint:
-        for img in t3_images:
-            h = img.get("G1_hint")
-            if h and h.get("value"):
-                if g1_hint is None or h["confidence"] > g1_hint["confidence"]:
-                    g1_hint = h
-    top_type = g1_hint["value"] if g1_hint else None
-
-    # ── M1 + M2 aggregated predictions ────────────────────────────────────────
-    m1_pred = data.get("M1_predictions") or {}
-    m2_pred = data.get("M2_predictions") or {}
-    m3_pred = data.get("M3_predictions") or {}
-
-    def _val(pred_dict: dict, key: str):
-        entry = pred_dict.get(key) or {}
-        return entry.get("value")
-
-    # ── Sanitize M2 fields against the wizard's own option filters ────────────
-    # Mirrors pageM2()'s eOpts/kOpts logic in the HTML: empType/empKin option
-    # lists are narrowed by topType, so a raw zero-shot guess outside the
-    # allowed set for this architecture must be dropped (left null) rather
-    # than sent — ingestAI() writes values blindly without re-validating them.
-    is_winged    = top_type in ("TW", "TP", "DS", "CVT", "SLC", "SRW")
-    g1_focus     = "winged" if is_winged else ("wingless" if top_type in ("RC", "MR") else "other")
-    wing_conf    = _val(m2_pred, "wingConf")
-    w_count_v    = _val(m2_pred, "wCount")
-    w_count      = int(w_count_v) if w_count_v and str(w_count_v).isdigit() else 1
-    if not is_winged:
-        wing_conf = None  # M2 wing section is suppressed entirely for wingless/other archs
-
-    emp_type = _val(m2_pred, "empType")
-    if (g1_focus == "other" or top_type == "MR") and emp_type not in ("Tailless", "Fins", None):
-        emp_type = None  # eOpts: only Tailless/Fins allowed for MR/other
-
-    emp_kin = _val(m2_pred, "empKin")
-    if top_type == "RC":
-        if emp_kin not in ("Fixed", "Stabilator", None):
-            emp_kin = None  # kOpts: RC only allows Fixed/Stabilator
-    elif emp_kin == "Stabilator":
-        emp_kin = None  # kOpts: Stabilator only ever offered for RC
-    if top_type == "TW" and emp_type not in (None, "Tailless", "Fins"):
-        emp_kin = "Fixed"  # Physics Lock — Tilt Wing (pageM2 hard-codes this)
-
-    m1_block = {
-        "wingConf": wing_conf,
-        "wCount":   w_count,
-        "empType":  emp_type,
-        "empKin":   emp_kin,
-        "fusShape": _val(m1_pred, "fusShape"),
-        "fusKin":   _val(m1_pred, "fusKin"),
-        "gearArch": _val(m1_pred, "gearArch"),
-        "latSym":   _val(m1_pred, "latSym"),
-    }
-
-    # ── Build propulsionCards for ingestAI (M3) ────────────────────────────────
-    # ingestAI() writes propulsion values to S['m3_<component>_<field>'], but
-    # m3Card() only ever *renders* the component keys m3Blueprints() returns
-    # for this architecture (topType/wingConf/wCount/empType) — see
-    # reviewer.m3_card_keys(), a Python port of that HTML function. Sending a
-    # mismatched key (e.g. always "core_layout") writes to state nothing ever
-    # displays, silently dropping the M3 pre-fill for any winged aircraft.
-    propulsion_cards = []
-    if m3_pred:
-        orient_v = _val(m3_pred, "orient")
-        if top_type in ("SLC", "SRW") and orient_v == "Tilting_Mechanism":
-            orient_v = None  # mirrors ingestAI's own SLC/SRW Tilting_Mechanism strip
-        field_vals = {
-            "chord":  _val(m3_pred, "chord"),
-            "orient": orient_v,
-            "bmech":  _val(m3_pred, "bmech"),
-            "rmech":  _val(m3_pred, "rmech"),
-        }
-        if any(v is not None for v in field_vals.values()):
-            for key in m3_card_keys(top_type, wing_conf, w_count, emp_type):
-                entry = {"component": key}
-                entry.update({k: v for k, v in field_vals.items() if v is not None})
-                propulsion_cards.append(entry)
-
-    # ── T1 classification dimensions ──────────────────────────────────────────
-    t1_dims = {
-        "scope":    (t1_block.get("scope")    or {}).get("value"),
-        "t1Field":  (t1_block.get("t1Field")  or {}).get("value"),
-        "t1Target": (t1_block.get("t1Target") or {}).get("value"),
-    }
-
-    # ── Full ingestAI-format payload ──────────────────────────────────────────
-    ingest_payload = {
-        "T1": {
-            "scope":    t1_dims["scope"],
-            "t1Field":  t1_dims["t1Field"],
-            "t1Target": t1_dims["t1Target"],
-            "arch_count": 1,
-        },
-        "G1": {
-            "topType":    g1_hint["value"]      if g1_hint else None,
-            "confidence": g1_hint["confidence"] if g1_hint else 0.0,
-            "reasoning":  f"{g1_hint['source']} prediction" if g1_hint else "",
-        } if g1_hint else None,
-        "M1": m1_block,
-        "T2": t2_payload,
-        "propulsionCards": propulsion_cards,
-    }
-
-    # ── T1_META override injected into the page (metadata display only) ───────
-    t1_meta_override = {
-        "recordNumber":          data.get("record_number", patent_id),
-        "familyId":              t1_block.get("family_id", ""),
-        "assignee":              t1_block.get("assignee", ""),
-        "pubYear":               t1_block.get("pub_year", ""),
-        "appYear":               t1_block.get("app_year", ""),
-        "title":                 t1_block.get("title", ""),
-        "pdfLink":               f"https://patents.google.com/patent/{patent_id}/en",
-        "backwardCites":         t1_block.get("backward_cites", []),
-        "forwardCites":          t1_block.get("forward_cites", []),
-        "descriptionOfDrawings": data.get("description_of_drawings", "") or "",
-        "priorityDate":          t1_block.get("priority_date", ""),
-    }
-
-    throughput = {
-        "figCur": "1",
-        "figTot": str(len(t3_images)),
-        "patCur": str(pat_cur),
-        "patTot": str(pat_tot),
-    }
-
-    template = html_template_path.read_text(encoding="utf-8")
-    injection = (
-        "\n<script>\n"
-        f"// ── Pipeline AI pre-labels for {patent_id} ──\n"
-        f"T1_META = {_json.dumps(t1_meta_override, ensure_ascii=False)};\n"
-        f"THROUGHPUT = {_json.dumps(throughput, ensure_ascii=False)};\n"
-        f"var _PIPELINE_PAYLOAD = {_json.dumps(ingest_payload, ensure_ascii=False, indent=2)};\n"
-        # Auto-trigger ingestAI after the initial render() call has set up the DOM.
-        "setTimeout(function() {\n"
-        "  if (typeof ingestAI === 'function' && _PIPELINE_PAYLOAD) {\n"
-        "    ingestAI(_PIPELINE_PAYLOAD);\n"
-        "    document.getElementById('ai-load-status').textContent = "
-        "' Pipeline pre-labels loaded automatically.';\n"
-        "  }\n"
-        "}, 0);\n"
-        "</script>\n"
-    )
-    out_html = template.replace("</body>", injection + "</body>", 1)
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    dest = out_dir / f"{patent_id}.html"
-    dest.write_text(out_html, encoding="utf-8")
-    return dest
+    direct = matched_dir / patent_id
+    if direct.exists():
+        return direct
+    candidates = sorted(matched_dir.glob(f"{patent_id}_*"))
+    return candidates[0] if candidates else direct
 
 
 def process_patent(
@@ -663,7 +466,7 @@ def process_patent(
     sbert_model=None,
     siglip_bundle: tuple | None = None,
     skip_siglip: bool = False,
-) -> Path:
+) -> dict:
     """
     Full Stage 01 pipeline for one patent.
 
@@ -679,7 +482,8 @@ def process_patent(
     4. Match images to description lines (SBERT semantic fallback)
     5. SigLIP visual verification + T2/G1/M1/M2/M3 zero-shot classification
     6. SBERT T1 dimension classification (scope, field, target)
-    7. Assemble and write the JSON to cfg["paths"]["labels"]
+    7. Assemble and return the in-memory record dict (exported to
+       source_patents.xlsx by run_stage01() via src/excel_schema.py)
 
     Parameters
     ----------
@@ -690,7 +494,7 @@ def process_patent(
 
     Returns
     -------
-    Path to the written JSON file.
+    The assembled record dict (see assemble_patent_json() for the shape).
     """
     from src.cross_modal import (
         verify_matches,
@@ -704,13 +508,7 @@ def process_patent(
     )
 
     excel_row = excel_index.get(patent_id, {})
-
-    # matched/ folders are named "{patent_id}_{record_number}" (e.g.
-    # "US2020031488A1_69179019"), not the bare patent_id used in batches.xlsx.
-    patent_img_dir = matched_dir / patent_id
-    if not patent_img_dir.exists():
-        candidates = sorted(matched_dir.glob(f"{patent_id}_*"))
-        patent_img_dir = candidates[0] if candidates else patent_img_dir
+    patent_img_dir = resolve_patent_image_dir(matched_dir, patent_id)
 
     if not patent_img_dir.exists():
         image_files = []
@@ -836,12 +634,11 @@ def process_patent(
     m2_predictions = merge_prediction_dicts(m2_visual, m2_text, ["wingConf", "empType", "empKin", "wCount"])
     m3_predictions = merge_prediction_dicts(m3_visual, m3_text, ["chord", "orient", "bmech", "rmech"])
 
-    data = assemble_patent_json(
+    return assemble_patent_json(
         patent_id, excel_row, match_results, desc_text,
         t1_dimensions, m1_predictions, m2_predictions, m3_predictions,
         g1_prediction,
     )
-    return write_patent_json(patent_id, data, cfg["paths"]["labels"])
 
 
 # ─── Batch Stage 01 runner ────────────────────────────────────────────────────
@@ -855,7 +652,9 @@ def run_stage01(
     patent_ids: list[str] | None = None,
 ) -> "pd.DataFrame":
     """
-    Batch Stage 01 runner. Processes all patent folders in matched/ (Stage 00b2 output).
+    Batch Stage 01 runner. Processes all patent folders in matched/ (Stage 00b2 output)
+    and writes the consolidated source_patents.xlsx (cfg["paths"]["source_excel"]) —
+    no per-patent JSON/HTML files are written.
 
     Parameters
     ----------
@@ -871,6 +670,7 @@ def run_stage01(
     import pandas as pd
     from tqdm import tqdm
     from src.extractor import load_patseer_excel
+    from src.excel_schema import build_patent_rows, export_source_excel
 
     matched_dir = cfg["paths"]["matched"]
     excel_idx   = load_patseer_excel(cfg["paths"]["patseer_excel"])
@@ -886,15 +686,18 @@ def run_stage01(
         pids = pids[:limit]
 
     rows = []
+    all_excel_rows: list[dict] = []
     for pid in tqdm(pids, desc="Stage 01"):
         try:
-            json_path = process_patent(
+            data = process_patent(
                 pid, cfg, excel_idx, matched_dir,
                 sbert_model   = sbert_model,
                 siglip_bundle = siglip_bundle,
                 skip_siglip   = skip_siglip,
             )
-            data     = json.loads(json_path.read_text(encoding="utf-8"))
+            patent_img_dir = resolve_patent_image_dir(matched_dir, pid)
+            all_excel_rows.extend(build_patent_rows(pid, data, patent_img_dir))
+
             figs     = data.get("T3_images", [])
             statuses = [f.get("match_status", "") for f in figs]
             rows.append({
@@ -923,9 +726,13 @@ def run_stage01(
                 "total_crops": 0,
             })
 
+    if all_excel_rows:
+        export_source_excel(all_excel_rows, Path(cfg["paths"]["source_excel"]))
+
     df = pd.DataFrame(rows)
     print(f"\n{'='*55}")
     print(f"  Stage 01 complete: {len(df)} patents")
+    print(f"  source_patents.xlsx: {len(all_excel_rows)} rows -> {cfg['paths']['source_excel']}")
     if "match_score" in df.columns and df["match_score"].notna().any():
         print(f"  Avg match score  : {df['match_score'].mean():.1%}")
         hr = df.get("human_required", pd.Series(dtype=int))

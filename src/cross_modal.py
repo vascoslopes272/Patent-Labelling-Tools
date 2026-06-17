@@ -273,6 +273,23 @@ def _text_features(texts: list[str], model, tokenizer, device: str):
     return feat
 
 
+# ─── T2 taxonomy option lists (module-level — reused by excel_schema.py) ──────
+
+T2_PER    = ["Top", "Bottom/Down", "Front", "Back", "Side",
+             "Front-Isometric", "Rear-Isometric", "Generic 3D"]
+T2_SYM    = ["Symmetric View", "Asymmetric View"]
+T2_AC_STY = ["Line Drawing", "Shaded Render", "Solid/Filled Model", "Schematic"]
+T2_AC_COL = ["B/W (Monochrome)", "Grayscale", "Full Color"]
+T2_BG_STY = ["Solid Fill", "Shaded/Gradient", "Grid/Pattern"]
+T2_BG_COL = ["White", "Blueprint Blue", "Dark", "Grayscale"]
+T2_PARTS  = [
+    "Whole Vehicle Layout", "Primary Wing", "Secondary/Canard Wing",
+    "Empennage/Tail", "Rotor/Propeller Blade", "Tilt Hinge/Mechanism",
+    "Fuselage Cross-section", "Landing Gear/Skids",
+    "Internal Components/Batteries/Wiring",
+]
+
+
 # ─── Zero-shot T2 taxonomy classification ─────────────────────────────────────
 
 def classify_t2_fields(
@@ -308,19 +325,6 @@ def classify_t2_fields(
     """
     PARTS_THRESHOLD = 0.20
 
-    T2_PER    = ["Top", "Bottom/Down", "Front", "Back", "Side",
-                 "Front-Isometric", "Rear-Isometric", "Generic 3D"]
-    T2_SYM    = ["Symmetric View", "Asymmetric View"]
-    T2_AC_STY = ["Line Drawing", "Shaded Render", "Solid/Filled Model", "Schematic"]
-    T2_AC_COL = ["B/W (Monochrome)", "Grayscale", "Full Color"]
-    T2_BG_STY = ["Solid Fill", "Shaded/Gradient", "Grid/Pattern"]
-    T2_BG_COL = ["White", "Blueprint Blue", "Dark", "Grayscale"]
-    T2_PARTS  = [
-        "Whole Vehicle Layout", "Primary Wing", "Secondary/Canard Wing",
-        "Empennage/Tail", "Rotor/Propeller Blade", "Tilt Hinge/Mechanism",
-        "Fuselage Cross-section", "Landing Gear/Skids",
-        "Internal Components/Batteries/Wiring",
-    ]
     TEMPLATES = {
         "per":   "A patent drawing showing a {} view of an aircraft",
         "sym":   "This aircraft patent drawing has a {}",
@@ -373,6 +377,24 @@ def classify_t2_fields(
     return result
 
 
+# ─── G1 topology option list (module-level — reused by excel_schema.py) ───────
+# Mirrors the master wizard's G1 topology codes exactly
+# (same wording used in the archived src/_archive/ai_labeler.py prompt).
+
+G1_TOP_TYPES = {
+    "TW":  "tilt wing aircraft where the entire wing panel rotates to vector thrust",
+    "TP":  "tilt propulsors aircraft where propulsors tilt independently while the wing stays fixed",
+    "DS":  "deflected slipstream aircraft with fixed propellers and large structural flaps that deflect airflow",
+    "CVT": "combined aircraft with fixed lift rotors plus tilting propulsors, or ambiguous dual-rotation thrust",
+    "SLC": "lift plus cruise aircraft with separate fixed hover rotors and fixed cruise propulsors, no tilting parts",
+    "SRW": "stopped rotor wing aircraft where the rotors stop and lock in cruise to act as a fixed wing",
+    "RC":  "rotorcraft, a single-rotor, coaxial, or tandem helicopter layout",
+    "MR":  "multirotor aircraft with distributed fixed rotors in a drone or multicopter layout",
+    "HB":  "hoverbike with a motorcycle riding posture and visible rider interface",
+    "PFV": "personal flying vehicle such as a wearable suit, jetpack, or standing platform",
+}
+
+
 # ─── Zero-shot G1 architecture classification ─────────────────────────────────
 
 def classify_g1_hint(
@@ -401,20 +423,6 @@ def classify_g1_hint(
     if nlp_confidence >= confidence_threshold:
         return None
 
-    # Definitions mirror the master wizard's G1 topology codes exactly
-    # (same wording used in the archived src/_archive/ai_labeler.py prompt).
-    G1_TOP_TYPES = {
-        "TW":  "tilt wing aircraft where the entire wing panel rotates to vector thrust",
-        "TP":  "tilt propulsors aircraft where propulsors tilt independently while the wing stays fixed",
-        "DS":  "deflected slipstream aircraft with fixed propellers and large structural flaps that deflect airflow",
-        "CVT": "combined aircraft with fixed lift rotors plus tilting propulsors, or ambiguous dual-rotation thrust",
-        "SLC": "lift plus cruise aircraft with separate fixed hover rotors and fixed cruise propulsors, no tilting parts",
-        "SRW": "stopped rotor wing aircraft where the rotors stop and lock in cruise to act as a fixed wing",
-        "RC":  "rotorcraft, a single-rotor, coaxial, or tandem helicopter layout",
-        "MR":  "multirotor aircraft with distributed fixed rotors in a drone or multicopter layout",
-        "HB":  "hoverbike with a motorcycle riding posture and visible rider interface",
-        "PFV": "personal flying vehicle such as a wearable suit, jetpack, or standing platform",
-    }
     TEMPLATE = "A patent drawing of an eVTOL aircraft: {}"
 
     if model is None:
