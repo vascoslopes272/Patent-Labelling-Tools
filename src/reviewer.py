@@ -22,6 +22,10 @@ from src.matcher import parse_description, match_images, label_from_filename
 # an existing file, so the review-UI image loop never crashes on a missing asset.
 PLACEHOLDER_IMAGE_PATH = Path(__file__).resolve().parent.parent / "assets" / "no_image_available.png"
 
+# Lazily-populated cache of patent_id -> description_of_drawings, loaded from
+# data/descriptions.csv (written by notebook 00b2). There is no text/ dir.
+_DESC_CACHE: dict[str, str] = {}
+
 
 # ─── Visual field keyword rules ─────────────────────────────────────────────
 # Field names AND values below match the master HTML wizard's T2 enums
@@ -479,7 +483,7 @@ def process_patent(
     -----
     1. Glob ``_F*.png`` / ``_Fu*.png`` from matched_dir/patent_id/
     2. Read figure label from filename (Stage 00b2 encoded it; no re-OCR needed)
-    3. Read BRIEF DESCRIPTION from text/<patent_id>.txt or data/descriptions.csv
+    3. Read BRIEF DESCRIPTION from data/descriptions.csv
     4. Match images to description lines (SBERT semantic fallback)
     5. SigLIP visual verification + T2/G1/M1/M2/M3 zero-shot classification
     6. SBERT T1 dimension classification (scope, field, target)
@@ -525,20 +529,15 @@ def process_patent(
 
     ocr_labels = [label_from_filename(p.name) for p in image_files]
 
-    # Description text — from text/<patent_id>.txt or descriptions.csv fallback.
-    text_path = Path(cfg["paths"]["text"]) / f"{patent_id}.txt"
-    if text_path.exists():
-        desc_text = text_path.read_text(encoding="utf-8")
-    else:
-        import csv as _csv
-        _csv_path = Path(cfg["paths"]["data"]) / "descriptions.csv"
-        desc_text = ""
-        if _csv_path.exists():
-            with open(_csv_path, newline="", encoding="utf-8") as _f:
-                for row in _csv.DictReader(_f):
-                    if row.get("patent_id") == patent_id:
-                        desc_text = row.get("description_of_drawings", "")
-                        break
+    # Description text — from data/descriptions.csv (written by notebook 00b2).
+    _desc_csv = Path(cfg["paths"]["data"]) / "descriptions.csv"
+    if _desc_csv.exists() and not _DESC_CACHE:
+        import pandas as _pd
+        _df = _pd.read_csv(_desc_csv, dtype=str).fillna("")
+        _DESC_CACHE.update(
+            dict(zip(_df["patent_id"], _df["description_of_drawings"]))
+        )
+    desc_text = _DESC_CACHE.get(patent_id, "")
     parsed_desc = parse_description(desc_text, cfg)
 
     has_splits = any(label is None for label in ocr_labels)
