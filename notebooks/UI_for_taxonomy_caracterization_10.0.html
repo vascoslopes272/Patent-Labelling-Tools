@@ -277,6 +277,20 @@ var T2_BG_STY = ['Solid Fill', 'Shaded/Gradient', 'Grid/Pattern'];
 var T2_BG_COL = ['White', 'Blueprint Blue', 'Dark', 'Grayscale'];
 var T2_PARTS_DEFAULT = ['Whole Vehicle Layout', 'Primary Wing', 'Secondary/Canard Wing', 'Empennage/Tail', 'Rotor/Propeller Blade', 'Tilt Hinge/Mechanism', 'Fuselage Cross-section', 'Landing Gear/Skids', 'Internal Components/Batteries/Wiring'];
 
+var DUP_TYPES = [
+  {id:'1', n:'Same Aircraft', d:'Same technology/aircraft, different patent ID. Keep M1–M3, update G1/T1.'},
+  {id:'2', n:'Exact Duplicate', d:'Literal identical copy of the same patent.'},
+  {id:'3', n:'Continuation', d:'Same core invention, new legal filing.'},
+  {id:'4', n:'Component Overlap', d:'Distinct patent covering the exact same sub-system or architecture.'}
+];
+
+var QUALITY_FLAGS = [
+  {id:'clean', n:'Clean', d:'No issues'},
+  {id:'generic', n:'Generic', d:'Stock photo or generic diagram, misses aircraft context'},
+  {id:'draft', n:'Draft', d:'High-level flowchart or block diagram, no mechanical detail'},
+  {id:'poor_quality', n:'Poor Quality', d:'Heavily pixelated, blurry, or labels unreadable'}
+];
+
 var STEPS=[
   {id:'t1',lbl:'T1 Meta'},{id:'t2',lbl:'T2 Image'},{id:'gate',lbl:'G1 Arch'},{id:'m1',lbl:'M1 Struct'},{id:'m2',lbl:'M2 Aero'},{id:'m3',lbl:'M3 Prop'},{id:'done',lbl:'Summary'}
 ];
@@ -286,7 +300,7 @@ function fresh(){
     step:0, topType:null, g1Focus:null,
     t1Scope:null, t1Field:null, t1Target:null, t1Route:null,
     isApproved: null, t1DisapproveReason: '', t1DisapproveOther: '',
-    isDuplicate:false, duplicateId: '',
+    isDuplicate:false, duplicateId:'', duplicateType:null,
     archCount: 1, 
     wingConf:null, wCount:1,
     wTilt1:null, wTilt2:null, wTilt3:null, wTilt4:null,
@@ -558,6 +572,61 @@ function ocArrFig(key, val, name, desc, oid, dis) {
   return '<div class="opt'+(sel?' sel':'')+(dis?' dis':'')+'" data-figarrfield="'+key+'" data-val="'+enc+'"><div class="o-name">'+name+'</div></div>';
 }
 
+function dupTypeCard(t) {
+  var sel = S.duplicateType === t.id;
+  return '<div class="opt'+(sel?' sel':'')+'" data-dup-type="'+t.id+'"><div class="o-id">Type '+t.id+'</div><div class="o-name">'+t.n+'</div><div class="o-desc">'+t.d+'</div></div>';
+}
+
+function qualityChip(q) {
+  var fNum = (S.t2figNum||'1').trim();
+  var current = figGet(fNum, 'qualityFlag', 'clean');
+  var sel = current === q.id;
+  return '<div class="opt'+(sel?' sel':'')+'" data-fig-quality="'+q.id+'" title="'+escHtml(q.d)+'"><div class="o-name">'+q.n+'</div></div>';
+}
+
+function t2AllFigNums() {
+  var nums = Object.keys(S.figData);
+  var re = /FIG\.?\s*(\d+[A-Za-z]?)/gi, m;
+  while ((m = re.exec(T1_META.descriptionOfDrawings))) {
+    var n = m[1];
+    if (nums.indexOf(n) === -1) nums.push(n);
+  }
+  nums = nums.filter(function(v,i,a){ return a.indexOf(v)===i; });
+  nums.sort(function(a,b){
+    var na = parseInt(a,10), nb = parseInt(b,10);
+    if (na !== nb) return na-nb;
+    return a.localeCompare(b);
+  });
+  return nums;
+}
+
+function figGridCard(fNum) {
+  var status = figGet(fNum,'status',null);
+  var dotColor = status==='approved' ? 'var(--ok)' : status==='disapproved' ? 'var(--danger)' : 'var(--text3)';
+  var qFlag = figGet(fNum,'qualityFlag',null);
+  var qBadge = (qFlag && qFlag !== 'clean') ? '<span style="font-size:9px;font-family:var(--mono);text-transform:uppercase;background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-bdr);border-radius:3px;padding:1px 5px;">'+escHtml(qFlag)+'</span>' : '';
+  var per = figGet(fNum,'per','—'), sym = figGet(fNum,'sym','—'), acSty = figGet(fNum,'acSty','—');
+  var active = (S.t2figNum === fNum);
+  var imgPath = 'https://placehold.co/160x110/E8E7E0/5A5955?text=FIG.+' + escHtml(fNum);
+  return '<div class="m3-card" style="padding:8px;cursor:pointer;border-color:'+(active?'var(--accent)':'var(--border)')+';" data-fig-card="'+escHtml(fNum)+'">'
+    + '<div style="position:relative;"><img src="'+imgPath+'" style="width:100%;border-radius:4px;display:block;">'
+    + '<span style="position:absolute;top:4px;right:4px;width:9px;height:9px;border-radius:50%;background:'+dotColor+';border:1px solid #fff;"></span></div>'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;"><span style="font-size:11px;font-family:var(--mono);font-weight:600;">FIG. '+escHtml(fNum)+'</span>'+qBadge+'</div>'
+    + '<div style="font-size:10px;color:var(--text3);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+escHtml(per)+' &middot; '+escHtml(sym)+'</div>'
+    + '<div style="font-size:10px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+escHtml(acSty)+'</div>'
+    + '</div>';
+}
+
+function figGrid() {
+  var nums = t2AllFigNums();
+  return '<div class="m3-card" style="margin-bottom:8px;"><div class="m3-head" style="margin-bottom:8px;">Figure Grid '
+    + '<span style="font-weight:400;font-size:12px;color:var(--text3);">(' + Object.keys(S.figData).length + ' labeled / ' + nums.length + ' total)</span></div>'
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;">'
+    + nums.map(figGridCard).join('')
+    + '<button type="button" id="btn-add-figure" class="m3-card" style="padding:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:12px;border:1px dashed var(--border2);background:var(--bg);">+ Add Figure</button>'
+    + '</div></div>';
+}
+
 function ic(field,val,min,max,lbl){
   return '<div class="irow"><button type="button" class="ibtn" data-dec="1" data-field="'+field+'" data-min="'+min+'" data-max="'+max+'">&#8722;</button>'
     +'<div class="ival" id="iv-'+field+'">'+val+'</div>'
@@ -673,6 +742,13 @@ function pageT1(){
     + '<div class="m3-head" style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px;">Automated Metadata Summary '
     + '<div style="display:flex; gap:10px; align-items:center;"><label class="m2-check" style="font-size:12px; font-weight:500; color:var(--warn);"><input type="checkbox" data-field="isDuplicate" ' + (S.isDuplicate ? 'checked' : '') + '> Flag as Duplicate</label>'
     + (S.isDuplicate ? '<input type="text" class="m3-num" style="min-height:0; padding:4px 8px; font-size:12px; width:140px;" data-field="duplicateId" placeholder="Original Patent ID" value="' + escHtml(S.duplicateId) + '">' : '') + '</div></div>'
+    + (S.isDuplicate ? (
+      '<div class="m3-field" style="margin-top:12px; padding-top:12px; border-top:1px dashed var(--border2);">'
+      + '<div class="m3-label">Duplicate Type</div>'
+      + '<div class="g1-subgrid">' + DUP_TYPES.map(dupTypeCard).join('') + '</div>'
+      + '<div class="flag info" style="margin-top:10px;"><span class="f-lbl">💡 Cross-Reference Hint</span>When SBERT populates an aircraft model name, use it to cross-reference the main architecture images. Matching model names + identical main system images = confident duplicate or component overlap.</div>'
+      + '</div>'
+    ) : '')
     + '<div class="m3-sub">Read-only schema fields pulled directly from spreadsheet tracking lines.</div>'
     + '<div class="m3-grid">'
       + '<div class="m3-field"><div class="m3-label">Patent ID</div><div class="m3-readonly">' + escHtml(T1_META.recordNumber) + '</div></div>'
@@ -698,7 +774,7 @@ function pageT1(){
   return h;
 }
 
-function pageT2(){ 
+function pageT2(){
   var fNum = (S.t2figNum||'1').trim();
   var isMain = (S.mainFigure === fNum && fNum !== '');
   var status = figGet(fNum, 'status', null);
@@ -707,62 +783,70 @@ function pageT2(){
   var archOptions = '';
   for(var i=1; i<=S.archCount; i++) { archOptions += '<option value="'+i+'" '+(arch==String(i)?'selected':'')+'>Architecture '+i+'</option>'; }
 
-  var highlightedText=T1_META.descriptionOfDrawings.split('\n').map(function(line){return (fNum&&line.match(new RegExp('FIG\\.?\\s*'+fNum.replace(/_Fu/i,'').replace(/[A-Z]$/i,'')+'\\b','i')))?'<span class="highlight-fig">'+escHtml(line)+'</span>':escHtml(line);}).join('\n'); 
-  
+  var highlightedText=T1_META.descriptionOfDrawings.split('\n').map(function(line){return (fNum&&line.match(new RegExp('FIG\\.?\\s*'+fNum.replace(/_Fu/i,'').replace(/[A-Z]$/i,'')+'\\b','i')))?'<span class="highlight-fig">'+escHtml(line)+'</span>':escHtml(line);}).join('\n');
+
   var h='<div class="p-module">Module T2 &middot; Image Characteristics &amp; Drawing-Level Analysis</div><div class="p-q">Visual Token Attributes &amp; Document Extraction Labels</div>'
-  
+
   h += '<div class="t2-split">';
-  
+
   // LEFT PANEL (Context)
   var mapped = figIsMapped(fNum);
   var warnHtml = !mapped ? '<div class="flag warn" style="margin-top:0;"><span class="f-lbl">⚠ Unmapped Crop — _Fu Figure</span>This image crop has no corresponding FIG. description in the patent text. Label from visual content only.</div>' : '';
   // Audit G-02 Fix: Visual Placeholder Image
-  var imgPath = 'https://placehold.co/600x400/E8E7E0/5A5955?text=Mock+Crop:+FIG.+' + escHtml(fNum); 
+  var imgPath = 'https://placehold.co/600x400/E8E7E0/5A5955?text=Mock+Crop:+FIG.+' + escHtml(fNum);
 
   h += '<div class="t2-left"><div class="sec" style="margin-top:0;">Description of Drawings</div>'
     + '<div style="margin-bottom:12px; display:flex; align-items:center; gap:8px;">'
-    + '<button class="btn" id="btn-fig-prev" style="padding:4px 8px;">&larr;</button>'
     + '<span class="m3-label" style="margin-bottom:0;">Active: FIG.</span>'
     + '<input type="text" class="m3-num" style="width:64px; padding:6px 8px; min-height:0;" data-field="t2figNum" value="'+escHtml(fNum)+'">'
-    + '<button class="btn" id="btn-fig-next" style="padding:4px 8px;">&rarr;</button>'
     + '</div>'
     + warnHtml
     + '<div style="margin-bottom:12px;"><img id="t2-img-preview" src="' + imgPath + '" style="width:100%;border-radius:6px;border:1px solid var(--border);background:var(--bg2);"></div>'
     + '<div style="white-space:pre-wrap; font-size:13px; line-height:1.6; color:var(--text2);">'+highlightedText+'</div>'
     + '</div>';
 
-  // RIGHT PANEL (Controls)
+  // RIGHT PANEL — Level 1 (figure grid, always visible) + Level 2 (active figure detail)
   h += '<div class="t2-right">';
-  h += figCoverageGrid();
+  h += figGrid();
 
-  h += '<div class="m3-card" style="margin-bottom:8px; border-color:var(--accent);">'
-    + '<div class="m3-head" style="margin-bottom:10px;">Figure Validation & Assignment</div>'
-    + '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">'
-      + '<button type="button" class="btn '+(status==='approved'?'pri':'')+'" data-t2-status="approved">✓ Approve Image</button>'
-      + '<button type="button" class="btn '+(status==='disapproved'?'danger sel':'')+'" data-t2-status="disapproved">✗ Disapprove</button>'
-      + '<div style="width:1px; height:24px; background:var(--border);"></div>'
-      + '<button type="button" class="btn '+(isMain?'pri':'')+'" data-t2-main="true">★ Set as Main Figure</button>'
-      + '<div style="width:1px; height:24px; background:var(--border);"></div>'
-      + '<div style="display:flex; align-items:center; gap:6px;"><span class="m3-label" style="margin-bottom:0;">Assign To:</span><select class="m3-num" data-t2-arch="true" style="padding:6px 10px; min-height:0; width:140px;">'+archOptions+'</select></div>'
-    + '</div></div>';
+  if (fNum) {
+    h += '<div class="m3-card" style="margin-bottom:8px; border-color:var(--accent);">'
+      + '<div class="m3-head" style="margin-bottom:10px;">Figure Validation & Assignment</div>'
+      + '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">'
+        + '<button type="button" class="btn '+(status==='approved'?'pri':'')+'" data-t2-status="approved">✓ Approve Image</button>'
+        + '<button type="button" class="btn '+(status==='disapproved'?'danger sel':'')+'" data-t2-status="disapproved">✗ Disapprove</button>'
+        + '<div style="width:1px; height:24px; background:var(--border);"></div>'
+        + '<button type="button" class="btn '+(isMain?'pri':'')+'" data-t2-main="true">★ Set as Main Figure</button>'
+        + '<div style="width:1px; height:24px; background:var(--border);"></div>'
+        + '<div style="display:flex; align-items:center; gap:6px;"><span class="m3-label" style="margin-bottom:0;">Assign To:</span><select class="m3-num" data-t2-arch="true" style="padding:6px 10px; min-height:0; width:140px;">'+archOptions+'</select></div>'
+      + '</div></div>';
 
-  h += '<div class="m3-card" style="margin-bottom:8px; padding:12px;"><div class="m3-head">A. Projection Coordinates</div>'
-     + sec('Perspective / Camera Angle') + grid('n',T2_PER.map(function(p){return ocFig('per',p,p);}))
-     + sec('Symmetry') + grid('n',T2_SYM.map(function(s){return ocFig('sym',s,s);}))
-     + '</div>';
+    h += '<div class="m3-card" style="margin-bottom:8px; padding:12px;"><div class="m3-head">A. Projection Coordinates</div>'
+       + sec('Perspective / Camera Angle') + grid('n',T2_PER.map(function(p){return ocFig('per',p,p);}))
+       + sec('Symmetry') + grid('n',T2_SYM.map(function(s){return ocFig('sym',s,s);}))
+       + '</div>';
 
-  h += '<div class="m3-card" style="margin-bottom:8px; padding:12px;"><div class="m3-head">B. Image Rendering Style</div>'
-     + sec('Aircraft Rendering') + grid('n',T2_AC_STY.map(function(s){return ocFig('acSty',s,s);})) + grid('n',T2_AC_COL.map(function(c){return ocFig('acCol',c,c);}))
-     + sec('Background Rendering') + grid('n',T2_BG_STY.map(function(s){return ocFig('bgSty',s,s);})) + grid('n',T2_BG_COL.map(function(c){return ocFig('bgCol',c,c);}))
-     + '</div>';
+    h += '<div class="m3-card" style="margin-bottom:8px; padding:12px;"><div class="m3-head">B. Image Rendering Style</div>'
+       + sec('Aircraft Rendering') + grid('n',T2_AC_STY.map(function(s){return ocFig('acSty',s,s);})) + grid('n',T2_AC_COL.map(function(c){return ocFig('acCol',c,c);}))
+       + sec('Background Rendering') + grid('n',T2_BG_STY.map(function(s){return ocFig('bgSty',s,s);})) + grid('n',T2_BG_COL.map(function(c){return ocFig('bgCol',c,c);}))
+       + '</div>';
 
-  h += '<div class="m3-card" style="margin-bottom:8px; padding:12px;"><div class="m3-head">C. Present Structural Elements (Visual Tokens)</div>'
-     + grid('n',(T2_PARTS_DEFAULT.concat(S.t2customParts||[])).map(function(p){return ocArrFig('parts',p,p);}))
-     + '<div style="margin-top:10px; display:flex; gap:8px;"><input type="text" class="m3-num" id="t2-new-part" placeholder="+ Add Custom Token" style="flex:1; padding:8px 12px; min-height:0;"><button type="button" class="btn" id="btn-add-part" style="padding:8px 16px;">Add Tag</button></div>'
-     + '</div>';
+    h += '<div class="m3-card" style="margin-bottom:8px; padding:12px;"><div class="m3-head">C. Present Structural Elements (Visual Tokens)</div>'
+       + grid('n',(T2_PARTS_DEFAULT.concat(S.t2customParts||[])).map(function(p){return ocArrFig('parts',p,p);}))
+       + '<div style="margin-top:10px; display:flex; gap:8px;"><input type="text" class="m3-num" id="t2-new-part" placeholder="+ Add Custom Token" style="flex:1; padding:8px 12px; min-height:0;"><button type="button" class="btn" id="btn-add-part" style="padding:8px 16px;">Add Tag</button></div>'
+       + '</div>';
 
-  h += commentsSection()+'</div></div>'; 
-  return h; 
+    h += '<div class="m3-card" style="margin-bottom:8px; padding:12px;"><div class="m3-head">D. Image Quality Flag</div>'
+       + grid('n', QUALITY_FLAGS.map(qualityChip))
+       + '</div>';
+
+    h += commentsSection();
+  } else {
+    h += '<div class="flag skip"><span class="f-lbl">No Figure Selected</span>Select a figure card above to begin labeling.</div>';
+  }
+
+  h += '</div></div>';
+  return h;
 }
 
 function pageGate(){ return '<div class="p-module">Level 1 &middot; G1 Architecture Split</div><div class="p-q">Primary Physics &amp; Thrust Configuration</div><div class="p-hint">Classification is driven by the most complex propulsive/structural system present. Isolate structural lifting surface traits via standard progressive disclosure blocks.</div><div class="g1-master-row">' + g1MasterButton('winged', 'Winged Architecture', 'Fixed or variable lifting profiles generating wing-mediated cruise lift.') + g1MasterButton('wingless', 'Wingless Architecture', 'Pure rotorborne configurations lacking standard aerodynamic wings.') + g1MasterButton('other', 'Novel / Other Forms', 'Alternative frameworks outside typical rotor-wing aerodynamic descriptions.') + '</div>' + (S.g1Focus ? g1SubPanel(S.g1Focus) : '<div class="flag skip"><span class="f-lbl">Progressive Disclosure Monitor</span>Select an structural master branch to display the underlying topological options.</div>') + commentsSection(); }
@@ -856,7 +940,7 @@ function buildExport() {
     recordId: T1_META.recordNumber, familyId: T1_META.familyId,
     assignee: T1_META.assignee, pubYear: T1_META.pubYear, appYear: T1_META.appYear,
     isApproved: S.isApproved, disapproveReason: S.t1DisapproveReason, disapproveOther: S.t1DisapproveOther,
-    isDuplicate: S.isDuplicate, duplicateOf: S.duplicateId,
+    isDuplicate: S.isDuplicate, duplicateOf: S.duplicateId, duplicateType: S.duplicateType,
     archCount: S.archCount, scope: S.t1Scope, techField: S.t1Field, innovTarget: S.t1Target,
     figures: S.figData, mainFigure: S.mainFigure,
     topologyClass: S.topType, wingConf: S.wingConf, wCount: S.wCount,
@@ -1092,6 +1176,27 @@ document.getElementById('panel').addEventListener('click', function(e){
   // T1 Approve Patent
   var t1AppBtn = tgt.closest('[data-t1-approve]');
   if (t1AppBtn) { S.isApproved = t1AppBtn.getAttribute('data-t1-approve') === 'true'; render(); return; }
+
+  // T1 Duplicate Type
+  var dupTypeBtn = tgt.closest('[data-dup-type]');
+  if (dupTypeBtn) { S.duplicateType = dupTypeBtn.getAttribute('data-dup-type'); render(); return; }
+
+  // T2 Figure Quality Flag
+  var figQualBtn = tgt.closest('[data-fig-quality]');
+  if (figQualBtn) {
+    var fNumQ = (S.t2figNum||'1').trim();
+    figSet(fNumQ, 'qualityFlag', figQualBtn.getAttribute('data-fig-quality'));
+    render(); return;
+  }
+
+  // T2 Figure Grid Card select
+  var figCardBtn = tgt.closest('[data-fig-card]');
+  if (figCardBtn) { S.t2figNum = figCardBtn.getAttribute('data-fig-card'); render(); return; }
+  if (tgt.id === 'btn-add-figure') {
+    var maxN = 0;
+    t2AllFigNums().forEach(function(n){ var p = parseInt(n,10); if(!isNaN(p) && p>maxN) maxN=p; });
+    S.t2figNum = String(maxN+1); render(); return;
+  }
 
   // T2 Status & Main Figure
   var t2StatBtn = tgt.closest('[data-t2-status]');
