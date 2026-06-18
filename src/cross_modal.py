@@ -288,6 +288,7 @@ T2_PARTS  = [
     "Fuselage Cross-section", "Landing Gear/Skids",
     "Internal Components/Batteries/Wiring",
 ]
+T2_ROT = [0, 90, 180, 270]
 
 
 # ─── Zero-shot T2 taxonomy classification ─────────────────────────────────────
@@ -373,6 +374,26 @@ def classify_t2_fields(
     except Exception:
         result["parts"]        = []
         result["parts_scores"] = {}
+
+    ROTATION_PROMPTS = {
+        0:   "a patent technical drawing of an aircraft in correct upright orientation",
+        90:  "a patent technical drawing of an aircraft rotated 90 degrees clockwise, "
+             "with the aircraft on its side",
+        180: "a patent technical drawing of an aircraft upside down",
+        270: "a patent technical drawing of an aircraft rotated 90 degrees "
+             "counter-clockwise, with the aircraft on its side",
+    }
+    try:
+        rot_candidates = [ROTATION_PROMPTS[r] for r in T2_ROT]
+        rot_scores     = _score(rot_candidates, "{}")
+        best_i         = rot_scores.index(max(rot_scores))
+        result["rotation_deg_suggested"] = {
+            "value":      T2_ROT[best_i],
+            "confidence": round(rot_scores[best_i], 4),
+            "source":     "siglip",
+        }
+    except Exception:
+        result["rotation_deg_suggested"] = {"value": 0, "confidence": 0.0, "source": "siglip"}
 
     return result
 
@@ -621,6 +642,10 @@ def classify_m3_fields(
         ("Fixed_Vertical",    "rotors oriented vertically for hovering lift with no tilting mechanism"),
         ("Fixed_Horizontal",  "propulsors oriented horizontally for forward cruise thrust with no tilting"),
         ("Tilting_Mechanism", "rotors or propulsors with a visible tilting or vectoring mechanism that rotates between hover and cruise"),
+        # SRW-only option, matching _M3_ORIENT_DEFS in src/reviewer.py and the
+        # HTML wizard's m3OrientationOptions() — the rotor/wing stops and
+        # locks in cruise to act as a fixed wing, rather than tilting.
+        ("Stopped_Wing",      "rotor or wing that stops and locks in cruise to act as a fixed wing rather than tilting"),
     ]
     BLADE_MECH = [
         ("Open",   "open free rotor or propeller blades exposed to airflow"),

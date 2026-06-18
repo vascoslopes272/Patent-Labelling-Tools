@@ -178,8 +178,19 @@ details.m3-readonly[open] summary::after { content: '\2212'; }
 <body>
 <div class="wiz">
   <div class="wiz-eyebrow">eVTOL Taxonomy Builder v12.0</div>
+  <div id="batch-load-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:.5rem;padding:10px 14px;background:var(--accent-bg);border:1px solid var(--accent-bdr);border-radius:var(--r);flex-wrap:wrap;">
+    <span style="font-size:11px;font-family:var(--mono);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--accent-text);">Load Batch</span>
+    <input type="file" id="batch-xlsx-input" accept=".xlsx" style="font-size:12px;color:var(--text2);">
+    <span id="batch-load-status" style="font-size:12px;font-family:var(--mono);color:var(--text3);"></span>
+    <span id="batch-nav" style="display:none;align-items:center;gap:6px;margin-left:auto;">
+      <button type="button" id="batch-prev" class="btn" style="padding:4px 10px;font-size:12px;">&#9664; Prev</button>
+      <span id="batch-nav-label" style="font-size:12px;font-family:var(--mono);color:var(--text2);"></span>
+      <button type="button" id="batch-next" class="btn" style="padding:4px 10px;font-size:12px;">Next &#9654;</button>
+      <button type="button" id="batch-export" class="btn" style="padding:4px 10px;font-size:12px;" title="Download reviewed rows accumulated so far for this batch">&#11015; Export batch</button>
+    </span>
+  </div>
   <div id="ai-load-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:1rem;padding:10px 14px;background:var(--accent-bg);border:1px solid var(--accent-bdr);border-radius:var(--r);">
-    <span style="font-size:11px;font-family:var(--mono);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--accent-text);">AI Pre-Label</span>
+    <span style="font-size:11px;font-family:var(--mono);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--accent-text);">AI Pre-Label (single patent JSON)</span>
     <input type="file" id="ai-prelabel-input" accept=".json" style="font-size:12px;color:var(--text2);">
     <span id="ai-load-status" style="font-size:12px;font-family:var(--mono);color:var(--text3);"></span>
   </div>
@@ -190,6 +201,8 @@ details.m3-readonly[open] summary::after { content: '\2212'; }
   <div class="bc" id="bc"></div>
   <div class="panel" id="panel"></div>
 </div>
+<!-- SheetJS — parses ml_predict_labels_<batch>.xlsx client-side for the batch loader below -->
+<script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
 <script>
 // --- CORE PATENT DATA EXTRACTED FROM FILE DATASET ---
 var T1_META = {
@@ -675,8 +688,7 @@ function renderCitationsWithLinks(citesArray) {
 function renderThroughput() {
   var tp = document.getElementById('throughput');
   if(tp) {
-    tp.innerHTML = 'Figure <input type="number" data-field="figCur" value="'+escHtml(THROUGHPUT.figCur)+'" min="1"> of <input type="number" data-field="figTot" value="'+escHtml(THROUGHPUT.figTot)+'" min="1"> &middot; Patent <input type="number" data-field="patCur" value="'+escHtml(THROUGHPUT.patCur)+'" min="1"> of <input type="number" data-field="patTot" value="'+escHtml(THROUGHPUT.patTot)+'" min="1">';
-  }
+    tp.innerHTML = 'Patent <input type="number" data-field="patCur" value="'+escHtml(THROUGHPUT.patCur)+'" min="1"> of <input type="number" data-field="patTot" value="'+escHtml(THROUGHPUT.patTot)+'" min="1">';  }
 }
 
 function figCoverageGrid() {
@@ -957,7 +969,11 @@ function buildExport() {
     isApproved: S.isApproved, disapproveReason: S.t1DisapproveReason, disapproveOther: S.t1DisapproveOther,
     isDuplicate: S.isDuplicate, duplicateOf: S.duplicateId, duplicateType: S.duplicateType,
     archCount: S.archCount, scope: S.t1Scope, techField: S.t1Field, innovTarget: S.t1Target,
-    figures: S.figData, mainFigure: S.mainFigure,
+    figures: Object.keys(S.figData).reduce(function(acc, fNum){
+      var fd = S.figData[fNum] || {};
+      acc[fNum] = Object.assign({}, fd, { rotation_deg: fd.t2_rotation || 0 });
+      return acc;
+    }, {}), mainFigure: S.mainFigure,
     topologyClass: S.topType, wingConf: S.wingConf, wCount: S.wCount,
     wings: [1,2,3,4].map(function(i){ return i<=S.wCount ? {role:S['wRole'+i]||'Main', tilt:S['wTilt'+i], posV:S['wPosV'+i], posL:S['wPosL'+i], plan:S['wPlan'+i]==='Oth'?S['wPlanOth'+i]:S['wPlan'+i]} : null }).filter(Boolean),
     empType: S.empType, empKin: S.empKin, empNotes: S.empNotes,
@@ -1095,6 +1111,320 @@ function ingestAI(data) {
   render();
 }
 
+// --- BATCH LOADER (ml_predict_labels_<batch>.xlsx — one row per leaf field, all patents
+// stacked in a single "Review" sheet; see src/excel_schema.py COLUMNS) ──────
+// Lets a reviewer load one consolidated file for the whole batch instead of
+// one ai_prelabel.json per patent, with Prev/Next stepping through patients
+// and patTot auto-detected from the distinct Patent_ID count.
+var BATCH = null;  // { ids: [...], byId: {pid: rows[]}, idx: 0, label: "Batch_01" }
+
+// Per-patent filename/image-path lookup keyed by fNum — rebuilt by
+// rowsToAIData() on every loadBatchPatent() call. recordToRows() needs this
+// to reconstruct the "Image: <filename>" Sub_Dimension that build_patent_rows()
+// (src/excel_schema.py) uses, since S.figData itself is only keyed by fNum.
+var FIG_FILENAMES  = {};
+var FIG_IMAGE_PATH = {};
+
+// Reviewed rows accumulated across the whole batch, in the same flat
+// Patent_ID/Section/Sub_Dimension/Field/.../Image_Path schema as
+// src/excel_schema.py's COLUMNS — written out as one xlsx per batch via
+// exportReviewedBatch() instead of one JSON download per patent.
+var REVIEWED_ROWS = [];
+var EXCEL_COLUMNS = ["Patent_ID","Section","Sub_Dimension","Field","Definition","Options","Value","Confidence","Source","Image_Path"];
+
+function reviewRow(pid, section, subDim, field, value, confidence, source, imagePath) {
+  return {
+    Patent_ID: pid, Section: section, Sub_Dimension: subDim, Field: field,
+    Definition: "", Options: "", Value: value != null ? value : null,
+    Confidence: confidence != null ? confidence : null,
+    Source: source != null ? source : null,
+    Image_Path: imagePath != null ? imagePath : null,
+  };
+}
+
+// Inverse of build_patent_rows() (src/excel_schema.py) — flattens one
+// buildExport() record (the human-reviewed wizard state) back into rows of
+// that same schema, so the per-batch reviewed xlsx can be reloaded into this
+// wizard's batch loader just like ml_predict_labels_<batch>.xlsx can.
+function recordToRows(record, pid) {
+  var rows = [];
+
+  // ── T1 ── title/abstract/description_of_drawings come from T1_META since
+  // buildExport() doesn't carry them (they're not editable in the wizard).
+  rows.push(reviewRow(pid, "T1", "Patent Title", "title", T1_META.title));
+  rows.push(reviewRow(pid, "T1", "Abstract", "abstract", T1_META.abstract));
+  rows.push(reviewRow(pid, "T1", "Assignee", "assignee", record.assignee));
+  rows.push(reviewRow(pid, "T1", "Publication Year", "pub_year", record.pubYear));
+  rows.push(reviewRow(pid, "T1", "Application Year", "app_year", record.appYear));
+  rows.push(reviewRow(pid, "T1", "Description of Drawings", "description_of_drawings", T1_META.descriptionOfDrawings));
+  rows.push(reviewRow(pid, "T1", "scope", "scope", record.scope));
+  rows.push(reviewRow(pid, "T1", "t1Field", "t1Field", record.techField));
+  rows.push(reviewRow(pid, "T1", "t1Target", "t1Target", record.innovTarget));
+  rows.push(reviewRow(pid, "T1", "T1 — Approval Status", "isApproved", record.isApproved));
+  rows.push(reviewRow(pid, "T1", "T1 — Disapproval Reason", "t1DisapproveReason", record.disapproveReason));
+  rows.push(reviewRow(pid, "T1", "T1 — Distinct Architectures", "archCount", record.archCount));
+  rows.push(reviewRow(pid, "T1", "T1 — Duplicate Flag", "isDuplicate", record.isDuplicate));
+  rows.push(reviewRow(pid, "T1", "T1 — Duplicate Of (Patent ID)", "duplicateId", record.duplicateOf));
+  // Extra fields buildExport() carries with no build_patent_rows() slot —
+  // harmless additions, ignored by rowsToAIData() on reload.
+  rows.push(reviewRow(pid, "META", "Review Metadata", "familyId", record.familyId));
+  rows.push(reviewRow(pid, "META", "Review Metadata", "duplicateType", record.duplicateType));
+  rows.push(reviewRow(pid, "META", "Review Metadata", "disapproveOther", record.disapproveOther));
+  rows.push(reviewRow(pid, "META", "Review Metadata", "mainFigure", record.mainFigure));
+  rows.push(reviewRow(pid, "META", "Review Metadata", "comments", record.comments));
+  rows.push(reviewRow(pid, "META", "Review Metadata", "labelToken", record.labelToken));
+  rows.push(reviewRow(pid, "META", "Review Metadata", "timestamp", record.timestamp));
+
+  // ── T2 — per-figure rows, keyed back to filenames via FIG_FILENAMES ──────
+  var fNums = Object.keys(record.figures || {});
+  if (!fNums.length) {
+    rows.push(reviewRow(pid, "T2", "Image: (none available)", "match_status", null));
+  }
+  fNums.forEach(function(fNum) {
+    var fd      = record.figures[fNum] || {};
+    var fname   = FIG_FILENAMES[fNum] || "";
+    var imgPath = FIG_IMAGE_PATH[fNum] || null;
+    var subDim  = fname ? ("Image: " + fname) : ("Image: (fig " + fNum + ")");
+    ["per","sym","acSty","acCol","bgSty","bgCol"].forEach(function(f) {
+      rows.push(reviewRow(pid, "T2", subDim, f, fd[f] != null ? fd[f] : null, null, "human", imgPath));
+    });
+    rows.push(reviewRow(pid, "T2", subDim, "parts", Array.isArray(fd.parts) ? fd.parts.join("|") : (fd.parts || null), null, "human", imgPath));
+    rows.push(reviewRow(pid, "T2", subDim, "status", fd.status != null ? fd.status : null, null, "human", imgPath));
+    rows.push(reviewRow(pid, "T2", subDim, "rotation_deg", fd.rotation_deg != null ? fd.rotation_deg : null, null, "human", imgPath));
+  });
+
+  // ── G1 ────────────────────────────────────────────────────────────────
+  rows.push(reviewRow(pid, "G1", "Topology Type", "topType", record.topologyClass));
+
+  // ── M1 ────────────────────────────────────────────────────────────────
+  rows.push(reviewRow(pid, "M1", "fusShape", "fusShape", record.fusShape));
+  rows.push(reviewRow(pid, "M1", "fusKin", "fusKin", record.fusKin));
+  rows.push(reviewRow(pid, "M1", "gearArch", "gearArch", record.gearArch));
+  rows.push(reviewRow(pid, "M1", "latSym", "latSym", record.latSym));
+  rows.push(reviewRow(pid, "M1", "M1 — Footprint Length (m)", "footLen", record.footLen));
+  rows.push(reviewRow(pid, "M1", "M1 — Footprint Width (m)", "footWid", record.footWid));
+  rows.push(reviewRow(pid, "M1", "M1 — Footprint Height (m)", "footHgt", record.footHgt));
+  rows.push(reviewRow(pid, "M1", "M1 — Footprint Ambiguous", "footAmbiguous", S.footAmbiguous));
+  rows.push(reviewRow(pid, "M1", "M1 — Longitudinal Symmetry", "longSym", record.longSym));
+  rows.push(reviewRow(pid, "M1", "wingNotes", "wingNotes", record.wingNotes));
+  rows.push(reviewRow(pid, "M1", "empNotes", "empNotes", record.empNotes));
+  rows.push(reviewRow(pid, "M1", "fusNotes", "fusNotes", record.fusNotes));
+  rows.push(reviewRow(pid, "M1", "gearNotes", "gearNotes", record.gearNotes));
+
+  // ── M2 — wingConf/wCount/empType/empKin + per-wing rows ─────────────────
+  rows.push(reviewRow(pid, "M2", "wingConf", "wingConf", record.wingConf));
+  rows.push(reviewRow(pid, "M2", "wCount", "wCount", record.wCount));
+  rows.push(reviewRow(pid, "M2", "empType", "empType", record.empType));
+  rows.push(reviewRow(pid, "M2", "empKin", "empKin", record.empKin));
+  (record.wings || []).forEach(function(w, i) {
+    var wi = i + 1;
+    [["tilt","Tilt"],["posV","Vertical Position"],["posL","Longitudinal Position"],
+     ["plan","Planform"],["role","Role"]].forEach(function(pair) {
+      var field = pair[0], label = pair[1];
+      rows.push(reviewRow(pid, "M2", "Wing " + wi + " — " + label, "wing" + wi + "_" + field, w[field] != null ? w[field] : null));
+    });
+  });
+
+  // ── M3 — one set of rows per propulsion-card component ─────────────────
+  (record.propulsionCards || []).forEach(function(card) {
+    var subDim = "Propulsion: " + card.component;
+    ["chord","orient","bmech","rmech","count","zone","zoneChord","zoneSpan","notes"].forEach(function(field) {
+      if (card[field] === undefined) return;
+      rows.push(reviewRow(pid, "M3", subDim, card.component + "_" + field, card[field] != null ? card[field] : null));
+    });
+  });
+
+  return rows;
+}
+
+// Builds one xlsx (SheetJS, client-side) from REVIEWED_ROWS accumulated so
+// far and downloads it — named after the batch label so it never collides
+// with another batch's output, mirroring ml_predict_labels_<batch>.xlsx.
+function exportReviewedBatch() {
+  if (!REVIEWED_ROWS.length) {
+    document.getElementById('batch-load-status').textContent = ' Nothing reviewed yet — nothing to export.';
+    return;
+  }
+  var label = (BATCH && BATCH.label) || "batch";
+  var ws = XLSX.utils.json_to_sheet(REVIEWED_ROWS, { header: EXCEL_COLUMNS });
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Review");
+  XLSX.writeFile(wb, "reviewed_patents_" + label + ".xlsx");
+}
+
+// Mirrors src/ai_labeler.py's fig_number extraction so figure keys here match
+// what AI Pre-Label JSON files already use: "_Fu(\d+).png" -> "Fu{n}",
+// "_F(\w+).png" -> the captured label (this also matches plain "_Fu.png"
+// with no digit, captured as "u" — an existing quirk in ai_labeler.py, kept
+// here for consistency rather than "fixed" independently in two places).
+function figNumFromFilename(fname) {
+  var fu = /_Fu(\d+)\.png$/.exec(fname || '');
+  if (fu) return 'Fu' + fu[1];
+  var f = /_F(\w+)\.png$/.exec(fname || '');
+  if (f) return f[1];
+  return (fname || '').replace(/\.png$/i, '');
+}
+
+// Converts one patent's flat rows (Patent_ID/Section/Sub_Dimension/Field/
+// Value/...) into the same nested {T1,G1,M1,T2,propulsionCards} shape
+// ingestAI() already knows how to apply — so the batch loader and the
+// per-patent AI Pre-Label JSON share one ingestion path.
+function rowsToAIData(rows) {
+  var byField = {};
+  rows.forEach(function(r) { byField[r.Field] = r; });
+  function val(field) {
+    var r = byField[field];
+    return (r && r.Value !== undefined && r.Value !== '') ? r.Value : null;
+  }
+
+  var T1 = {}, G1 = {}, M1 = {};
+  if (val('scope')    != null) T1.scope    = val('scope');
+  if (val('t1Field')  != null) T1.t1Field  = val('t1Field');
+  if (val('t1Target') != null) T1.t1Target = val('t1Target');
+
+  if (val('topType') != null) G1.topType = val('topType');
+
+  // wingConf/wCount/empType/empKin live under Section "M2" in the row schema,
+  // fusShape/fusKin/gearArch/latSym under "M1" — ingestAI() expects all of
+  // them merged into one data.M1 object, so just look each field up by name.
+  ['wingConf', 'wCount', 'empType', 'empKin', 'fusShape', 'fusKin', 'gearArch', 'latSym']
+    .forEach(function(f) { var v = val(f); if (v != null) M1[f] = v; });
+
+  // T2 — rows grouped by Sub_Dimension "Image: <filename>"
+  var byImage = {};
+  rows.forEach(function(r) {
+    if (r.Section !== 'T2') return;
+    var sub = String(r.Sub_Dimension || '');
+    if (sub.indexOf('Image: ') !== 0) return;
+    var fname = sub.slice('Image: '.length);
+    if (!byImage[fname]) byImage[fname] = {};
+    if (r.Value !== undefined && r.Value !== '' && r.Value != null) {
+      byImage[fname][r.Field] = r.Value;
+    }
+    if (r.Image_Path) byImage[fname].__imagePath = r.Image_Path;
+  });
+  var T2 = {};
+  // Reset per-patent — recordToRows() needs fNum -> filename/path for
+  // whichever patent is currently loaded, not a previous one.
+  FIG_FILENAMES = {};
+  FIG_IMAGE_PATH = {};
+  Object.keys(byImage).forEach(function(fname) {
+    var rec = byImage[fname], entry = {};
+    ['per', 'sym', 'acSty', 'acCol', 'bgSty', 'bgCol'].forEach(function(k) {
+      if (rec[k] != null) entry[k] = rec[k];
+    });
+    if (rec.parts != null) entry.parts = String(rec.parts).split('|').filter(Boolean);
+    var fNum = figNumFromFilename(fname);
+    T2[fNum] = entry;
+    FIG_FILENAMES[fNum] = fname;
+    if (rec.__imagePath) FIG_IMAGE_PATH[fNum] = rec.__imagePath;
+  });
+
+  // M3 — rows grouped by Sub_Dimension "Propulsion: <component>", Field
+  // "<component>_<field>" (see src/excel_schema.py build_patent_rows()).
+  var byComponent = {};
+  rows.forEach(function(r) {
+    if (r.Section !== 'M3') return;
+    var sub = String(r.Sub_Dimension || '');
+    if (sub.indexOf('Propulsion: ') !== 0) return;
+    var component = sub.slice('Propulsion: '.length);
+    var prefix = component + '_';
+    var field  = String(r.Field || '');
+    var suffix = field.indexOf(prefix) === 0 ? field.slice(prefix.length) : field;
+    if (!byComponent[component]) byComponent[component] = { component: component };
+    if (r.Value !== undefined && r.Value !== '' && r.Value != null) {
+      byComponent[component][suffix] = r.Value;
+    }
+  });
+  var propulsionCards = Object.keys(byComponent).map(function(k) { return byComponent[k]; });
+
+  return { T1: T1, G1: G1, M1: M1, T2: T2, propulsionCards: propulsionCards };
+}
+
+function loadBatchPatent(idx) {
+  if (!BATCH || idx < 0 || idx >= BATCH.ids.length) return;
+  BATCH.idx = idx;
+  var pid  = BATCH.ids[idx];
+  var rows = BATCH.byId[pid];
+
+  S = fresh();
+
+  // T1_META was a hardcoded placeholder before the batch loader existed —
+  // populate it from this patent's T1 rows so the metadata pane and the
+  // FIG.-highlighting in pageT2() reflect the real patent instead.
+  function metaVal(field) {
+    var r = rows.find(function(x) { return x.Field === field; });
+    return (r && r.Value !== undefined && r.Value !== '') ? r.Value : '';
+  }
+  T1_META.recordNumber        = pid;
+  T1_META.title                = metaVal('title')        || T1_META.title;
+  T1_META.abstract             = metaVal('abstract')      || T1_META.abstract;
+  T1_META.assignee             = metaVal('assignee')      || T1_META.assignee;
+  T1_META.pubYear              = metaVal('pub_year')      || T1_META.pubYear;
+  T1_META.appYear              = metaVal('app_year')      || T1_META.appYear;
+  T1_META.descriptionOfDrawings = metaVal('description_of_drawings') || T1_META.descriptionOfDrawings;
+
+  ingestAI(rowsToAIData(rows));
+
+  var nImages = Object.keys(S.figData).length;
+  THROUGHPUT.patCur = String(idx + 1);
+  THROUGHPUT.patTot = String(BATCH.ids.length);
+  if (nImages) THROUGHPUT.figTot = String(nImages);
+  THROUGHPUT.figCur = '1';
+
+  document.getElementById('batch-nav-label').textContent =
+    'Patent ' + (idx + 1) + ' / ' + BATCH.ids.length + ' — ' + pid;
+  document.getElementById('batch-prev').disabled = (idx === 0);
+  document.getElementById('batch-next').disabled = (idx === BATCH.ids.length - 1);
+
+  render();
+}
+
+document.getElementById('batch-xlsx-input').addEventListener('change', function(e) {
+  var file = e.target.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      var wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' });
+      var sheetName = wb.SheetNames.indexOf('Review') > -1 ? 'Review' : wb.SheetNames[0];
+      var rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: null });
+
+      var ids = [], byId = {};
+      rows.forEach(function(r) {
+        var pid = r.Patent_ID;
+        if (pid == null) return;
+        if (!byId[pid]) { byId[pid] = []; ids.push(pid); }
+        byId[pid].push(r);
+      });
+      if (!ids.length) throw new Error('No Patent_ID rows found in sheet "' + sheetName + '"');
+
+      // Derive a batch label from the filename (e.g. "ml_predict_labels_Batch_01.xlsx"
+      // -> "Batch_01") so the reviewed-output xlsx is named after the same batch,
+      // matching the data/matched/<batch>/ml_predict_labels_<batch>.xlsx convention.
+      var m = /_?((?:Batch_?\d+|Batch_[A-Za-z0-9_]+))\.xlsx$/i.exec(file.name);
+      var label = m ? m[1] : file.name.replace(/\.xlsx$/i, '');
+
+      BATCH = { ids: ids, byId: byId, idx: 0, label: label };
+      REVIEWED_ROWS = [];  // new batch loaded — don't carry over a previous batch's rows
+      document.getElementById('batch-load-status').textContent =
+        ' Loaded ' + ids.length + ' patent(s) from ' + sheetName + ' (batch: ' + label + ').';
+      document.getElementById('batch-nav').style.display = 'flex';
+      loadBatchPatent(0);
+    } catch (err) {
+      document.getElementById('batch-load-status').textContent = ' Failed to load batch: ' + err.message;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+});
+document.getElementById('batch-prev').addEventListener('click', function() {
+  if (BATCH) loadBatchPatent(BATCH.idx - 1);
+});
+document.getElementById('batch-export').addEventListener('click', exportReviewedBatch);
+document.getElementById('batch-next').addEventListener('click', function() {
+  if (BATCH) loadBatchPatent(BATCH.idx + 1);
+});
+
 // --- KEYBOARD NAVIGATION (Audit R-01) ---
 document.addEventListener('keydown', function(e) {
   var tag = document.activeElement ? document.activeElement.tagName : '';
@@ -1178,14 +1508,37 @@ document.getElementById('panel').addEventListener('click', function(e){
   if(tgt.id === 'btn-next' && !tgt.disabled) { S.step++; render(); return; }
   if(tgt.id === 'btn-back') { S.step--; render(); return; }
   
-  if(tgt.id === 'btn-export-next') { 
+  if(tgt.id === 'btn-export-next') {
     var record = buildExport();
     console.log("JSON Payload Ready for Pipeline:", record);
-    var blob = new Blob([JSON.stringify(record, null, 2)], {type:'application/json'});
-    var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = T1_META.recordNumber + '_label.json'; a.click();
-    THROUGHPUT.patCur = String(parseInt(THROUGHPUT.patCur||0) + 1);
-    THROUGHPUT.figCur = '1';
-    S=fresh(); render(); return; 
+
+    if (BATCH) {
+      // Accumulate into the batch's reviewed rows instead of downloading one
+      // JSON per patent — exportReviewedBatch() writes all of these as a
+      // single reviewed_patents_<batch>.xlsx.
+      REVIEWED_ROWS = REVIEWED_ROWS.concat(recordToRows(record, T1_META.recordNumber));
+    } else {
+      // No batch loaded (single-patent ad-hoc review) — fall back to the
+      // original per-patent JSON download, since there's no batch to export.
+      var blob = new Blob([JSON.stringify(record, null, 2)], {type:'application/json'});
+      var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = T1_META.recordNumber + '_label.json'; a.click();
+    }
+
+    if (BATCH && BATCH.idx < BATCH.ids.length - 1) {
+      // A batch xlsx is loaded — advance straight to the next patient's
+      // precomputed AI predictions instead of resetting to a blank form.
+      loadBatchPatent(BATCH.idx + 1);
+    } else {
+      if (BATCH) {
+        document.getElementById('batch-load-status').textContent =
+          ' Batch complete — reviewed all ' + BATCH.ids.length + ' patent(s). Exporting reviewed_patents_' + BATCH.label + '.xlsx...';
+        exportReviewedBatch();
+      }
+      THROUGHPUT.patCur = String(parseInt(THROUGHPUT.patCur||0) + 1);
+      THROUGHPUT.figCur = '1';
+      S=fresh();
+    }
+    render(); return;
   }
 
   if(tgt.id === 'btn-fig-next') { var n = parseInt(S.t2figNum||0)+1; S.t2figNum=String(n); render(); return; }
