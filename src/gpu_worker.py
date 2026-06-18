@@ -36,11 +36,19 @@ def main():
     _DL_SUFFIX  = re.compile(r"PAFP$|PAF$", re.IGNORECASE)
     _KIND_CODES = ["A1","A2","A3","B1","B2","C1","U1"]
     _NON_SHEET  = re.compile(r"manifest|thumbnail|cover|abstract|front.?page", re.IGNORECASE)
+    # Known per-sheet filename tokens across export sources (USPTO _imgN, PCT _pctN,
+    # PAT _patN, and the HDA/HSA/BDA/FDA family used by CN exports, plus the
+    # DEST_PATH_IMAGE artifact left by some Word-doc-derived exports).
     _SHEET_RE   = re.compile(r"""
         (?:
             _[Dd]\d{3,}|PAFP_img\d|PAF_img\d|_img[af]?\d|fig_\d|record__fig_\d|
-            ^img[af]?\d|^pat\d|^FT_\d|^HDA\d|^\d+\.|^srep\d|sN_img\d
+            ^img[af]?\d|^FT_\d|^srep\d|sN_img\d|
+            pat\d|pct\d|H[SD]A\d|[BF]DA\d|DEST_PATH_IMAGE\d
         )""", re.VERBOSE | re.IGNORECASE)
+    # The bare "<id>PAFP.png" composite/cover sheet (no further suffix) is normally
+    # redundant with the numbered per-figure sheets and is excluded — UNLESS it's
+    # the only image the patent has, in which case it IS the drawing.
+    _BARE_COVER = re.compile(r"PAFP\.png$", re.IGNORECASE)
 
     def _core(pid):
         p = _NUM_SUFFIX.sub("", pid)
@@ -50,10 +58,23 @@ def main():
             if c.endswith(sfx): return c[:-len(sfx)]
         return c
 
-    def _is_sheet(f):
-        if f.suffix.lower() != ".png": return False
-        if _NON_SHEET.search(f.name): return False
-        return bool(_SHEET_RE.search(f.name))
+    def _sheets_in(files):
+        """
+        Pick which files in a patent folder are drawing sheets to crop.
+        Falls back progressively so that patents using filename conventions not
+        covered by _SHEET_RE (numeric-only serials, unseen export tools, etc.)
+        still get processed instead of silently producing zero crops:
+          1. files matching a known per-sheet pattern
+          2. if none match, every candidate except the bare cover/composite page
+          3. if that's still empty (the bare cover is the only image at all),
+             use the bare cover itself
+        """
+        candidates = [f for f in files if f.suffix.lower() == ".png" and not _NON_SHEET.search(f.name)]
+        sheets = [f for f in candidates if _SHEET_RE.search(f.name)]
+        if sheets:
+            return sheets
+        non_cover = [f for f in candidates if not _BARE_COVER.search(f.name)]
+        return non_cover or candidates
 
     def _excluded(pid):
         p = triage_dir / f"{pid}.json"
@@ -81,7 +102,7 @@ def main():
         out_dir.mkdir(parents=True, exist_ok=True)
 
         files     = sorted(folder.iterdir())
-        img_files = [f for f in files if _is_sheet(f)]
+        img_files = _sheets_in(files)
         fat_files = [f for f in files if re.search(r"_FAT\d", f.name)]
         excl      = _excluded(folder.name)
 
