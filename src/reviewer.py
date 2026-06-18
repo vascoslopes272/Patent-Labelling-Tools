@@ -15,7 +15,7 @@ run_stage01(cfg, ...)                                       → pd.DataFrame
 
 from pathlib import Path
 
-from src.matcher import parse_description, match_images, label_from_filename
+from src.matcher import label_from_filename
 
 # Shown by 02_taxonomy_review.ipynb (and used by excel_schema.build_patent_rows)
 # whenever a patent has zero figures or a row's Image_Path doesn't resolve to
@@ -25,6 +25,127 @@ PLACEHOLDER_IMAGE_PATH = Path(__file__).resolve().parent.parent / "assets" / "no
 # Lazily-populated cache of patent_id -> description_of_drawings, loaded from
 # data/descriptions.csv (written by notebook 00b2). There is no text/ dir.
 _DESC_CACHE: dict[str, str] = {}
+
+
+def _load_review_flags(data_dir: Path, filename: str = "crops_mapping.csv") -> dict[str, dict[str, str]]:
+    """
+    Reads crops_mapping.csv (written by notebook 00b2 Cell 4, crop_quality column
+    appended by Cell 5b, both updated live by the Cell 5c Keep/Relabel/Reject
+    reviewer) — or, for a specific batch, data/<Batch_NN>/crops_mapping_<Batch_NN>.csv
+    (pass that filename explicitly; 00b2 nests + renames this file per batch).
+
+    Deliberately NOT needs_human_review.csv: that file is a one-time snapshot taken
+    right after the OCR/Qwen pass, before crop_quality even exists and before any
+    Cell 5c review happens, so it goes stale immediately and never gains
+    crop_quality at all. crops_mapping.csv is the live, complete source — same data
+    Cell 5c itself reads and writes — so flags here always reflect the current
+    state, not a frozen pre-review snapshot.
+
+    Only rows that actually need attention (needs_review == True, or a non-empty
+    crop_quality) are included — crops_mapping.csv has one row per crop overall.
+
+    Returns:
+        {patent_id: {output_filename: crop_quality_string}}
+    where output_filename is the bare filename (no directory prefix).
+    Returns {} if the file does not exist or cannot be parsed.
+    """
+    import pandas as pd
+    csv_path = Path(data_dir) / filename
+    if not csv_path.exists():
+        return {}
+    try:
+        df = pd.read_csv(csv_path)
+        if "crop_quality" not in df.columns:
+            df["crop_quality"] = ""
+        df["crop_quality"] = df["crop_quality"].fillna("")
+        needs_attention = (df["needs_review"] == True) | (df["crop_quality"] != "")  # noqa: E712
+        flags: dict[str, dict[str, str]] = {}
+        for _, row in df.loc[needs_attention].iterrows():
+            pid = str(row.get("patent_id", "")).strip()
+            out = str(row.get("output", "")).strip()
+            qual = str(row.get("crop_quality", "")).strip()
+            if pid and out:
+                fname = Path(out).name   # strip any directory prefix
+                flags.setdefault(pid, {})[fname] = qual
+        return flags
+    except Exception:
+        return {}
+
+
+def _resolve_crops_csv(cfg: dict, matched_dir: Path) -> Path:
+    """
+    Resolve the crops_mapping CSV to use for this run: prefers the per-batch
+    nested copy 00b2 writes (data/matched/<Batch_NN>/crops_mapping_<Batch_NN>.csv,
+    inferred from matched_dir's leaf folder when it's nested directly under
+    cfg["paths"]["matched"]), falling back to the flat data/crops_mapping.csv
+    when the nested copy isn't actually on disk — matched/ and data/matched/ don't
+    always get nested in lockstep (e.g. matched/ was re-run per-batch before
+    00b2 started writing the per-batch data/matched/ copy too).
+    """
+    data_dir          = Path(cfg["paths"]["data"])
+    data_matched_dir  = Path(cfg["paths"].get("data_matched", data_dir))
+    flat_matched_root = Path(cfg["paths"]["matched"])
+    matched_dir       = Path(matched_dir)
+    if matched_dir != flat_matched_root and matched_dir.parent == flat_matched_root:
+        batch_label = matched_dir.name
+        candidate   = data_matched_dir / batch_label / f"crops_mapping_{batch_label}.csv"
+        if candidate.exists():
+            return candidate
+    return data_dir / "crops_mapping.csv"
+
+
+def _load_match_results(data_dir: Path, filename: str = "crops_mapping.csv") -> dict[str, dict[str, dict]]:
+    """
+    Reads the matched_description/match_status/etc. columns from
+    crops_mapping.csv — written by notebook 00b2's description-matching cell
+    (moved there from process_patent(), which used to recompute this from
+    scratch on every single Stage 01 run even though 00b2 already has
+    everything needed: the filenames it just cropped + descriptions.csv).
+
+    Returns:
+        {patent_id: {output_filename: {matched_description, match_status,
+                                        match_method, match_confidence,
+                                        semantic_best_score, fig_number,
+                                        duplicate_group}}}
+    Returns {} if the file does not exist, predates this matching step (no
+    "match_status" column yet), or cannot be parsed.
+    """
+    import pandas as pd
+    csv_path = Path(data_dir) / filename
+    if not csv_path.exists():
+        return {}
+    try:
+        df = pd.read_csv(csv_path)
+        if "match_status" not in df.columns:
+            return {}
+
+        def _clean(v):
+            # NaN survives df.where()/fillna() tricks on numeric-dtype columns
+            # (assigning None back into a float64 column just becomes NaN
+            # again) — and float('nan') is truthy in Python, so callers doing
+            # `if value:` would treat a missing value as present. pd.isna()
+            # is the only check that catches both NaN and real None/empty.
+            return None if pd.isna(v) else v
+
+        results: dict[str, dict[str, dict]] = {}
+        for _, row in df.iterrows():
+            pid = str(_clean(row.get("patent_id")) or "").strip()
+            out = str(_clean(row.get("output")) or "").strip()
+            if not pid or not out:
+                continue
+            fname = Path(out).name
+            results.setdefault(pid, {})[fname] = {
+                "matched_description": _clean(row.get("matched_description")),
+                "match_status":        _clean(row.get("match_status")) or "unmatched",
+                "match_method":        _clean(row.get("match_method")),
+                "match_confidence":    float(_clean(row.get("match_confidence")) or 0.0),
+                "semantic_best_score": float(_clean(row.get("semantic_best_score")) or 0.0),
+                "fig_number":          _clean(row.get("fig_number")),
+                "duplicate_group":     _clean(row.get("duplicate_group")),
+            }
+        return results
+    except Exception:
+        return {}
 
 
 # ─── Visual field keyword rules ─────────────────────────────────────────────
@@ -249,6 +370,11 @@ _M3_ORIENT_DEFS = {
     "Fixed_Vertical":    "the rotors are oriented vertically for hovering lift with no tilting mechanism",
     "Fixed_Horizontal":  "the propulsors are oriented horizontally for forward cruise thrust with no tilting",
     "Tilting_Mechanism": "the rotors or propulsors have a tilting or vectoring mechanism that rotates between hover and cruise",
+    # SRW-only option (the HTML wizard's m3OrientationOptions() offers this
+    # instead of Tilting_Mechanism when topType === "SRW") — the rotor/wing
+    # itself stops and locks to act as a fixed wing in cruise, rather than
+    # tilting a propulsor.
+    "Stopped_Wing":      "the rotor or wing stops and locks in cruise to act as a fixed wing, rather than tilting a propulsor",
 }
 _M3_BMECH_DEFS = {
     "Open":   "the aircraft has open free rotor or propeller blades exposed to airflow",
@@ -388,8 +514,11 @@ def assemble_patent_json(
     m2_predictions: dict | None = None,
     m3_predictions: dict | None = None,
     g1_prediction: dict | None = None,
+    review_flags: dict[str, dict[str, str]] | None = None,
 ) -> dict:
     """Assemble the full per-patent JSON dict (T1 metadata + T3 image entries + M1/M2/M3)."""
+    patent_flags = (review_flags or {}).get(patent_id, {})
+
     t3_images = []
     for res in match_results:
         img_entry = {
@@ -412,6 +541,16 @@ def assemble_patent_json(
         }
         if "duplicate_group" in res:
             img_entry["duplicate_group"] = res["duplicate_group"]
+
+        # ── Inject 00b2 review flags ─────────────────────────────────────
+        # review_flags is loaded once per process_patent() call.
+        fig_fname = Path(img_entry.get("file", "")).name
+        if fig_fname in patent_flags:
+            img_entry["needs_review"] = True
+            cq = patent_flags[fig_fname]
+            if cq:
+                img_entry["crop_quality"] = cq
+
         t3_images.append(img_entry)
 
     t1 = {
@@ -471,6 +610,8 @@ def process_patent(
     siglip_bundle: tuple | None = None,
     skip_siglip: bool = False,
     skip_files: set | None = None,
+    review_flags: dict[str, dict[str, str]] | None = None,
+    match_results_cache: dict[str, dict[str, dict]] | None = None,
 ) -> dict:
     """
     Full Stage 01 pipeline for one patent.
@@ -482,12 +623,14 @@ def process_patent(
     Steps
     -----
     1. Glob ``_F*.png`` / ``_Fu*.png`` from matched_dir/patent_id/
-    2. Read figure label from filename (Stage 00b2 encoded it; no re-OCR needed)
-    3. Read BRIEF DESCRIPTION from data/descriptions.csv
-    4. Match images to description lines (SBERT semantic fallback)
-    5. SigLIP visual verification + T2/G1/M1/M2/M3 zero-shot classification
-    6. SBERT T1 dimension classification (scope, field, target)
-    7. Assemble and return the in-memory record dict (exported to
+    2. Read precomputed match results (matched_description/match_status/etc.)
+       from crops_mapping.csv — the actual figure-to-description-line matching
+       now runs in notebook 00b2 (it already has the filenames + descriptions.csv
+       right there; no need to recompute this on every Stage 01 run)
+    3. SigLIP visual verification + T2/G1/M1/M2/M3 zero-shot classification
+    4. SBERT T1 dimension classification (scope, field, target) — uses the full
+       description text from data/descriptions.csv directly, separate from #2
+    5. Assemble and return the in-memory record dict (exported to
        source_patents.xlsx by run_stage01() via src/excel_schema.py)
 
     Parameters
@@ -512,6 +655,19 @@ def process_patent(
         encode_image_features,
     )
 
+    # review_flags / match_results_cache are normally preloaded once (for the
+    # whole batch) by run_stage01() and passed in here, since the correct file
+    # may live at data/<Batch_NN>/crops_mapping_<Batch_NN>.csv and re-deriving
+    # that path per-patent would mean guessing the batch from inside a
+    # single-patent call. Both fall back to the flat data/crops_mapping.csv
+    # for callers (e.g. the single-patent diagnostic cells) that invoke
+    # process_patent() directly.
+    if review_flags is None:
+        review_flags = _load_review_flags(Path(cfg["paths"]["data"]))
+    if match_results_cache is None:
+        _crops_csv = _resolve_crops_csv(cfg, matched_dir)
+        match_results_cache = _load_match_results(_crops_csv.parent, filename=_crops_csv.name)
+
     excel_row = excel_index.get(patent_id, {})
     patent_img_dir = resolve_patent_image_dir(matched_dir, patent_id)
 
@@ -534,9 +690,10 @@ def process_patent(
     if skip_files:
         image_files = [f for f in image_files if f.name not in skip_files]
 
-    ocr_labels = [label_from_filename(p.name) for p in image_files]
-
     # Description text — from data/descriptions.csv (written by notebook 00b2).
+    # Still needed here for the T1/G1/M1/M2/M3 SBERT *text* classification
+    # below — only the per-figure matching itself (matched_description/
+    # match_status) has moved to 00b2; see _load_match_results() above.
     _desc_csv = Path(cfg["paths"]["data"]) / "descriptions.csv"
     if _desc_csv.exists() and not _DESC_CACHE:
         import pandas as _pd
@@ -545,19 +702,29 @@ def process_patent(
             dict(zip(_df["patent_id"], _df["description_of_drawings"]))
         )
     desc_text = _DESC_CACHE.get(patent_id, "")
-    parsed_desc = parse_description(desc_text, cfg)
 
-    has_splits = any(label is None for label in ocr_labels)
-
-    match_results = match_images(
-        image_files,
-        ocr_labels,
-        parsed_desc,
-        cfg,
-        sbert_model        = sbert_model,
-        total_desc_entries = len(parsed_desc),
-        has_splits         = has_splits,
-    )
+    # Build match_results from the precomputed cache instead of recomputing
+    # via match_images() — falls back to an "unmatched" placeholder per file
+    # when a crop isn't in the cache yet (e.g. crops_mapping.csv predates the
+    # 00b2 matching cell, or this file was added after that cell last ran).
+    patent_matches = match_results_cache.get(patent_id, {})
+    match_results: list[dict] = []
+    for f in image_files:
+        m = patent_matches.get(f.name, {})
+        match_status = m.get("match_status", "unmatched")
+        match_results.append({
+            "file":                 f.name,
+            "ocr_label":            label_from_filename(f.name),
+            "fig_number":           m.get("fig_number"),
+            "matched_description":  m.get("matched_description"),
+            "match_status":         match_status,
+            "match_method":         m.get("match_method"),
+            "match_confidence":     m.get("match_confidence", 0.0),
+            "semantic_best_score":  m.get("semantic_best_score", 0.0),
+            "review_candidates":    [],
+            "needs_review":         match_status != "matched",
+            **({"duplicate_group": m["duplicate_group"]} if m.get("duplicate_group") else {}),
+        })
 
     # ── SigLIP visual verification (match scores + composite confidence) ──────
     if siglip_bundle is not None and not skip_siglip:
@@ -647,7 +814,7 @@ def process_patent(
     return assemble_patent_json(
         patent_id, excel_row, match_results, desc_text,
         t1_dimensions, m1_predictions, m2_predictions, m3_predictions,
-        g1_prediction,
+        g1_prediction, review_flags,
     )
 
 
@@ -664,7 +831,7 @@ def run_stage01(
 ) -> "pd.DataFrame":
     """
     Batch Stage 01 runner. Processes all patent folders in matched/ (Stage 00b2 output)
-    and writes the consolidated source_patents.xlsx (cfg["paths"]["source_excel"]) —
+    and writes data/matched/<batch_label>/source_patents_<batch_label>.xlsx —
     no per-patent JSON/HTML files are written.
 
     Parameters
@@ -690,6 +857,15 @@ def run_stage01(
     matched_dir = Path(matched_dir) if matched_dir is not None else Path(cfg["paths"]["matched"])
     excel_idx   = load_patseer_excel(cfg["paths"]["patseer_excel"])
 
+    # Load review flags + match results ONCE for the whole batch (not per-patent —
+    # process_patent() used to reload+reparse this CSV, and recompute matching
+    # from scratch, on every single call). _resolve_crops_csv() picks the
+    # per-batch nested copy when it's on disk, else falls back to the flat
+    # data/crops_mapping.csv — see its docstring.
+    _crops_csv   = _resolve_crops_csv(cfg, matched_dir)
+    review_flags = _load_review_flags(_crops_csv.parent, filename=_crops_csv.name)
+    match_results_cache = _load_match_results(_crops_csv.parent, filename=_crops_csv.name)
+
     # matched/ folders are named "{patent_id}_{record_number}" — strip the
     # record-number suffix to recover the bare patent_id used everywhere else
     # (excel_index keys, batches.xlsx, data/descriptions.csv).
@@ -706,9 +882,11 @@ def run_stage01(
         try:
             data = process_patent(
                 pid, cfg, excel_idx, matched_dir,
-                sbert_model   = sbert_model,
-                siglip_bundle = siglip_bundle,
-                skip_siglip   = skip_siglip,
+                sbert_model          = sbert_model,
+                siglip_bundle        = siglip_bundle,
+                skip_siglip          = skip_siglip,
+                review_flags         = review_flags,
+                match_results_cache  = match_results_cache,
             )
             patent_img_dir = resolve_patent_image_dir(matched_dir, pid)
             all_excel_rows.extend(build_patent_rows(pid, data, patent_img_dir))
@@ -741,13 +919,21 @@ def run_stage01(
                 "total_crops": 0,
             })
 
+    # One ml_predict_labels_<batch_label>.xlsx per batch, living next to that
+    # batch's crops_mapping_<batch_label>.csv under data/matched/<batch_label>/
+    # — same per-batch convention, so re-running another batch never clobbers
+    # a previous batch's output (unlike the old single root-level file).
+    batch_label   = matched_dir.name
+    data_matched  = Path(cfg["paths"].get("data_matched", cfg["paths"]["data"]))
+    source_excel_path = data_matched / batch_label / f"ml_predict_labels_{batch_label}.xlsx"
+
     if all_excel_rows:
-        export_source_excel(all_excel_rows, Path(cfg["paths"]["source_excel"]))
+        export_source_excel(all_excel_rows, source_excel_path)
 
     df = pd.DataFrame(rows)
     print(f"\n{'='*55}")
     print(f"  Stage 01 complete: {len(df)} patents")
-    print(f"  source_patents.xlsx: {len(all_excel_rows)} rows -> {cfg['paths']['source_excel']}")
+    print(f"  ml_predict_labels_{batch_label}.xlsx: {len(all_excel_rows)} rows -> {source_excel_path}")
     if "match_score" in df.columns and df["match_score"].notna().any():
         print(f"  Avg match score  : {df['match_score'].mean():.1%}")
         hr = df.get("human_required", pd.Series(dtype=int))

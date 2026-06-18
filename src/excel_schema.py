@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.cross_modal import T2_PER, T2_SYM, T2_AC_STY, T2_AC_COL, T2_BG_STY, T2_BG_COL, T2_PARTS, G1_TOP_TYPES
+from src.cross_modal import T2_PER, T2_SYM, T2_AC_STY, T2_AC_COL, T2_BG_STY, T2_BG_COL, T2_PARTS, T2_ROT, G1_TOP_TYPES
 from src.reviewer import (
     _T1_SCOPE_DEFS, _T1_FIELD_DEFS, _T1_TARGET_DEFS,
     _M1_FUS_SHAPE_DEFS, _M1_FUS_KIN_DEFS, _M1_GEAR_ARCH_DEFS, _M1_LAT_SYM_DEFS,
@@ -227,6 +227,12 @@ def build_patent_rows(patent_id: str, record: dict, patent_img_dir: "Path | None
     m3 = record.get("M3_predictions") or {}
     orient_v, orient_conf, orient_src = _pred_val(m3, "orient")
     if top_type in ("SLC", "SRW") and orient_v == "Tilting_Mechanism":
+        orient_v, orient_conf, orient_src = None, None, None
+    # Stopped_Wing is only ever offered as a choice for SRW in the HTML
+    # wizard's m3OrientationOptions() — strip it for every other topology so
+    # an ML prediction can never disagree with what a human reviewer is even
+    # allowed to pick.
+    if top_type != "SRW" and orient_v == "Stopped_Wing":
         orient_v, orient_conf, orient_src = None, None, None
     chord_v, chord_conf, chord_src = _pred_val(m3, "chord")
     bmech_v, bmech_conf, bmech_src = _pred_val(m3, "bmech")

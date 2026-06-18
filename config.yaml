@@ -4,16 +4,19 @@ project:
 paths:
   base:          "/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_DS"
   raw_images:    "{{ paths.base }}/raw"
-  matched:       "{{ paths.base }}/batch_01_review_test/matched"
+  matched:       "{{ paths.base }}/matched"
   structured:    "{{ paths.base }}/structured"
-  reviewed:      "{{ paths.base }}/reviewed"
   text:          "{{ paths.base }}/text"
-  labels:        "{{ paths.base }}/labels"
   processed:     "{{ paths.base }}/processed"
   patseer_excel: "/mnt/storage_11tb/Drive_files_to_syncronize/2 - Patente & Validation/3 -Raw_Patent_Exports_PatSeer_&Gold_Standard/1639__dataset_08_06_26.xlsx"
   data:          "{{ paths.base }}/data"
+  # Per-batch bookkeeping CSVs (crops_mapping_<Batch_NN>.csv, needs_human_review_<Batch_NN>.csv)
+  # mirror the per-batch image folders under paths.matched — named after it so the
+  # relation is obvious: data/matched/Batch_NN/ <-> matched/Batch_NN/.
+  data_matched:  "{{ paths.base }}/data/matched"
   triage:        "{{ paths.base }}/triage"
-  source_excel:   "{{ paths.base }}/source_patents.xlsx"
+  # source_patents_<batch>.xlsx is written per-batch under data_matched/<batch>/
+  # by run_stage01() — no fixed root-level path needed.
   reviewed_excel: "{{ paths.base }}/reviewed_patents.xlsx"
   html_review_exports: "/home/vasco/Downloads"
   html_template: "/home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools/notebooks/UI_for_taxonomy_caracterization_10.0.html"
@@ -34,7 +37,7 @@ extractor:
   # "google_patents" = free, no credentials (use while EPO account is pending)
   # "epo"           = EPO OPS API (switch once EPO_CLIENT_KEY/SECRET are in .env)
   mode:          "google_patents"
-  scan_limit:    200    # number of patents to process in Stage 00 (notebook)
+  scan_limit:    null    # number of patents to process in Stage 00 (notebook)
   delay_seconds: 1.0    # pause between requests (be polite to both services)
 
 # ── Figure segmentation (HR-Net, GoFigure-LANL) ───────────────────────────────

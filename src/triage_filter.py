@@ -761,6 +761,72 @@ def commit_batch(
     return {"newly_kept": newly_kept, "newly_locked_discard": newly_locked_discard}
 
 
+def rescue_discards(cfg: dict, keys: set[tuple[str, str]]) -> dict:
+    """
+    Flip specific already-locked discards back to keep=True.
+
+    Unlike commit_review/commit_batch (which only ever act on NOT-yet-locked
+    images — locked entries are explicitly skipped), this is for rescuing
+    images out of a discard pool where every entry is already locked (e.g.
+    after a full triage run + commit pass). Sets keep=True, pred="drawing", and
+    keeps locked=True (so the rescued keep is itself protected from being
+    discarded again by a future rethreshold_existing/reset_threshold call —
+    same protection lock_keeps() gives, just targeted to specific images).
+
+    keys: set of (patent_id, file) tuples to rescue. Anything not currently
+    keep=False is left untouched (no-op if already kept).
+
+    Returns {"rescued": int}.
+    """
+    triage_dir = Path(cfg["paths"]["triage"])
+    by_patent: dict[str, set[str]] = {}
+    for pid, fname in keys:
+        by_patent.setdefault(pid, set()).add(fname)
+
+    rescued = 0
+    for patent_id, files in by_patent.items():
+        json_path = triage_dir / f"{patent_id}.json"
+        if not json_path.exists():
+            continue
+        with open(json_path) as fh:
+            data = json.load(fh)
+        changed = False
+        for fig in data["figures"]:
+            if fig["file"] not in files or fig["keep"]:
+                continue
+            fig["keep"]   = True
+            fig["pred"]   = "drawing"
+            fig["locked"] = True
+            rescued += 1
+            changed = True
+        if changed:
+            data["flagged"] = sum(1 for f in data["figures"] if not f["keep"])
+            with open(json_path, "w") as fh:
+                json.dump(data, fh, indent=2)
+
+    # Rewrite summary CSV so triage_summary.csv reflects the rescue immediately
+    json_paths = sorted(p for p in triage_dir.glob("*.json") if p.stem != "triage_summary")
+    summary_rows = []
+    for json_path in json_paths:
+        with open(json_path) as fh:
+            data = json.load(fh)
+        summary_rows.append({
+            "patent_id":     data["patent_id"],
+            "total_images":  data["total"],
+            "flagged_count": data["flagged"],
+            "flagged_ratio": round(data["flagged"] / data["total"], 4) if data["total"] else 0.0,
+        })
+    summary_csv = triage_dir / "triage_summary.csv"
+    import csv as _csv
+    with open(summary_csv, "w", newline="") as fh:
+        writer = _csv.DictWriter(fh, fieldnames=["patent_id", "total_images", "flagged_count", "flagged_ratio"])
+        writer.writeheader()
+        writer.writerows(summary_rows)
+
+    print(f"rescue_discards: {rescued} image(s) flipped to KEEP (still locked).")
+    return {"rescued": rescued}
+
+
 def reset_review(cfg: dict) -> None:
     """
     Undo a commit_review call: remove all locks from images that are currently
