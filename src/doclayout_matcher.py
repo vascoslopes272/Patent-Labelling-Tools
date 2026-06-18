@@ -37,18 +37,7 @@ CAPTION_CONF = 0.15    # figure_caption only — more captions survive to OCR Pa
 NMS_IOU      = 0.30    # IoU threshold for suppressing duplicate/nested figure boxes
 MIN_CROP_PX  = 450     # discard crops smaller than this in either dimension (filters bad thin split slices)
 IMGSZ        = 1024    # DocStructBench model was trained at 1024
-CROP_PAD_PX_FIXED = 60  # fixed padding (px) around each YOLO box — enough to capture
-                         # the "FIG. X" caption just outside the box without bleeding
-                         # into adjacent figures on high-res sheets (replaces % padding)
-
-# A single figure box taller than this (px) AND containing clear horizontal whitespace
-# is likely a wrapper around multiple sub-figures — split it vertically.
-SPLIT_HEIGHT_PX  = 1500  # only attempt split on very tall wrapper boxes
-SPLIT_GAP_PX     = 120  # gap must be large enough to distinguish two-figure separation
-                          # from internal whitespace within a single figure
-
-SPLIT_WIDTH_PX     = 1500
-SPLIT_GAP_PX_VERT  = 120
+CROP_PAD_PX_FIXED = 180  # symmetric — FIG. label can be top/bottom/side/rotated
 
 # Context padding around the figure box for the Qwen fallback. The caption ("FIG. n")
 # is usually printed OUTSIDE the YOLO figure box — without this margin Qwen never sees it.
@@ -348,6 +337,81 @@ def _split_wide_figure(fig: dict, img_gray: np.ndarray) -> list[dict]:
     return [left, right]
 
 
+def _point_shooting_split(
+    fig: dict,
+    img_gray: np.ndarray,
+    n_shots: int = 3000,
+    radius: int = 3,
+    min_area_frac: float = 0.04,
+) -> list[dict]:
+    """
+    Point-shooting compound-figure splitter — Hoque et al., SDU@AAAI 2022.
+
+    Randomly places dots across the figure crop. Dots that land on or adjacent
+    to ink (dark pixels) are retained; the rest are discarded. The retained dots
+    are filled and dilated to merge marks from the same drawing into one blob.
+    Contour bounding boxes of the resulting blobs become candidate sub-figure
+    regions returned in full-image coordinates.
+
+    More robust than whitespace sweeping because it finds sub-figures by where
+    the ink IS, not by looking for clean whitespace gaps between figures — gaps
+    interrupted by caption text or touching figure edges still split correctly.
+
+    Returns [fig] unchanged when fewer than 2 valid sub-regions are found
+    (i.e. the figure is already a single drawing — no split needed).
+    """
+    x1, y1, x2, y2 = fig["box"]
+    crop = img_gray[y1:y2, x1:x2]
+    ch, cw = crop.shape[:2]
+
+    # Skip crops too small to contain multiple sub-figures
+    if ch < 200 or cw < 200:
+        return [fig]
+
+    # Binarise: ink → 255, white background → 0
+    _, bw = cv2.threshold(crop, 180, 255, cv2.THRESH_BINARY_INV)
+
+    # Shoot random dots; retain those touching ink within radius
+    mask = np.zeros((ch, cw), dtype=np.uint8)
+    rng  = np.random.default_rng(seed=42)   # deterministic — same result every run
+    ys   = rng.integers(0, ch, n_shots)
+    xs   = rng.integers(0, cw, n_shots)
+
+    for py, px in zip(ys, xs):
+        y_lo = max(0, int(py) - radius)
+        y_hi = min(ch, int(py) + radius + 1)
+        x_lo = max(0, int(px) - radius)
+        x_hi = min(cw, int(px) + radius + 1)
+        if bw[y_lo:y_hi, x_lo:x_hi].any():
+            cv2.circle(mask, (int(px), int(py)), radius, 255, -1)
+
+    # Dilate to bridge nearby dots that belong to the same drawing.
+    # Kernel ~3% of the smaller crop dimension; bridges intra-figure gaps
+    # while leaving the whitespace band between two figures intact.
+    dil_size = max(15, min(ch, cw) // 30)
+    kernel   = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (dil_size, dil_size))
+    mask     = cv2.dilate(mask, kernel, iterations=2)
+
+    # Find external contours of connected blobs
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return [fig]
+
+    # Filter tiny blobs; convert surviving boxes to full-image coordinates
+    min_area  = min_area_frac * ch * cw
+    sub_boxes = []
+    for cnt in contours:
+        bx, by, bw_, bh_ = cv2.boundingRect(cnt)
+        if bw_ * bh_ >= min_area:
+            sub_boxes.append({
+                "box":  [x1 + bx, y1 + by, x1 + bx + bw_, y1 + by + bh_],
+                "conf": fig["conf"],
+            })
+
+    # Only return a split if we found at least 2 genuine sub-regions
+    return sub_boxes if len(sub_boxes) >= 2 else [fig]
+
+
 def detect_regions(model, img_path: Path, device: str = "cuda:0") -> tuple[list[dict], list[dict]]:
     """
     Run DocLayout-YOLO on one sheet and split detections into figures and captions.
@@ -398,35 +462,31 @@ def detect_regions(model, img_path: Path, device: str = "cuda:0") -> tuple[list[
         figures  = [f for f in figures
                     if (f["box"][2]-f["box"][0]) * (f["box"][3]-f["box"][1]) >= 0.12 * max_area]
 
-    # Only split if YOLO returned exactly one box (a wrapper around multiple sub-figures).
-    # When YOLO already found 2+ individual boxes, trust them — splitting further creates noise.
-    if len(figures) == 1:
-        fig = figures[0]
-        h_box = fig["box"][3] - fig["box"][1]
-        w_box = fig["box"][2] - fig["box"][0]
+    # Apply point-shooting split to every detected box (Hoque et al. 2022).
+    # Unlike the whitespace-sweep approach it replaces, point-shooting finds
+    # sub-figures by ink density — it works even when the gap between two
+    # sub-figures is narrow, interrupted by caption text, or zero (touching).
+    # Applied per-box so compound wrappers that YOLO missed are still caught
+    # when multiple boxes are returned.
+    split_results: list[dict] = []
+    for _fig in figures:
+        _sub = _point_shooting_split(_fig, img_gray)
+        split_results.extend(_sub)
+    figures = split_results
 
-        halves = _split_large_figure(fig, img_gray)
-        if len(halves) == 2:
-            h0 = halves[0]["box"][3] - halves[0]["box"][1]
-            h1 = halves[1]["box"][3] - halves[1]["box"][1]
-            # Reject split if one half is less than 20% of the other — it's a sliver
-            if min(h0, h1) >= 0.20 * max(h0, h1):
-                figures = halves
-
-        if len(figures) == 1:
-            halves = _split_wide_figure(fig, img_gray)
-            if len(halves) == 2:
-                w0 = halves[0]["box"][2] - halves[0]["box"][0]
-                w1 = halves[1]["box"][2] - halves[1]["box"][0]
-                if min(w0, w1) >= 0.20 * max(w0, w1):
-                    figures = halves
-
-        # After split: merge any coplanar fragments and re-apply area filter
-        if len(figures) > 1:
-            figures = _merge_coplanar_fragments(figures)
-            max_area = max((f["box"][2]-f["box"][0])*(f["box"][3]-f["box"][1]) for f in figures)
-            figures  = [f for f in figures
-                        if (f["box"][2]-f["box"][0])*(f["box"][3]-f["box"][1]) >= 0.12 * max_area]
+    # Re-merge any coplanar fragments introduced by the split, then re-apply
+    # the minimum-area filter to drop slivers.
+    if len(figures) > 1:
+        figures = _merge_coplanar_fragments(figures)
+        _max_area = max(
+            (f["box"][2] - f["box"][0]) * (f["box"][3] - f["box"][1])
+            for f in figures
+        )
+        figures = [
+            f for f in figures
+            if (f["box"][2] - f["box"][0]) * (f["box"][3] - f["box"][1])
+            >= 0.12 * _max_area
+        ]
 
     return figures, captions
 
@@ -748,10 +808,11 @@ def _review_hint_for_box(box: list[int]) -> str:
     """Hint only — flags boxes that look like multiple merged sub-figures
     (e.g. FIG.8A/8B/8C in one YOLO box) so a human reviewer can spot them
     fast. Never changes the crop, box, or label."""
+    _wide_thresh = 1500   # local copy of the retired SPLIT_WIDTH_PX/SPLIT_HEIGHT_PX
     x1, y1, x2, y2 = box
     box_w, box_h = x2 - x1, y2 - y1
-    if (box_w >= SPLIT_WIDTH_PX and box_w / max(box_h, 1) >= 1.8) or \
-       (box_h >= SPLIT_HEIGHT_PX and box_h / max(box_w, 1) >= 1.8):
+    if (box_w >= _wide_thresh and box_w / max(box_h, 1) >= 1.8) or \
+       (box_h >= _wide_thresh and box_h / max(box_w, 1) >= 1.8):
         return "possible_multi_fig"
     return ""
 
@@ -864,10 +925,20 @@ def crop_and_save(img_path: Path, figures: list[dict], captions: list[dict],
             continue
 
         cap = _match_caption([x1, y1, x2, y2], captions)
+
+        # Expand the OCR search region beyond the tight YOLO box — prevents
+        # partial character reads when the label sits at the box edge.
+        # YOLO clips "8" → OCR sees "0", "9" → "4", "I" → "|" etc.
+        # This is separate from CROP_PAD_PX_FIXED (which pads the saved PNG).
+        _ocr_x1 = max(0, x1 - 80)
+        _ocr_y1 = max(0, y1 - 80)
+        _ocr_x2 = min(w, x2 + 80)
+        _ocr_y2 = min(h, y2 + 80)
+
         clean_lbl, needs_review, label_rotation = read_label(
             reader, img,
             cap["box"] if cap else None,
-            fig_box=[x1, y1, x2, y2],
+            fig_box=[_ocr_x1, _ocr_y1, _ocr_x2, _ocr_y2],
         )
 
         method = "doclayout_easyocr"
