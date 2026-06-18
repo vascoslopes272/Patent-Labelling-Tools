@@ -411,8 +411,8 @@ G1_TOP_TYPES = {
     "SRW": "stopped rotor wing aircraft where the rotors stop and lock in cruise to act as a fixed wing",
     "RC":  "rotorcraft, a single-rotor, coaxial, or tandem helicopter layout",
     "MR":  "multirotor aircraft with distributed fixed rotors in a drone or multicopter layout",
-    "HB":  "hoverbike with a motorcycle riding posture and visible rider interface",
-    "PFV": "personal flying vehicle such as a wearable suit, jetpack, or standing platform",
+    "HB":  "a motorcycle-style frame with tandem or side-by-side rotors mounted above a seated rider straddle position",
+    "PFV": "a wearable jetpack or thrust-vectored suit strapped directly to a standing human body with no separate vehicle frame",
 }
 
 

@@ -39,19 +39,19 @@ from src.reviewer import (
 
 COLUMNS = [
     "Patent_ID", "Section", "Sub_Dimension", "Field", "Definition",
-    "Options", "Value", "Confidence", "Source", "Image_Path",
+    "Options", "Value", "Confidence", "Source", "Image_Path", "Needs_Review",
 ]
 
 _OPT = lambda d: "|".join(d.keys()) if isinstance(d, dict) else "|".join(d)
 
 
 def _row(patent_id, section, sub_dim, field, definition, options, value=None,
-         confidence=None, source=None, image_path=None) -> dict:
+         confidence=None, source=None, image_path=None, needs_review=None) -> dict:
     return {
         "Patent_ID": patent_id, "Section": section, "Sub_Dimension": sub_dim,
         "Field": field, "Definition": definition, "Options": options,
         "Value": value, "Confidence": confidence, "Source": source,
-        "Image_Path": image_path,
+        "Image_Path": image_path, "Needs_Review": needs_review,
     }
 
 
@@ -97,14 +97,29 @@ _M3_MANUAL = [
 ]
 
 
-def build_patent_rows(patent_id: str, record: dict, patent_img_dir: "Path | None" = None) -> list[dict]:
+def build_patent_rows(patent_id: str, record: dict, patent_img_dir: "Path | None" = None,
+                       cfg: dict | None = None) -> list[dict]:
     """
     Flatten one Stage 01 record dict (the shape reviewer.process_patent()
     builds in-memory) into the flat row schema described at module top.
     `patent_img_dir` is used to resolve absolute Image_Path values for T2 rows.
+    `cfg` is optional — when given, cfg["confidence_routing"][section] supplies
+    a per-section confidence floor below which Needs_Review is set True.
     """
     rows: list[dict] = []
     t1 = record.get("T1", {})
+
+    # Confidence-based review routing — per-section threshold from
+    # cfg["confidence_routing"] (config.yaml). Returns None (no flag) when
+    # cfg/threshold/confidence are unavailable, so existing callers that don't
+    # pass cfg see identical behavior to before this was added.
+    routing_cfg = (cfg or {}).get("confidence_routing", {})
+
+    def _needs_review(section: str, confidence) -> "bool | None":
+        threshold = routing_cfg.get(section, 0.0)
+        if threshold > 0.0 and isinstance(confidence, float) and confidence < threshold:
+            return True
+        return None
 
     # ── T1 ──────────────────────────────────────────────────────────────────
     for field, definition in [
@@ -121,7 +136,8 @@ def build_patent_rows(patent_id: str, record: dict, patent_img_dir: "Path | None
 
     for field, defs in [("scope", _T1_SCOPE_DEFS), ("t1Field", _T1_FIELD_DEFS), ("t1Target", _T1_TARGET_DEFS)]:
         value, conf, source = _pred_val(t1, field)
-        rows.append(_row(patent_id, "T1", field, field, field, _OPT(defs), value, conf, source))
+        rows.append(_row(patent_id, "T1", field, field, field, _OPT(defs), value, conf, source,
+                          needs_review=_needs_review("T1", conf)))
 
     for field, sub_dim, options in _T1_MANUAL:
         rows.append(_row(patent_id, "T1", sub_dim, field, sub_dim, options))
@@ -146,7 +162,7 @@ def build_patent_rows(patent_id: str, record: dict, patent_img_dir: "Path | None
             rows.append(_row(
                 patent_id, "T2", sub_dim, field, f"{sub_dim} — {field}", "|".join(options),
                 entry.get("value"), entry.get("confidence"), "siglip" if entry.get("value") else None,
-                img_path,
+                img_path, needs_review=_needs_review("T2", entry.get("confidence")),
             ))
 
         parts = preds.get("parts") or []
@@ -166,6 +182,7 @@ def build_patent_rows(patent_id: str, record: dict, patent_img_dir: "Path | None
     rows.append(_row(
         patent_id, "G1", "Topology Type", "topType", "Architecture topology type",
         _OPT(G1_TOP_TYPES), top_type, g1.get("confidence"), g1.get("source"),
+        needs_review=_needs_review("G1", g1.get("confidence")),
     ))
 
     # ── M1 ──────────────────────────────────────────────────────────────────
@@ -175,7 +192,8 @@ def build_patent_rows(patent_id: str, record: dict, patent_img_dir: "Path | None
         ("gearArch", _M1_GEAR_ARCH_DEFS), ("latSym", _M1_LAT_SYM_DEFS),
     ]:
         value, conf, source = _pred_val(m1, field)
-        rows.append(_row(patent_id, "M1", field, field, field, _OPT(defs), value, conf, source))
+        rows.append(_row(patent_id, "M1", field, field, field, _OPT(defs), value, conf, source,
+                          needs_review=_needs_review("M1", conf)))
 
     for field, sub_dim, options in _M1_MANUAL:
         rows.append(_row(patent_id, "M1", sub_dim, field, sub_dim, options))
@@ -207,13 +225,17 @@ def build_patent_rows(patent_id: str, record: dict, patent_img_dir: "Path | None
         emp_kin, emp_kin_conf, emp_kin_src = "Fixed", emp_kin_conf, "ensemble"  # physics lock
 
     rows.append(_row(patent_id, "M2", "wingConf", "wingConf", "wingConf", _OPT(_M2_WING_CONF_DEFS),
-                      wing_conf, wing_conf_conf, wing_conf_src))
+                      wing_conf, wing_conf_conf, wing_conf_src,
+                      needs_review=_needs_review("M2", wing_conf_conf)))
     rows.append(_row(patent_id, "M2", "wCount", "wCount", "wCount", _OPT(_M2_WCOUNT_DEFS),
-                      w_count_v, w_count_conf, w_count_src))
+                      w_count_v, w_count_conf, w_count_src,
+                      needs_review=_needs_review("M2", w_count_conf)))
     rows.append(_row(patent_id, "M2", "empType", "empType", "empType", _OPT(_M2_EMP_TYPE_DEFS),
-                      emp_type, emp_type_conf, emp_type_src))
+                      emp_type, emp_type_conf, emp_type_src,
+                      needs_review=_needs_review("M2", emp_type_conf)))
     rows.append(_row(patent_id, "M2", "empKin", "empKin", "empKin", _OPT(_M2_EMP_KIN_DEFS),
-                      emp_kin, emp_kin_conf, emp_kin_src))
+                      emp_kin, emp_kin_conf, emp_kin_src,
+                      needs_review=_needs_review("M2", emp_kin_conf)))
 
     if is_winged and wing_conf == "W":
         for wi in range(1, max(w_count, 1) + 1):
@@ -247,7 +269,8 @@ def build_patent_rows(patent_id: str, record: dict, patent_img_dir: "Path | None
             ("rmech",  _M3_RMECH_DEFS,  rmech_v,  rmech_conf,  rmech_src),
         ]:
             rows.append(_row(patent_id, "M3", sub_dim, f"{component}_{field}",
-                              f"{sub_dim} — {field}", _OPT(defs), value, conf, source))
+                              f"{sub_dim} — {field}", _OPT(defs), value, conf, source,
+                              needs_review=_needs_review("M3", conf)))
         for field, label, options in _M3_MANUAL:
             rows.append(_row(patent_id, "M3", sub_dim, f"{component}_{field}",
                               f"{sub_dim} — {label}", options))
