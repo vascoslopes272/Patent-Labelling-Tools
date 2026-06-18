@@ -660,6 +660,7 @@ def run_stage01(
     skip_siglip: bool = False,
     limit: "int | None" = None,
     patent_ids: list[str] | None = None,
+    matched_dir: "Path | None" = None,
 ) -> "pd.DataFrame":
     """
     Batch Stage 01 runner. Processes all patent folders in matched/ (Stage 00b2 output)
@@ -682,7 +683,11 @@ def run_stage01(
     from src.extractor import load_patseer_excel
     from src.excel_schema import build_patent_rows, export_source_excel
 
-    matched_dir = cfg["paths"]["matched"]
+    # Stage 00b2 now writes crops under matched/<Batch_NN>/ rather than flat matched/ —
+    # pass matched_dir explicitly (e.g. cfg["paths"]["matched"] / "Batch_00") so this
+    # stays in sync with whichever batch you're reviewing. Defaults to the flat root
+    # for backward compatibility with older runs that didn't nest by batch.
+    matched_dir = Path(matched_dir) if matched_dir is not None else Path(cfg["paths"]["matched"])
     excel_idx   = load_patseer_excel(cfg["paths"]["patseer_excel"])
 
     # matched/ folders are named "{patent_id}_{record_number}" — strip the
