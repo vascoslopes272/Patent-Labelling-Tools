@@ -19,7 +19,6 @@ build_epo_client(cfg)                               → EpoClient  (mode="epo" o
 download_drawings(patent_id, cfg, raw_dir, client)  → list[Path]
 get_brief_description(patent_id, cfg, client)       → str
 load_patseer_excel(path)                            → dict[str, dict]
-save_description_text(patent_id, text, text_dir)    → Path
 save_descriptions_csv(index, out_path)              → Path
 """
 
@@ -333,14 +332,6 @@ def load_patseer_excel(path: Path) -> dict[str, dict]:
         }
 
     return index
-
-
-def save_description_text(patent_id: str, text: str, text_dir: Path) -> Path:
-    """Write the BRIEF DESCRIPTION text to text_dir/<patent_id>.txt."""
-    text_dir.mkdir(parents=True, exist_ok=True)
-    dest = text_dir / f"{patent_id}.txt"
-    dest.write_text(text, encoding="utf-8")
-    return dest
 
 
 def save_descriptions_csv(index: dict, out_path: Path) -> Path:

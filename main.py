@@ -18,14 +18,11 @@ def run_stage00(cfg: dict, scan: bool = False) -> None:
     from src.extractor import (
         build_driver, login_flow, iter_records,
         extract_drawings_for_record, download_images,
-        make_requests_session, load_patseer_excel, save_description_text,
+        make_requests_session,
     )
 
     limit = cfg["extractor"]["scan_limit"] if scan else None
     raw_dir = cfg["paths"]["raw_images"]
-    text_dir = cfg["paths"]["text"]
-
-    excel_index = load_patseer_excel(cfg["paths"]["patseer_excel"])
 
     driver = build_driver(cfg)
     wait = WebDriverWait(driver, 15)
@@ -51,9 +48,6 @@ def run_stage00(cfg: dict, scan: bool = False) -> None:
             session = make_requests_session(driver)
             n = download_images(urls, patent_id, session, raw_dir)
             total_images += n
-
-            if patent_id in excel_index:
-                save_description_text(patent_id, excel_index[patent_id], text_dir)
 
     except KeyboardInterrupt:
         print("\n⏹  Interrupted. Re-run to resume (completed folders are skipped automatically).")

@@ -518,10 +518,17 @@ def process_patent(
     if not patent_img_dir.exists():
         image_files = []
     else:
-        # Filenames carry an infix before the figure label, e.g.
-        # "{patent_id}_img9_crop_1_F8B.png" or "{patent_id}_D00004_crop_0_Fu.png".
-        labeled   = sorted(patent_img_dir.glob(f"{patent_id}_*_F[0-9]*.png"))
-        unlabeled = sorted(patent_img_dir.glob(f"{patent_id}_*_Fu*.png"))
+        # patent_img_dir is already patent-specific (resolved above), so the
+        # filename prefix before the figure label can be anything Stage 00b2
+        # produced — e.g. "{patent_id}_img9_crop_1_F8B.png",
+        # "{patent_id}_D00004_crop_0_Fu.png", a differently-formatted/kind-coded
+        # publication number ("US12600459PAFP_..."), or no patent_id prefix at
+        # all (e.g. EP records: "imgf0001_crop_0_F1.png"). Glob on the figure
+        # suffix only — label_from_filename() doesn't care about the prefix
+        # either, so requiring an exact patent_id match here just silently
+        # drops every figure whenever the on-disk prefix doesn't match.
+        labeled   = sorted(patent_img_dir.glob("*_F[0-9]*.png"))
+        unlabeled = sorted(patent_img_dir.glob("*_Fu*.png"))
         image_files = labeled + unlabeled
 
     if skip_files:
@@ -680,7 +687,7 @@ def run_stage01(
 
     # matched/ folders are named "{patent_id}_{record_number}" — strip the
     # record-number suffix to recover the bare patent_id used everywhere else
-    # (excel_index keys, batches.xlsx, text/<id>.txt).
+    # (excel_index keys, batches.xlsx, data/descriptions.csv).
     if patent_ids is not None:
         pids = list(patent_ids)
     else:
