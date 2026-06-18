@@ -40,6 +40,17 @@ extractor:
   scan_limit:    null    # number of patents to process in Stage 00 (notebook)
   delay_seconds: 1.0    # pause between requests (be polite to both services)
 
+# Confidence routing — SigLIP predictions below these thresholds are flagged
+# for human review in the output Excel (needs_review = true).
+# Start conservative (low values) so you don't over-flag on the first batches.
+# Tighten after inspecting the confidence distribution in ml_predict_labels.xlsx.
+confidence_routing:
+  G1:  0.45
+  M1:  0.40
+  M2:  0.40
+  M3:  0.35
+  T2:  0.35
+
 # ── Figure segmentation (HR-Net, GoFigure-LANL) ───────────────────────────────
 # Download weights first:  python scripts/download_weights.py
 segmenter:

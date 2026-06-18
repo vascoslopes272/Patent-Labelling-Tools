@@ -312,8 +312,8 @@ _G1_TOP_TYPE_DEFS = {
     "SRW": "this patent describes a stopped rotor wing aircraft where the rotors stop and lock in cruise to act as a fixed wing",
     "RC":  "this patent describes a rotorcraft, a single-rotor, coaxial, or tandem helicopter layout",
     "MR":  "this patent describes a multirotor aircraft with distributed fixed rotors in a drone or multicopter layout",
-    "HB":  "this patent describes a hoverbike with a motorcycle riding posture and visible rider interface",
-    "PFV": "this patent describes a personal flying vehicle such as a wearable suit, jetpack, or standing platform",
+    "HB":  "this patent describes a motorcycle-style frame with tandem or side-by-side rotors mounted above a seated rider straddle position",
+    "PFV": "this patent describes a wearable jetpack or thrust-vectored suit strapped directly to a standing human body with no separate vehicle frame",
 }
 _M1_FUS_SHAPE_DEFS = {
     "Circular":    "the aircraft has a circular or cylindrical tubular fuselage",
@@ -734,6 +734,24 @@ def process_patent(
             model, tokenizer, preprocess, device,
         )
 
+    # ── G1 text-based classification (SBERT) — moved ahead of the SigLIP
+    # per-figure loop below so its confidence is available as a real
+    # cross-modal signal for classify_g1_hint()'s nlp_confidence gate,
+    # instead of the hardcoded 0.0 ("always run") that bypassed the gate
+    # entirely. Only needs classify_text (title/abstract/first_claim/desc_text),
+    # already available at this point. classify_text is reused unchanged
+    # further below for T1/M1/M2/M3 text classification.
+    classify_text = " ".join(
+        t for t in [
+            excel_row.get("title"),
+            excel_row.get("abstract"),
+            excel_row.get("first_claim"),
+            desc_text,
+        ] if t
+    )
+    g1_text = classify_g1_text(classify_text, sbert_model)
+    g1_text_confidence = g1_text["confidence"] if g1_text else 0.0
+
     # ── Per-figure: T2 + G1 + M1 + M2 + M3 SigLIP classification ────────────
     m1_per_fig: list[dict] = []
     m2_per_fig: list[dict] = []
@@ -753,10 +771,12 @@ def process_patent(
             res["T2_predictions"] = classify_t2_fields(
                 img_path, model, tokenizer, preprocess, device, img_feat=img_feat
             )
-            # G1 hint runs on every figure unconditionally.
+            # G1 hint is skipped only when the SBERT text classification is
+            # already confident (nlp_confidence >= confidence_threshold) —
+            # real cross-modal gate now, not a permanent bypass.
             res["G1_hint"] = classify_g1_hint(
                 img_path, model, tokenizer, preprocess, device,
-                nlp_confidence=0.0,          # always run — no NLP bypass
+                nlp_confidence=g1_text_confidence,
                 img_feat=img_feat,
             )
             m1_per_fig.append(classify_m1_fields(img_path, model, tokenizer, preprocess, device, img_feat=img_feat))
@@ -787,21 +807,16 @@ def process_patent(
     # Title + abstract + first claim are most information-dense for SBERT
     # (full description is excluded: SBERT truncates ~384 tokens and the bulk
     # of a long description is generic background, not the invention itself).
-    classify_text = " ".join(
-        t for t in [
-            excel_row.get("title"),
-            excel_row.get("abstract"),
-            excel_row.get("first_claim"),
-            desc_text,
-        ] if t
-    )
+    # classify_text was already built above (before the SigLIP loop) for the
+    # G1 text classification that feeds classify_g1_hint()'s nlp_confidence
+    # gate — reused here unchanged.
     t1_dimensions = classify_t1_dimensions(classify_text, sbert_model)
 
-    # ── G1/M1/M2/M3 text-based classification (SBERT) + merge with visual ─────
+    # ── M1/M2/M3 text-based classification (SBERT) + merge with visual ────────
     # Patent text often states the architecture explicitly even when a figure
     # is hard to classify visually (or has no usable description line at all).
     # Merge picks whichever modality is more confident per field, field-by-field.
-    g1_text = classify_g1_text(classify_text, sbert_model)
+    # g1_text was already computed above (before the SigLIP loop) — reused here.
     m1_text = classify_m1_text(classify_text, sbert_model)
     m2_text = classify_m2_text(classify_text, sbert_model)
     m3_text = classify_m3_text(classify_text, sbert_model)
@@ -889,7 +904,7 @@ def run_stage01(
                 match_results_cache  = match_results_cache,
             )
             patent_img_dir = resolve_patent_image_dir(matched_dir, pid)
-            all_excel_rows.extend(build_patent_rows(pid, data, patent_img_dir))
+            all_excel_rows.extend(build_patent_rows(pid, data, patent_img_dir, cfg=cfg))
 
             figs     = data.get("T3_images", [])
             statuses = [f.get("match_status", "") for f in figs]
