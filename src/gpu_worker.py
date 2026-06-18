@@ -94,7 +94,8 @@ def main():
             out_path = out_dir / f"{f.stem}_Fu.png"
             shutil.copy2(f, out_path)
             rows.append({"patent_id": excel_id, "original": f.name, "output": out_path.name,
-                         "label": None, "method": "fat_copy", "needs_review": True, "review_hint": ""})
+                         "label": None, "method": "fat_copy", "needs_review": True, "review_hint": "",
+                         "qwen_status": "not_attempted"})
 
         for img_path in img_files:
             try:
@@ -103,7 +104,8 @@ def main():
                     rows.append({"patent_id": excel_id, "original": c["original"],
                                  "output": c["output"], "label": c["label"],
                                  "method": c["method"], "needs_review": c["needs_review"],
-                                 "review_hint": c.get("review_hint", "")})
+                                 "review_hint": c.get("review_hint", ""),
+                                 "qwen_status": c.get("qwen_status", "not_attempted")})
             except Exception as e:
                 logs.append(f"    ❌ [{device}] {img_path.name}: {e}")
 

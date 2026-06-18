@@ -626,10 +626,11 @@ def _auto_rotate(crop_bgr: np.ndarray) -> np.ndarray:
     return np.rot90(crop_bgr, k=best_angle // 90)
 
 
-def _qwen_label(img_crop_bgr: np.ndarray, qwen_model, qwen_processor) -> str | None:
+def _qwen_label(img_crop_bgr: np.ndarray, qwen_model, qwen_processor) -> tuple[str | None, str]:
     """
     Ask Qwen2.5-VL for the figure label of a single already-cropped image.
-    Returns a clean label like '3A' or None on failure.
+    Returns (label, status). label is a clean string like '3A', or None on failure/no-label.
+    status is one of: "ok" (model answered, label may still be None), "oom", "error".
     """
     import torch
     from PIL import Image as PilImage
@@ -645,35 +646,49 @@ def _qwen_label(img_crop_bgr: np.ndarray, qwen_model, qwen_processor) -> str | N
         {"type": "image", "image": pil_img},
         {"type": "text",  "text": prompt},
     ]}]
-    text = qwen_processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    image_inputs, video_inputs = process_vision_info(messages)
-    inputs = qwen_processor(
-        text=[text], images=image_inputs, videos=video_inputs,
-        padding=True, return_tensors="pt"
-    ).to("cuda")
-    with torch.no_grad():
-        gen_ids = qwen_model.generate(**inputs, max_new_tokens=32)
-        trimmed = [o[len(i):] for i, o in zip(inputs.input_ids, gen_ids)]
-        raw = qwen_processor.batch_decode(trimmed, skip_special_tokens=True,
-                                           clean_up_tokenization_spaces=False)[0].strip()
+    try:
+        text = qwen_processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        image_inputs, video_inputs = process_vision_info(messages)
+        inputs = qwen_processor(
+            text=[text], images=image_inputs, videos=video_inputs,
+            padding=True, return_tensors="pt"
+        ).to("cuda")
+        with torch.no_grad():
+            gen_ids = qwen_model.generate(**inputs, max_new_tokens=32)
+            trimmed = [o[len(i):] for i, o in zip(inputs.input_ids, gen_ids)]
+            raw = qwen_processor.batch_decode(trimmed, skip_special_tokens=True,
+                                               clean_up_tokenization_spaces=False)[0].strip()
+    except torch.cuda.OutOfMemoryError as e:
+        print(f"    ⚠ Qwen OOM on this crop: {e}")
+        torch.cuda.empty_cache()
+        return None, "oom"
+    except Exception as e:
+        print(f"    ⚠ Qwen inference error on this crop: {e}")
+        return None, "error"
+
     if raw.lower() == "none":
-        return None
+        return None, "ok"
     m = _FIG_KEY_RE.search(raw)
-    return m.group(1) if m else None
+    return (m.group(1) if m else None), "ok"
 
 
-_QWEN_UNAVAILABLE = False   # set True after first failed load — suppresses repeated warnings
+_QWEN_LOAD_FAILED = False   # set True only after a non-transient (import/missing-dep) failure
 
 def _ensure_qwen(engine: list) -> bool:
     """
     Lazy-load Qwen into engine[3] / engine[4] on first call.
-    Returns True if Qwen is available, False if import fails.
+    Returns True if Qwen is available, False otherwise.
     engine is a mutable list [model, reader, device, qwen_model, qwen_processor].
+
+    Only ImportError/ModuleNotFoundError (missing dependency) permanently disables
+    Qwen for the rest of the run. Transient errors (e.g. CUDA OOM during load) are
+    retried on every call — VRAM pressure can change patent-to-patent as YOLO/EasyOCR
+    allocations are freed, so a failure here doesn't mean it'll fail next time.
     """
-    global _QWEN_UNAVAILABLE
+    global _QWEN_LOAD_FAILED
     if engine[3] is not None:
         return True
-    if _QWEN_UNAVAILABLE:
+    if _QWEN_LOAD_FAILED:
         return False
     try:
         import sys, pathlib
@@ -685,9 +700,15 @@ def _ensure_qwen(engine: list) -> bool:
         engine[3] = qwen_model
         engine[4] = qwen_proc
         return True
+    except (ImportError, ModuleNotFoundError) as e:
+        print(f"    ⚠ Qwen fallback unavailable (missing dependency): {e}")
+        _QWEN_LOAD_FAILED = True
+        return False
     except Exception as e:
-        print(f"    ⚠ Qwen fallback unavailable: {e}")
-        _QWEN_UNAVAILABLE = True
+        import torch, gc
+        print(f"    ⚠ Qwen load failed, will retry next call: {e}")
+        gc.collect()
+        torch.cuda.empty_cache()
         return False
 
 
@@ -761,6 +782,7 @@ def _merge_labeled(labeled: list[dict]) -> list[dict]:
                 "method": best.get("method", "doclayout_easyocr"),
                 "needs_review": False,
                 "review_hint": _review_hint_for_box(union_box),
+                "qwen_status": best.get("qwen_status", "not_attempted"),
             })
     return merged
 
@@ -809,6 +831,7 @@ def _merge_fu(unlabeled: list[dict]) -> list[dict]:
             "method": best.get("method", "doclayout_easyocr"),
             "needs_review": True,
             "review_hint": _review_hint_for_box(union_box),
+            "qwen_status": best.get("qwen_status", "not_attempted"),
         })
     return merged
 
@@ -848,22 +871,25 @@ def crop_and_save(img_path: Path, figures: list[dict], captions: list[dict],
         )
 
         method = "doclayout_easyocr"
+        qwen_status = "not_attempted"
         if needs_review and _ensure_qwen(engine):
             # Pass A: padded figure box (catches labels just outside the detected region)
             qx1 = max(0, x1 - QWEN_PAD_SIDE_PX)
             qy1 = max(0, y1 - QWEN_PAD_SIDE_PX)
             qx2 = min(w, x2 + QWEN_PAD_SIDE_PX)
             qy2 = min(h, y2 + QWEN_PAD_BELOW_PX)
-            qwen_lbl = _qwen_label(img[qy1:qy2, qx1:qx2], engine[3], engine[4])
+            qwen_lbl, qwen_status = _qwen_label(img[qy1:qy2, qx1:qx2], engine[3], engine[4])
             if qwen_lbl:
                 clean_lbl, needs_review = qwen_lbl, False
                 method = "doclayout_qwen"
+        elif needs_review:
+            qwen_status = "unavailable"
 
         if needs_review and _ensure_qwen(engine):
             # Pass B: bottom 20% of the full sheet — USPTO patents print "FIG. N" here,
             # often inside the YOLO box so Pass A's crop is swamped by callout numbers.
             strip_y1 = max(0, h - int(h * 0.20))
-            qwen_lbl = _qwen_label(img[strip_y1:h, 0:w], engine[3], engine[4])
+            qwen_lbl, qwen_status = _qwen_label(img[strip_y1:h, 0:w], engine[3], engine[4])
             if qwen_lbl:
                 clean_lbl, needs_review = qwen_lbl, False
                 method = "doclayout_qwen_strip"
@@ -877,6 +903,7 @@ def crop_and_save(img_path: Path, figures: list[dict], captions: list[dict],
             "method":         method,
             "needs_review":   needs_review,
             "review_hint":    _review_hint_for_box([x1, y1, x2, y2]),
+            "qwen_status":    qwen_status,
         })
 
     # ── Pass 2: merge split crops ─────────────────────────────────────────────
@@ -927,6 +954,7 @@ def crop_and_save(img_path: Path, figures: list[dict], captions: list[dict],
             "method":       item["method"],
             "needs_review": needs_review,
             "review_hint":  item.get("review_hint", ""),
+            "qwen_status":  item.get("qwen_status", "not_attempted"),
         })
     return records
 
@@ -1045,7 +1073,8 @@ def _worker_process(
             out_path = out_dir / f"{f.stem}_Fu.png"
             shutil.copy2(f, out_path)
             rows.append({"patent_id": excel_id, "original": f.name, "output": out_path.name,
-                         "label": None, "method": "fat_copy", "needs_review": True, "review_hint": ""})
+                         "label": None, "method": "fat_copy", "needs_review": True, "review_hint": "",
+                         "qwen_status": "not_attempted"})
 
         for img_path in img_files:
             try:
@@ -1054,7 +1083,8 @@ def _worker_process(
                     rows.append({"patent_id": excel_id, "original": c["original"],
                                  "output": c["output"], "label": c["label"],
                                  "method": c["method"], "needs_review": c["needs_review"],
-                                 "review_hint": c.get("review_hint", "")})
+                                 "review_hint": c.get("review_hint", ""),
+                                 "qwen_status": c.get("qwen_status", "not_attempted")})
             except Exception as e:
                 logs.append(f"    ❌ [{device}] {img_path.name}: {e}")
 
@@ -1076,22 +1106,32 @@ def process_patents_parallel(
     triage_excluded_fn,
     cfg: dict,
     weights: str = DEFAULT_WEIGHTS,
+    gpu_ids: list[str] | None = None,
 ) -> tuple[list[dict], int]:
     """
-    Process patents across two GPUs using subprocess.Popen + CUDA_VISIBLE_DEVICES.
+    Process patents across one or more GPUs using subprocess.Popen + CUDA_VISIBLE_DEVICES.
     Each worker is a fresh Python process that sees only its assigned GPU as cuda:0,
     so there is no CUDA re-init conflict and no GIL contention.
     Results are exchanged via temp JSON files.
+
+    gpu_ids: explicit list of physical GPU indices to use, e.g. ["0"] or ["0", "1"].
+    If None, defaults to one worker per visible GPU (or a single worker on GPU 0
+    if only one GPU is visible) — the old behaviour.
     """
     import json, os, subprocess, sys, tempfile, torch
     from pathlib import Path as _Path
 
-    ids   = [str(r).strip() for r in patent_rows]
-    half  = len(ids) // 2
-    splits = [ids[:half], ids[half:]]
-    n_gpu  = torch.cuda.device_count()
-    # Map logical GPU indices to CUDA_VISIBLE_DEVICES values
-    gpu_ids = ["0", "1"] if n_gpu >= 2 else ["0", "0"]
+    ids = [str(r).strip() for r in patent_rows]
+
+    if gpu_ids is None:
+        n_gpu = torch.cuda.device_count()
+        gpu_ids = [str(i) for i in range(n_gpu)] if n_gpu >= 1 else ["0"]
+
+    n_workers = len(gpu_ids)
+    chunk = max(1, -(-len(ids) // n_workers))  # ceil division
+    splits = [ids[i:i + chunk] for i in range(0, len(ids), chunk)] or [[]]
+    while len(splits) < n_workers:
+        splits.append([])
 
     worker_script = str(_Path(__file__).parent / "gpu_worker.py")
     python_exe    = sys.executable
@@ -1100,7 +1140,7 @@ def process_patents_parallel(
     procs   = []
     result_paths = []
 
-    for i in range(2):
+    for i in range(n_workers):
         args_path   = tmp_dir / f"args_{i}.json"
         result_path = tmp_dir / f"result_{i}.json"
         result_paths.append(result_path)
@@ -1133,7 +1173,7 @@ def process_patents_parallel(
             print(f"[GPU {label}] {line}", end="", flush=True)
 
     threads = [threading.Thread(target=_stream, args=(procs[i], gpu_ids[i]), daemon=True)
-               for i in range(2)]
+               for i in range(n_workers)]
     for t in threads: t.start()
     for p in procs:   p.wait()
     for t in threads: t.join()
