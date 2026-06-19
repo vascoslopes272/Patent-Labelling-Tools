@@ -185,8 +185,9 @@ details.m3-readonly[open] summary::after { content: '\2212'; }
     <span id="batch-nav" style="display:none;align-items:center;gap:6px;margin-left:auto;">
       <button type="button" id="batch-prev" class="btn" style="padding:4px 10px;font-size:12px;">&#9664; Prev</button>
       <span id="batch-nav-label" style="font-size:12px;font-family:var(--mono);color:var(--text2);"></span>
+      <span id="batch-save-status" style="font-size:11px;font-family:var(--mono);font-weight:600;letter-spacing:.04em;padding:2px 8px;border-radius:999px;border:1px solid var(--border2);background:var(--bg2);color:var(--text2);white-space:nowrap;" title="Whether the patent currently on screen has been written into the reviewed .xlsx buffer">&#8226; Unsaved</span>
       <button type="button" id="batch-next" class="btn" style="padding:4px 10px;font-size:12px;">Next &#9654;</button>
-      <button type="button" id="batch-export" class="btn" style="padding:4px 10px;font-size:12px;" title="Download reviewed rows accumulated so far for this batch">&#11015; Export batch</button>
+      <button type="button" id="batch-export" class="btn" style="padding:4px 10px;font-size:12px;" title="Download reviewed rows accumulated so far for this batch">&#11015; Export batch <span id="batch-saved-count" style="opacity:.7;"></span></button>
     </span>
   </div>
   <div id="ai-load-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:1rem;padding:10px 14px;background:var(--accent-bg);border:1px solid var(--accent-bdr);border-radius:var(--r);">
@@ -265,7 +266,12 @@ var G1_TAXONOMY = [
   }
 ];
 
-var WING_CONFIG = [ {id:'W', n:'Standard Wings'}, {id:'BWB', n:'Blended Wing Body'}, {id:'FW', n:'Flying Wing'}, {id:'LB', n:'Lifting Body'} ];
+var WING_CONFIG = [
+  {id:'W', n:'Standard Wings', d:'One or more separately delineated wing panels attached to a distinguishable fuselage — pick this whenever any panel (main wing, canard, strake) can be individually counted, even if its root is aerodynamically filleted into the fuselage.'},
+  {id:'BWB', n:'Blended Wing Body', d:'No separate fuselage tube — the load-bearing/cabin cross-section and the lifting surface are one continuous shape. No discrete panel to count.'},
+  {id:'FW', n:'Flying Wing', d:'The entire airframe is the wing; no separate fuselage. No discrete panel to count.'},
+  {id:'LB', n:'Lifting Body', d:'Fuselage shape itself generates lift, with no/minimal separate wing panel. No discrete panel to count.'}
+];
 var W_POS_V = [{id:'High', n:'High / Hub'},{id:'Mid', n:'Mid / Center'},{id:'Low', n:'Low / Down'}];
 var W_POS_L = [{id:'Fwd', n:'Forward (Nose/Canard position)'},{id:'Cent', n:'Center (CG / Mid-Fuselage)'},{id:'Aft', n:'Aft (Tail / Rear position)'}];
 var W_PLAN = [{id:'Str', n:'Straight'},{id:'Swp', n:'Swept'},{id:'Del', n:'Delta'}, {id:'Oth', n:'Other (Elliptical / Tapered / Complex)'}];
@@ -353,6 +359,10 @@ function canGo(){
       if (S.t1DisapproveReason === 'Other') return !!(S.t1DisapproveOther||'').trim();
       return true;
     }
+    // Approved patents always get a default scope/field/target (see the
+    // data-t1-approve click handler), so an approval alone is enough to
+    // advance — don't make the user wait on the Excel round-trip.
+    if (S.isApproved === true) return true;
     return !!S.t1Scope && !!S.t1Field && !!S.t1Target;
   }
   if(sid=='t2') {
@@ -618,13 +628,15 @@ function figGridCard(fNum) {
   var dotColor = status==='approved' ? 'var(--ok)' : status==='disapproved' ? 'var(--danger)' : 'var(--text3)';
   var qFlag = figGet(fNum,'qualityFlag',null);
   var qBadge = (qFlag && qFlag !== 'clean') ? '<span style="font-size:9px;font-family:var(--mono);text-transform:uppercase;background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-bdr);border-radius:3px;padding:1px 5px;">'+escHtml(qFlag)+'</span>' : '';
+  var dupOfPatent = figGet(fNum,'dupOfPatent',null);
+  var dupBadge = dupOfPatent ? '<span title="Same image as ' + escHtml(dupOfPatent) + (figGet(fNum,'dupOfFig',null) ? (' FIG.' + escHtml(figGet(fNum,'dupOfFig',null))) : '') + '" style="font-size:9px;font-family:var(--mono);text-transform:uppercase;background:var(--accent-bg,#eef);color:var(--accent);border:1px solid var(--accent);border-radius:3px;padding:1px 5px;">DUP IMG</span>' : '';
   var per = figGet(fNum,'per','—'), sym = figGet(fNum,'sym','—'), acSty = figGet(fNum,'acSty','—');
   var active = (S.t2figNum === fNum);
-  var imgPath = 'https://placehold.co/160x110/E8E7E0/5A5955?text=FIG.+' + escHtml(fNum);
-  return '<div class="m3-card" style="padding:8px;cursor:pointer;border-color:'+(active?'var(--accent)':'var(--border)')+';" data-fig-card="'+escHtml(fNum)+'">'
-    + '<div style="position:relative;"><img src="'+imgPath+'" style="width:100%;border-radius:4px;display:block;">'
+  var imgPath = realFigImage(fNum) || ('https://placehold.co/160x110/E8E7E0/5A5955?text=FIG.+' + escHtml(fNum));
+  return '<div class="m3-card" style="padding:8px;cursor:pointer;border-color:'+(dupOfPatent?'var(--accent)':(active?'var(--accent)':'var(--border)'))+';" data-fig-card="'+escHtml(fNum)+'">'
+    + '<div style="position:relative;"><img src="'+imgPath+'" style="width:100%;border-radius:4px;display:block;'+(dupOfPatent?'opacity:0.7;':'')+'">'
     + '<span style="position:absolute;top:4px;right:4px;width:9px;height:9px;border-radius:50%;background:'+dotColor+';border:1px solid #fff;"></span></div>'
-    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;"><span style="font-size:11px;font-family:var(--mono);font-weight:600;">FIG. '+escHtml(fNum)+'</span>'+qBadge+'</div>'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;flex-wrap:wrap;gap:4px;"><span style="font-size:11px;font-family:var(--mono);font-weight:600;">FIG. '+escHtml(fNum)+'</span>'+qBadge+dupBadge+'</div>'
     + '<div style="font-size:10px;color:var(--text3);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+escHtml(per)+' &middot; '+escHtml(sym)+'</div>'
     + '<div style="font-size:10px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+escHtml(acSty)+'</div>'
     + '</div>';
@@ -687,8 +699,19 @@ function renderCitationsWithLinks(citesArray) {
 // --- RENDERING ROUTINES ---
 function renderThroughput() {
   var tp = document.getElementById('throughput');
-  if(tp) {
-    tp.innerHTML = 'Patent <input type="number" data-field="patCur" value="'+escHtml(THROUGHPUT.patCur)+'" min="1"> of <input type="number" data-field="patTot" value="'+escHtml(THROUGHPUT.patTot)+'" min="1">';  }
+  if(!tp) return;
+  // When a batch .xlsx is loaded the patent count is authoritative: it is the
+  // number of distinct Patent_IDs actually in the file. Force the tracker to it
+  // (instead of the hardcoded 1635 default) and lock the total so the top
+  // counter can never drift out of sync with the batch navigator below.
+  if (BATCH) {
+    THROUGHPUT.patCur = String(BATCH.idx + 1);
+    THROUGHPUT.patTot = String(BATCH.ids.length);
+  }
+  var lock = BATCH ? ' max="'+escHtml(THROUGHPUT.patTot)+'"' : '';
+  var totAttr = BATCH ? ' readonly title="Locked to the '+escHtml(THROUGHPUT.patTot)+' patents in the loaded .xlsx"' : '';
+  tp.innerHTML = 'Patent <input type="number" data-field="patCur" value="'+escHtml(THROUGHPUT.patCur)+'" min="1"'+lock+'> of '
+    + '<input type="number" data-field="patTot" value="'+escHtml(THROUGHPUT.patTot)+'" min="1"'+totAttr+'>';
 }
 
 function figCoverageGrid() {
@@ -759,6 +782,10 @@ function pageT1(){
       + '<div class="m3-label">Duplicate Type</div>'
       + '<div class="g1-subgrid">' + DUP_TYPES.map(dupTypeCard).join('') + '</div>'
       + '<div class="flag info" style="margin-top:10px;"><span class="f-lbl">💡 Cross-Reference Hint</span>When SBERT populates an aircraft model name, use it to cross-reference the main architecture images. Matching model names + identical main system images = confident duplicate or component overlap.</div>'
+      + (S.duplicateType === '1' && (S.duplicateId||'').trim() ? (
+        '<div style="margin-top:10px;"><button type="button" class="btn pri" id="btn-copy-morphology">⟲ Copy M1–M3 (+G1) from ' + escHtml(S.duplicateId.trim()) + '</button>'
+        + '<div style="font-size:11px; color:var(--text3); margin-top:6px;">Only works if that patent was already reviewed &amp; exported earlier in this batch session — pulls its structural/aero/propulsion labels into this patent, since it’s the same aircraft.</div></div>'
+      ) : '')
       + '</div>'
     ) : '')
     + '<div class="m3-sub">Read-only schema fields pulled directly from spreadsheet tracking lines.</div>'
@@ -814,8 +841,9 @@ function pageT2(){
   // LEFT PANEL (Context)
   var mapped = figIsMapped(fNum);
   var warnHtml = !mapped ? '<div class="flag warn" style="margin-top:0;"><span class="f-lbl">⚠ Unmapped Crop — _Fu Figure</span>This image crop has no corresponding FIG. description in the patent text. Label from visual content only.</div>' : '';
-  // Audit G-02 Fix: Visual Placeholder Image
-  var imgPath = 'https://placehold.co/600x400/E8E7E0/5A5955?text=Mock+Crop:+FIG.+' + escHtml(fNum);
+  // Real crop image (file:// URL built from this batch's Image_Path column) when
+  // available, falling back to a placeholder only if no Image_Path was loaded.
+  var imgPath = realFigImage(fNum) || ('https://placehold.co/600x400/E8E7E0/5A5955?text=Mock+Crop:+FIG.+' + escHtml(fNum));
 
   h += '<div class="t2-left"><div class="sec" style="margin-top:0;">Description of Drawings</div>'
     + '<div style="margin-bottom:12px; display:flex; align-items:center; gap:8px;">'
@@ -847,6 +875,25 @@ function pageT2(){
         + '<div style="width:1px; height:24px; background:var(--border);"></div>'
         + '<div style="display:flex; align-items:center; gap:6px;"><span class="m3-label" style="margin-bottom:0;">Assign To:</span><select class="m3-num" data-t2-arch="true" style="padding:6px 10px; min-height:0; width:140px;">'+archOptions+'</select></div>'
       + '</div></div>';
+
+    h += (function(){
+      var dupOfPatent = figGet(fNum, 'dupOfPatent', '');
+      var dupOfFig    = figGet(fNum, 'dupOfFig', '');
+      var prefillPatent = dupOfPatent || (S.isDuplicate && S.duplicateType === '1' ? (S.duplicateId||'') : '');
+      return '<div class="m3-card" style="margin-bottom:8px; padding:12px;">'
+        + '<div class="m3-head" style="display:flex; justify-content:space-between; align-items:center;">Duplicate Image Cross-Reference'
+        + (dupOfPatent ? '<button type="button" class="btn" id="btn-fig-dup-clear" style="padding:4px 10px; font-size:11px;">Clear</button>' : '')
+        + '</div>'
+        + '<div class="m3-sub">Flag when this exact drawing is the same image used in another patent (e.g. continuations/same-aircraft filings reusing the same main figure).</div>'
+        + (dupOfPatent
+          ? '<div class="flag warn" style="margin-top:8px;"><span class="f-lbl">🔁 Flagged Duplicate</span>Same image as <b>' + escHtml(dupOfPatent) + '</b>' + (dupOfFig ? (' FIG. ' + escHtml(dupOfFig)) : '') + '.</div>'
+          : '<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px;">'
+            + '<input type="text" class="m3-num" id="t2-dup-patent-input" style="width:200px;" placeholder="Original Patent ID" value="' + escHtml(prefillPatent) + '">'
+            + '<input type="text" class="m3-num" id="t2-dup-fig-input" style="width:90px;" placeholder="FIG. #" value="' + escHtml(dupOfFig) + '">'
+            + '<button type="button" class="btn" id="btn-fig-dup-set">Flag as Duplicate Image</button>'
+            + '</div>')
+        + '</div>';
+    })();
 
     h += '<div class="m3-card" style="margin-bottom:8px; padding:12px;"><div class="m3-head">A. Projection Coordinates</div>'
        + sec('Perspective / Camera Angle') + grid('n',T2_PER.map(function(p){return ocFig('per',p,p);}))
@@ -888,7 +935,7 @@ function pageM1(){
 }
 
 function pageM2(){ var h='<div class="p-module">Module M2 &middot; Aerodynamic Features</div><div class="p-q">Lifting Surfaces &amp; Stabilizers</div>'; 
-  if(isWinged()){ h+=sec('Wing Architecture')+grid('',WING_CONFIG.map(function(c){return oc('wingConf',c.id,c.n);})); 
+  if(isWinged()){ h+=sec('Wing Architecture')+grid('',WING_CONFIG.map(function(c){return oc('wingConf',c.id,c.n,c.d);}));
   if(S.wingConf=='W'){ 
       h+=sec('Lifting Lines Grid')+ic('wCount',S.wCount,0,4,'Distinct Wing Panels'); 
       h+='<div class="m3-field" style="margin-top:10px; margin-bottom:15px;"><div class="m3-label">Lifting Surfaces Edge-Case Notes</div><textarea class="comments" style="min-height:56px;" data-field="wingNotes" placeholder="Log wing ambiguities here...">' + escHtml(S.wingNotes) + '</textarea></div>';
@@ -992,6 +1039,10 @@ function ingestAI(data) {
     var t1 = data.T1;
     if (t1.approved    != null) S.isApproved         = t1.approved;
     if (t1.disapprove_reason)   S.t1DisapproveReason = t1.disapprove_reason;
+    if (t1.disapprove_other)    S.t1DisapproveOther  = t1.disapprove_other;
+    if (t1.isDuplicate != null) S.isDuplicate        = !!t1.isDuplicate;
+    if (t1.duplicateId)         S.duplicateId        = t1.duplicateId;
+    if (t1.duplicateType)       S.duplicateType      = t1.duplicateType;
     if (t1.scope)               S.t1Scope            = t1.scope;
     if (t1.t1Field)             S.t1Field            = t1.t1Field;
     if (t1.t1Target)            S.t1Target           = t1.t1Target;
@@ -1019,7 +1070,10 @@ function ingestAI(data) {
     if (m1.wingConf)       S.wingConf = m1.wingConf;
     if (m1.wCount != null) {
       S.wCount = parseInt(m1.wCount) || 1;
-      // BWB/FW/LB have no discrete wings
+      // BWB/FW/LB: the lift surface is continuous with the fuselage (no separate
+      // fuselage tube to attach a panel to), so there's no discrete panel to
+      // count — NOT a claim that the aircraft has no wing/lift surface. See
+      // WING_CONFIG's per-option description above for the distinction.
       if (['BWB','FW','LB'].indexOf(S.wingConf) > -1) S.wCount = 0;
     }
     if (m1.empType)        S.empType  = m1.empType;
@@ -1027,7 +1081,12 @@ function ingestAI(data) {
     if (m1.fusShape)       S.fusShape = m1.fusShape;
     if (m1.fusKin)         S.fusKin   = m1.fusKin;
     if (m1.gearArch)       S.gearArch = m1.gearArch;
-    if (m1.latSym != null) S.latSym   = !!m1.latSym;
+    if (m1.latSym != null) S.latSym   = xlBool(m1.latSym);
+    if (m1.longSym != null)       S.longSym       = xlBool(m1.longSym);
+    if (m1.footAmbiguous != null) S.footAmbiguous = xlBool(m1.footAmbiguous);
+    if (m1.footLen != null && m1.footLen !== '') S.footLen = String(m1.footLen);
+    if (m1.footWid != null && m1.footWid !== '') S.footWid = String(m1.footWid);
+    if (m1.footHgt != null && m1.footHgt !== '') S.footHgt = String(m1.footHgt);
     // TW empennage lock: must be Fixed
     if (S.topType === 'TW' && S.empType && S.empType !== 'Tailless' && S.empType !== 'Fins') {
       S.empKin = 'Fixed';
@@ -1063,7 +1122,7 @@ function ingestAI(data) {
       var fig = data.T2[figNum];
       if (!fig || typeof fig !== 'object') return;
       // Only write fields that are non-null and valid strings
-      ['per','acSty','acCol','bgSty','bgCol','sym'].forEach(function(key) {
+      ['per','acSty','acCol','bgSty','bgCol','sym','dupOfPatent','dupOfFig'].forEach(function(key) {
         if (fig[key] != null) figSet(figNum, key, fig[key]);
       });
       if (Array.isArray(fig.parts) && fig.parts.length > 0) {
@@ -1086,6 +1145,9 @@ function ingestAI(data) {
       ['count','chord','orient','bmech','rmech','zone','zoneChord','zoneSpan','notes'].forEach(function(f) {
         if (card[f] != null) { S['m3_' + key + '_' + f] = card[f]; }
       });
+      // Symmetric-pairs flag is a boolean — coerce so "true"/"false" strings
+      // from a round-tripped xlsx don't read as truthy non-empty strings.
+      if (card.sym != null) { S['m3_' + key + '_sym'] = xlBool(card.sym); }
       // TW wing orient lock: override any AI value
       if (S.topType === 'TW' && key.indexOf('wing') > -1) {
         S['m3_' + key + '_orient'] = 'Fixed_Horizontal';
@@ -1124,6 +1186,64 @@ var BATCH = null;  // { ids: [...], byId: {pid: rows[]}, idx: 0, label: "Batch_0
 // (src/excel_schema.py) uses, since S.figData itself is only keyed by fNum.
 var FIG_FILENAMES  = {};
 var FIG_IMAGE_PATH = {};
+
+// FIG_IMAGE_PATH values are absolute local filesystem paths written by
+// src/excel_schema.py (e.g. "/mnt/storage_11tb/.../matched/Batch_02/<pid>/<crop>.png"),
+// not URLs — convert to a file:// URL so <img src> can load them directly from
+// disk when this HTML is opened via file:// in Chrome (no upload step needed).
+function pathToFileURL(p) {
+  if (!p || p.trim() === '') return null;
+  if (/^(https?|file):\/\//i.test(p)) return p;
+  var cleanPath = p.replace(/\\/g, '/');
+  if (/^[a-zA-Z]:/.test(cleanPath)) {
+    return 'file:///' + cleanPath;
+  }
+  return 'file://' + (cleanPath.startsWith('/') ? '' : '/') + cleanPath;
+}
+// Reused across "Next" clicks: a single side-by-side window for the
+// patent's source PDF, navigated to the new link each time instead of
+// spawning a new tab/window per patent and without ever redirecting this
+// HTML page itself away from the wizard.
+var patentPdfWindow = null;
+function openOrUpdatePatentWindow(url) {
+  if (!url) return;
+  // Position relative to THIS window's actual current location/size, not
+  // window.screen (which on multi-monitor Linux setups often reports the
+  // combined virtual desktop, not the monitor this window is actually on —
+  // that's why the popup kept landing in the wrong spot). This places the
+  // popup immediately to the right of the wizard window, same height, so
+  // they sit side by side on whichever display the wizard is on.
+  var left = (window.screenX || window.screenLeft || 0) + (window.outerWidth || 800);
+  var top  = window.screenY || window.screenTop || 0;
+  var w = window.outerWidth || 800;
+  var h = window.outerHeight || window.screen.availHeight;
+  // Google Patents sends Cross-Origin-Opener-Policy: same-origin, which
+  // moves any popup navigated there into a brand-new browsing-context
+  // group the instant it loads — this opener then permanently loses the
+  // ability to reuse/navigate it by reference OR by window name, so
+  // window.open(url, sameName) would just keep creating new windows.
+  // Close the previous popup ourselves first and reopen at the exact same
+  // position/size, so on screen it reads as "the same window, new patent"
+  // instead of windows piling up.
+  if (patentPdfWindow && !patentPdfWindow.closed) {
+    try { patentPdfWindow.close(); } catch (e) {}
+  }
+  patentPdfWindow = window.open(url, 'evtolPatentPdfViewer',
+    'left=' + left + ',top=' + top + ',width=' + w + ',height=' + h);
+  // Several Linux window managers ignore position/size hints passed inside
+  // the window.open() features string but do honor explicit moveTo/resizeTo
+  // calls made once the window actually exists — try that too as a backup.
+  if (patentPdfWindow) {
+    try {
+      patentPdfWindow.moveTo(left, top);
+      patentPdfWindow.resizeTo(w, h);
+    } catch (e) {}
+  }
+}
+
+function realFigImage(fNum) {
+  return pathToFileURL(FIG_IMAGE_PATH[fNum]);
+}
 
 // Reviewed rows accumulated across the whole batch, in the same flat
 // Patent_ID/Section/Sub_Dimension/Field/.../Image_Path schema as
@@ -1191,6 +1311,8 @@ function recordToRows(record, pid) {
     rows.push(reviewRow(pid, "T2", subDim, "parts", Array.isArray(fd.parts) ? fd.parts.join("|") : (fd.parts || null), null, "human", imgPath));
     rows.push(reviewRow(pid, "T2", subDim, "status", fd.status != null ? fd.status : null, null, "human", imgPath));
     rows.push(reviewRow(pid, "T2", subDim, "rotation_deg", fd.rotation_deg != null ? fd.rotation_deg : null, null, "human", imgPath));
+    rows.push(reviewRow(pid, "T2", subDim, "dupOfPatent", fd.dupOfPatent || null, null, "human", imgPath));
+    rows.push(reviewRow(pid, "T2", subDim, "dupOfFig", fd.dupOfFig || null, null, "human", imgPath));
   });
 
   // ── G1 ────────────────────────────────────────────────────────────────
@@ -1265,8 +1387,21 @@ function figNumFromFilename(fname) {
   return (fname || '').replace(/\.png$/i, '');
 }
 
+// Excel/SheetJS hands booleans back as JS booleans, but the reviewed-export
+// round-trip and hand-edited files can store them as the strings "true"/"false"
+// (or 1/0). Coerce all of those to a real boolean so isApproved/isDuplicate/
+// latSym/m3 sym map consistently regardless of how the cell was written.
+function xlBool(v) {
+  if (typeof v === 'boolean') return v;
+  if (v == null) return null;
+  var s = String(v).trim().toLowerCase();
+  if (s === 'true'  || s === '1' || s === 'yes') return true;
+  if (s === 'false' || s === '0' || s === 'no' || s === '') return false;
+  return null;
+}
+
 // Converts one patent's flat rows (Patent_ID/Section/Sub_Dimension/Field/
-// Value/...) into the same nested {T1,G1,M1,T2,propulsionCards} shape
+// Value/...) into the same nested {T1,G1,M1,T2,wings,propulsionCards} shape
 // ingestAI() already knows how to apply — so the batch loader and the
 // per-patent AI Pre-Label JSON share one ingestion path.
 function rowsToAIData(rows) {
@@ -1282,12 +1417,26 @@ function rowsToAIData(rows) {
   if (val('t1Field')  != null) T1.t1Field  = val('t1Field');
   if (val('t1Target') != null) T1.t1Target = val('t1Target');
 
+  // T1 triage state — Excel stores these as the manual rows isApproved /
+  // t1DisapproveReason / archCount / isDuplicate / duplicateId (excel_schema.py
+  // _T1_MANUAL) plus the META row duplicateType. They were being dropped on
+  // load, so the wizard never echoed back the approval/duplicate choices that
+  // were already recorded in the file.
+  if (val('isApproved')         != null) T1.approved          = xlBool(val('isApproved'));
+  if (val('t1DisapproveReason') != null) T1.disapprove_reason = val('t1DisapproveReason');
+  if (val('disapproveOther')    != null) T1.disapprove_other  = val('disapproveOther');
+  if (val('archCount')          != null) T1.arch_count        = val('archCount');
+  if (val('isDuplicate')        != null) T1.isDuplicate       = xlBool(val('isDuplicate'));
+  if (val('duplicateId')        != null) T1.duplicateId       = val('duplicateId');
+  if (val('duplicateType')      != null) T1.duplicateType     = val('duplicateType');
+
   if (val('topType') != null) G1.topType = val('topType');
 
   // wingConf/wCount/empType/empKin live under Section "M2" in the row schema,
   // fusShape/fusKin/gearArch/latSym under "M1" — ingestAI() expects all of
   // them merged into one data.M1 object, so just look each field up by name.
-  ['wingConf', 'wCount', 'empType', 'empKin', 'fusShape', 'fusKin', 'gearArch', 'latSym']
+  ['wingConf', 'wCount', 'empType', 'empKin', 'fusShape', 'fusKin', 'gearArch', 'latSym',
+   'footLen', 'footWid', 'footHgt', 'footAmbiguous', 'longSym']
     .forEach(function(f) { var v = val(f); if (v != null) M1[f] = v; });
 
   // T2 — rows grouped by Sub_Dimension "Image: <filename>"
@@ -1301,7 +1450,14 @@ function rowsToAIData(rows) {
     if (r.Value !== undefined && r.Value !== '' && r.Value != null) {
       byImage[fname][r.Field] = r.Value;
     }
-    if (r.Image_Path) byImage[fname].__imagePath = r.Image_Path;
+    // Robust read: every row in this image's group carries the same
+    // Image_Path value, but only some rows had it populated in the source
+    // file — grab it from whichever row has it, regardless of that row's
+    // Field, and never let a blank/null row blow away a path already
+    // captured from an earlier row for this same figure.
+    if (r.Image_Path && String(r.Image_Path).trim() !== '' && r.Image_Path !== 'null') {
+      byImage[fname].__imagePath = String(r.Image_Path).trim();
+    }
   });
   var T2 = {};
   // Reset per-patent — recordToRows() needs fNum -> filename/path for
@@ -1310,7 +1466,7 @@ function rowsToAIData(rows) {
   FIG_IMAGE_PATH = {};
   Object.keys(byImage).forEach(function(fname) {
     var rec = byImage[fname], entry = {};
-    ['per', 'sym', 'acSty', 'acCol', 'bgSty', 'bgCol'].forEach(function(k) {
+    ['per', 'sym', 'acSty', 'acCol', 'bgSty', 'bgCol', 'dupOfPatent', 'dupOfFig'].forEach(function(k) {
       if (rec[k] != null) entry[k] = rec[k];
     });
     if (rec.parts != null) entry.parts = String(rec.parts).split('|').filter(Boolean);
@@ -1338,14 +1494,121 @@ function rowsToAIData(rows) {
   });
   var propulsionCards = Object.keys(byComponent).map(function(k) { return byComponent[k]; });
 
-  return { T1: T1, G1: G1, M1: M1, T2: T2, propulsionCards: propulsionCards };
+  // M2 per-wing detail — rows with Field "wing<i>_<wTilt|wPosV|wPosL|wPlan|wRole>"
+  // (excel_schema.py _WING_MANUAL). These were never reconstructed, so the wing
+  // tilt/position/planform/role labels stayed at their defaults on load even
+  // when the Excel had them. Map the wizard's wField names back to the
+  // ingestAI() wing shape ({id, tilt, posV, posL, plan, role}).
+  var WING_FIELD_MAP = { wTilt:'tilt', wPosV:'posV', wPosL:'posL', wPlan:'plan', wRole:'role' };
+  var byWing = {};
+  rows.forEach(function(r) {
+    if (r.Section !== 'M2') return;
+    var m = /^wing(\d+)_(wTilt|wPosV|wPosL|wPlan|wRole)$/.exec(String(r.Field || ''));
+    if (!m) return;
+    var idx = parseInt(m[1], 10), key = WING_FIELD_MAP[m[2]];
+    if (r.Value === undefined || r.Value === '' || r.Value == null) return;
+    if (!byWing[idx]) byWing[idx] = { id: idx };
+    byWing[idx][key] = r.Value;
+  });
+  var wings = Object.keys(byWing)
+    .map(function(k){ return parseInt(k, 10); })
+    .sort(function(a, b){ return a - b; })
+    .map(function(i){ return byWing[i]; });
+
+  return { T1: T1, G1: G1, M1: M1, T2: T2, wings: wings, propulsionCards: propulsionCards };
+}
+
+// "Same Aircraft" duplicates (DUP_TYPES id '1') share the exact same
+// morphology — re-labeling M1/M2/M3/G1 by hand for every continuation of
+// the same physical aircraft is pure repeated work. Pulls those sections
+// from a patent already reviewed & exported earlier in this batch session
+// (REVIEWED_ROWS) into the current S, leaving T1 triage and T2 image data
+// (this patent's own figures/files) untouched.
+function copyMorphologyFromOriginal(originalPid) {
+  var origRows = REVIEWED_ROWS.filter(function(r) { return r.Patent_ID === originalPid; });
+  if (!origRows.length) {
+    alert('Patent "' + originalPid + '" hasn\'t been reviewed & exported yet in this session — nothing to copy from.');
+    return;
+  }
+  // rowsToAIData() rebuilds the global FIG_FILENAMES/FIG_IMAGE_PATH lookup
+  // as a side effect, keyed to whatever rows it's given — save/restore this
+  // patent's own image lookup around the call so pulling the original's
+  // G1/M1/M2/M3 doesn't also overwrite which images belong to THIS patent.
+  var savedFilenames = FIG_FILENAMES, savedImagePaths = FIG_IMAGE_PATH;
+  var origData = rowsToAIData(origRows);
+  FIG_FILENAMES = savedFilenames;
+  FIG_IMAGE_PATH = savedImagePaths;
+  ingestAI({ G1: origData.G1, M1: origData.M1, wings: origData.wings, propulsionCards: origData.propulsionCards });
+}
+
+// ── Save-state indicator ─────────────────────────────────────────────────
+// "Saved" means this patent's reviewed rows are captured in REVIEWED_ROWS (the
+// buffer that exportReviewedBatch() writes to the .xlsx). updateSaveIndicator()
+// reflects, for the patent on screen, whether it is Unsaved / Saved / Modified,
+// and shows how many of the batch's patents have been saved so far.
+function updateSaveIndicator() {
+  var badge = document.getElementById('batch-save-status');
+  var count = document.getElementById('batch-saved-count');
+  if (!badge) return;
+  if (!BATCH) { badge.style.display = 'none'; if (count) count.textContent = ''; return; }
+  badge.style.display = '';
+  var pid = BATCH.ids[BATCH.idx];
+  var isSaved = !!BATCH.saved[pid];
+  var state, bg, bdr, fg;
+  if (isSaved && !BATCH.dirty)      { state = '✓ Saved';    bg = 'var(--ok-bg)';   bdr = 'var(--ok-bdr)';   fg = 'var(--ok)'; }
+  else if (isSaved && BATCH.dirty)  { state = '✎ Modified'; bg = 'var(--warn-bg)'; bdr = 'var(--warn-bdr)'; fg = 'var(--warn)'; }
+  else                              { state = '• Unsaved';  bg = 'var(--bg2)';     bdr = 'var(--border2)';  fg = 'var(--text2)'; }
+  badge.textContent = state;
+  badge.style.background = bg; badge.style.borderColor = bdr; badge.style.color = fg;
+  badge.title = isSaved
+    ? (BATCH.dirty ? 'Saved earlier, but edited since — re-save to update the .xlsx' : 'Captured in the reviewed .xlsx buffer')
+    : 'Not yet written to the reviewed .xlsx buffer';
+  if (count) {
+    var n = Object.keys(BATCH.saved).length;
+    count.textContent = '(' + n + '/' + BATCH.ids.length + ')';
+  }
+}
+
+// Marks the on-screen patent as having unsaved edits. Wired to the data-entry
+// events below so the indicator flips to "Modified"/"Unsaved" the moment a
+// reviewer changes anything.
+function markBatchDirty() {
+  if (!BATCH || BATCH.dirty) return;
+  BATCH.dirty = true;
+  updateSaveIndicator();
+}
+
+// Commit one patent's reviewed rows into REVIEWED_ROWS, replacing any rows from
+// a previous save of the same patent so revisiting + re-saving never duplicates
+// it in the exported .xlsx. Then flag it saved and clear the dirty state.
+function commitReviewedRows(pid, record) {
+  REVIEWED_ROWS = REVIEWED_ROWS.filter(function(r){ return r.Patent_ID !== pid; });
+  REVIEWED_ROWS = REVIEWED_ROWS.concat(recordToRows(record, pid));
+  if (BATCH) { BATCH.saved[pid] = true; BATCH.dirty = false; }
+  updateSaveIndicator();
+}
+
+// Mirrors extractor.py's _normalize_for_google(): PatSeer stores US A-series
+// publications with a 6-digit sequence number, but Google Patents requires
+// 7 digits (zero-padded) — without this, /patent/<pid>/en 404s for every US
+// patent whose Patent_ID came from PatSeer instead of GP itself.
+var _US_PUBNUM_RE = /^(US)(\d{4})(\d{6})(A\d)$/;
+function normalizePatentIdForGoogle(pid) {
+  var m = _US_PUBNUM_RE.exec(pid);
+  return m ? (m[1] + m[2] + '0' + m[3] + m[4]) : pid;
 }
 
 function loadBatchPatent(idx) {
   if (!BATCH || idx < 0 || idx >= BATCH.ids.length) return;
   BATCH.idx = idx;
   var pid  = BATCH.ids[idx];
-  var rows = BATCH.byId[pid];
+  // If this patent was already reviewed in this session, its approve/
+  // duplicate/etc. choices live in REVIEWED_ROWS (written by
+  // commitReviewedRows on Export & Next), not in the original BATCH.byId
+  // rows from the uploaded xlsx — read those back first so navigating away
+  // and back (batch-prev/-next) doesn't show the triage as unselected.
+  var reviewedRows = REVIEWED_ROWS.filter(function(r) { return r.Patent_ID === pid; });
+  var rows = reviewedRows.length ? reviewedRows : BATCH.byId[pid];
 
   S = fresh();
 
@@ -1357,6 +1620,9 @@ function loadBatchPatent(idx) {
     return (r && r.Value !== undefined && r.Value !== '') ? r.Value : '';
   }
   T1_META.recordNumber        = pid;
+  // Derive the Google Patents URL from the Patent_ID, normalizing the
+  // PatSeer 6-digit sequence number to GP's 7-digit format first.
+  T1_META.pdfLink              = 'https://patents.google.com/patent/' + normalizePatentIdForGoogle(pid) + '/en';
   T1_META.title                = metaVal('title')        || T1_META.title;
   T1_META.abstract             = metaVal('abstract')      || T1_META.abstract;
   T1_META.assignee             = metaVal('assignee')      || T1_META.assignee;
@@ -1376,6 +1642,11 @@ function loadBatchPatent(idx) {
     'Patent ' + (idx + 1) + ' / ' + BATCH.ids.length + ' — ' + pid;
   document.getElementById('batch-prev').disabled = (idx === 0);
   document.getElementById('batch-next').disabled = (idx === BATCH.ids.length - 1);
+
+  // Freshly landed on this patent — nothing edited yet. The badge then reflects
+  // whether it was already saved on a previous visit.
+  BATCH.dirty = false;
+  updateSaveIndicator();
 
   render();
 }
@@ -1405,7 +1676,9 @@ document.getElementById('batch-xlsx-input').addEventListener('change', function(
       var m = /_?((?:Batch_?\d+|Batch_[A-Za-z0-9_]+))\.xlsx$/i.exec(file.name);
       var label = m ? m[1] : file.name.replace(/\.xlsx$/i, '');
 
-      BATCH = { ids: ids, byId: byId, idx: 0, label: label };
+      // saved: set of Patent_IDs whose reviewed rows are in REVIEWED_ROWS.
+      // dirty: the patent currently on screen has unsaved edits.
+      BATCH = { ids: ids, byId: byId, idx: 0, label: label, saved: {}, dirty: false };
       REVIEWED_ROWS = [];  // new batch loaded — don't carry over a previous batch's rows
       document.getElementById('batch-load-status').textContent =
         ' Loaded ' + ids.length + ' patent(s) from ' + sheetName + ' (batch: ' + label + ').';
@@ -1422,7 +1695,10 @@ document.getElementById('batch-prev').addEventListener('click', function() {
 });
 document.getElementById('batch-export').addEventListener('click', exportReviewedBatch);
 document.getElementById('batch-next').addEventListener('click', function() {
-  if (BATCH) loadBatchPatent(BATCH.idx + 1);
+  if (BATCH) {
+    loadBatchPatent(BATCH.idx + 1);
+    openOrUpdatePatentWindow(T1_META.pdfLink);
+  }
 });
 
 // --- KEYBOARD NAVIGATION (Audit R-01) ---
@@ -1452,27 +1728,27 @@ document.addEventListener('keydown', function(e) {
       e.preventDefault(); S.t2figNum = String(Math.max(1, parseInt(fNum||2) - 1)); render();
     }
     if (e.key === 'a' || e.key === 'A') {
-      if (fNum) { figSet(fNum, 'status', 'approved'); render(); }
+      if (fNum) { figSet(fNum, 'status', 'approved'); markBatchDirty(); render(); }
     }
     if (e.key === 'x' || e.key === 'X') {
       if (fNum) {
         figSet(fNum, 'status', 'disapproved');
         if (S.mainFigure === fNum) S.mainFigure = null;
-        render();
+        markBatchDirty(); render();
       }
     }
     if (e.key === 'm' || e.key === 'M') {
-      if (fNum) { S.mainFigure = fNum; figSet(fNum, 'status', 'approved'); render(); }
+      if (fNum) { S.mainFigure = fNum; figSet(fNum, 'status', 'approved'); markBatchDirty(); render(); }
     }
     if (e.key === 'Escape') {
-      if (fNum) { delete S.figData[fNum]; if(S.mainFigure === fNum) S.mainFigure = null; render(); }
+      if (fNum) { delete S.figData[fNum]; if(S.mainFigure === fNum) S.mainFigure = null; markBatchDirty(); render(); }
     }
   }
 
   if (sid === 't1' && !isTyping) {
-    if (e.shiftKey && e.key === 'A') { S.isApproved = true; render(); }
-    if (e.shiftKey && e.key === 'D') { S.isApproved = false; render(); }
-    if (e.shiftKey && e.key === 'F') { S.isDuplicate = !S.isDuplicate; render(); }
+    if (e.shiftKey && e.key === 'A') { S.isApproved = true; markBatchDirty(); render(); }
+    if (e.shiftKey && e.key === 'D') { S.isApproved = false; markBatchDirty(); render(); }
+    if (e.shiftKey && e.key === 'F') { S.isDuplicate = !S.isDuplicate; markBatchDirty(); render(); }
   }
 });
 
@@ -1495,9 +1771,45 @@ document.querySelector('.wiz').addEventListener('input', function(e){
   var tgt = e.target;
   if (tgt && tgt.dataset) {
       var field = tgt.dataset.field;
-      if (['figCur', 'figTot', 'patCur', 'patTot'].indexOf(field) > -1) { THROUGHPUT[field] = tgt.value; }
+      if (['figCur', 'figTot', 'patCur', 'patTot'].indexOf(field) > -1) {
+        // While a batch is loaded patCur/patTot are derived from BATCH and the
+        // total is locked — don't let live typing overwrite them. patCur is
+        // committed as a jump on 'change' below.
+        if (BATCH && (field === 'patCur' || field === 'patTot')) return;
+        THROUGHPUT[field] = tgt.value;
+      }
   }
 });
+// Typing a patent number in the (batch-locked) tracker jumps to that patent on
+// commit, keeping the top counter and the batch navigator pointing at the same
+// row in the .xlsx.
+document.querySelector('.wiz').addEventListener('change', function(e){
+  var tgt = e.target;
+  if (!BATCH || !tgt || !tgt.dataset || tgt.dataset.field !== 'patCur') return;
+  var n = parseInt(tgt.value, 10);
+  if (isNaN(n)) { renderThroughput(); return; }
+  n = Math.max(1, Math.min(BATCH.ids.length, n)) - 1;
+  loadBatchPatent(n);
+});
+
+// Flip the save indicator to "Modified"/"Unsaved" as soon as a reviewer touches
+// the patent's data. Only true data-entry controls are watched — pure-navigation
+// clicks (Next/Back/Save, figure switching) are deliberately excluded so they
+// don't falsely mark a saved patent as modified.
+(function(){
+  var panel = document.getElementById('panel');
+  if (!panel) return;
+  var DIRTY_SEL = '[data-field],[data-arrfield],[data-figfield],[data-figarrfield],'
+    + '[data-t1-approve],[data-dup-type],[data-fig-quality],[data-t2-status],'
+    + '[data-t2-main],[data-t2-rotate],[data-t2-arch],[data-g1-top],'
+    + '[data-m3-action],[data-inc],[data-dec],#btn-m1-bypass';
+  panel.addEventListener('click', function(e){
+    if (BATCH && e.target.closest(DIRTY_SEL)) markBatchDirty();
+  });
+  // Every <input>/<textarea>/<select> inside the panel is a patent data field.
+  panel.addEventListener('input',  function(){ if (BATCH) markBatchDirty(); });
+  panel.addEventListener('change', function(){ if (BATCH) markBatchDirty(); });
+})();
 
 document.getElementById('panel').addEventListener('click', function(e){
   var tgt=e.target;
@@ -1515,8 +1827,9 @@ document.getElementById('panel').addEventListener('click', function(e){
     if (BATCH) {
       // Accumulate into the batch's reviewed rows instead of downloading one
       // JSON per patent — exportReviewedBatch() writes all of these as a
-      // single reviewed_patents_<batch>.xlsx.
-      REVIEWED_ROWS = REVIEWED_ROWS.concat(recordToRows(record, T1_META.recordNumber));
+      // single reviewed_patents_<batch>.xlsx. commitReviewedRows() dedupes by
+      // Patent_ID and flips the save indicator to "✓ Saved".
+      commitReviewedRows(BATCH.ids[BATCH.idx], record);
     } else {
       // No batch loaded (single-patent ad-hoc review) — fall back to the
       // original per-patent JSON download, since there's no batch to export.
@@ -1528,6 +1841,7 @@ document.getElementById('panel').addEventListener('click', function(e){
       // A batch xlsx is loaded — advance straight to the next patient's
       // precomputed AI predictions instead of resetting to a blank form.
       loadBatchPatent(BATCH.idx + 1);
+      openOrUpdatePatentWindow(T1_META.pdfLink);
     } else {
       if (BATCH) {
         document.getElementById('batch-load-status').textContent =
@@ -1547,9 +1861,25 @@ document.getElementById('panel').addEventListener('click', function(e){
   var figNavBtn = tgt.closest('[data-fig-nav]');
   if (figNavBtn) { S.t2figNum = figNavBtn.getAttribute('data-fig-nav'); render(); return; }
 
+  if (tgt.id === 'btn-copy-morphology') {
+    copyMorphologyFromOriginal((S.duplicateId||'').trim());
+    return;
+  }
+
   // T1 Approve Patent
   var t1AppBtn = tgt.closest('[data-t1-approve]');
-  if (t1AppBtn) { S.isApproved = t1AppBtn.getAttribute('data-t1-approve') === 'true'; render(); return; }
+  if (t1AppBtn) {
+    S.isApproved = t1AppBtn.getAttribute('data-t1-approve') === 'true';
+    if (S.isApproved === true) {
+      // Approving without filled-in scope/field/target left the export with
+      // empty triage fields — backfill generic defaults so there's always
+      // something valid to ship downstream.
+      if (!S.t1Scope)  S.t1Scope  = 'Whole Aircraft Architecture';
+      if (!S.t1Field)  S.t1Field  = 'Aerodynamic/Structural';
+      if (!S.t1Target) S.t1Target = 'Layout Convergence';
+    }
+    render(); return;
+  }
 
   // T1 Duplicate Type
   var dupTypeBtn = tgt.closest('[data-dup-type]');
@@ -1653,6 +1983,26 @@ document.getElementById('panel').addEventListener('click', function(e){
       if (fIdx > -1) fArr.splice(fIdx, 1); else fArr.push(val);
       figSet(fN, figarrfield, fArr); render(); return;
     }
+  }
+
+  if (tgt.id === 'btn-fig-dup-set') {
+    var dupPatentInput = document.getElementById('t2-dup-patent-input');
+    var dupFigInput    = document.getElementById('t2-dup-fig-input');
+    var dupPid = dupPatentInput ? dupPatentInput.value.trim() : '';
+    if (dupPid) {
+      var fNumDup = (S.t2figNum||'1').trim();
+      figSet(fNumDup, 'dupOfPatent', dupPid);
+      figSet(fNumDup, 'dupOfFig', dupFigInput ? dupFigInput.value.trim() : '');
+      render();
+    }
+    return;
+  }
+  if (tgt.id === 'btn-fig-dup-clear') {
+    var fNumDupClear = (S.t2figNum||'1').trim();
+    figSet(fNumDupClear, 'dupOfPatent', '');
+    figSet(fNumDupClear, 'dupOfFig', '');
+    render();
+    return;
   }
 
   if (tgt.id === 'btn-add-part') {

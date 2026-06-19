@@ -134,13 +134,51 @@ def build_patent_rows(patent_id: str, record: dict, patent_img_dir: "Path | None
         "Description of Drawings", "", record.get("description_of_drawings"),
     ))
 
+    t1_triage_preds = {}
     for field, defs in [("scope", _T1_SCOPE_DEFS), ("t1Field", _T1_FIELD_DEFS), ("t1Target", _T1_TARGET_DEFS)]:
         value, conf, source = _pred_val(t1, field)
+        t1_triage_preds[field] = (value, conf)
         rows.append(_row(patent_id, "T1", field, field, field, _OPT(defs), value, conf, source,
                           needs_review=_needs_review("T1", conf)))
 
+    # isApproved auto-suggestion — Stage 01 has no dedicated domain classifier,
+    # but scope/t1Field/t1Target predictions double as a cheap in-domain
+    # signal: if SBERT/the ensemble couldn't predict any of the three at all,
+    # the patent is very likely unreadable/out of domain; if it predicted all
+    # three with decent average confidence, it's very likely in domain. Either
+    # way this is a SUGGESTION, not a final call — Needs_Review stays True so
+    # the human reviewer (02_taxonomy_review UI) always confirms or overrides
+    # it rather than silently trusting the heuristic.
+    # PatentSBERTa's T1 scope/field/target confidences run much lower in
+    # absolute terms than e.g. SigLIP's — a real batch's average confidences
+    # ranged ~0.40-0.57 (floor ~0.40, median ~0.51). 0.45 sits just above
+    # that floor: it auto-suggests the clear majority of a batch (~25/30 in
+    # that sample) while still excluding the handful of genuinely lowest-
+    # confidence outliers. Going much lower than ~0.43 stops discriminating
+    # at all in that distribution — everything clears it, making the
+    # "suggestion" meaningless.
+    _AUTO_APPROVAL_CONF_THRESHOLD = 0.45
+    scope_v, scope_conf   = t1_triage_preds["scope"]
+    field_v, field_conf   = t1_triage_preds["t1Field"]
+    target_v, target_conf = t1_triage_preds["t1Target"]
+    confs = [c for c in (scope_conf, field_conf, target_conf) if isinstance(c, (int, float))]
+    avg_conf = sum(confs) / len(confs) if confs else None
+
+    auto_approved, auto_reason = None, None
+    if scope_v and field_v and target_v and avg_conf is not None and avg_conf >= _AUTO_APPROVAL_CONF_THRESHOLD:
+        auto_approved = True
+    elif not scope_v and not field_v and not target_v:
+        auto_approved, auto_reason = False, "Unreadable"
+
     for field, sub_dim, options in _T1_MANUAL:
-        rows.append(_row(patent_id, "T1", sub_dim, field, sub_dim, options))
+        if field == "isApproved" and auto_approved is not None:
+            rows.append(_row(patent_id, "T1", sub_dim, field, sub_dim, options,
+                              auto_approved, avg_conf, "auto_heuristic", needs_review=True))
+        elif field == "t1DisapproveReason" and auto_reason is not None:
+            rows.append(_row(patent_id, "T1", sub_dim, field, sub_dim, options,
+                              auto_reason, None, "auto_heuristic", needs_review=True))
+        else:
+            rows.append(_row(patent_id, "T1", sub_dim, field, sub_dim, options))
 
     # ── T2 — per-figure rows ───────────────────────────────────────────────
     # No figures at all → a single placeholder row so the review UI still has

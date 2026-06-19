@@ -6,9 +6,14 @@ Usage (internal):
 
 args_json contains: patent_ids, weights, raw_dir, matched_dir, triage_dir
 result_json written on success: {rows, triage_skipped_total, logs}
+
+A companion "<result_path>.partial.csv" is appended to after every patent is
+processed (not just at the end), so a crash/kill mid-run still leaves a
+record of every patent that finished before the crash — process_patents_parallel()
+falls back to reading it if the final result_json never gets written.
 """
 
-import json, re, shutil, sys
+import csv, json, re, shutil, sys
 from pathlib import Path
 
 
@@ -92,6 +97,14 @@ def main():
     triage_skipped_total = 0
     logs: list[str] = []
 
+    partial_csv_path = Path(str(result_path) + ".partial.csv")
+    partial_fields = ["patent_id", "original", "output", "label", "method",
+                      "needs_review", "review_hint", "qwen_status"]
+    partial_f = open(partial_csv_path, "w", newline="")
+    partial_writer = csv.DictWriter(partial_f, fieldnames=partial_fields)
+    partial_writer.writeheader()
+    partial_f.flush()
+
     for excel_id in patent_ids:
         folder = folder_map.get(_core(excel_id))
         if folder is None:
@@ -131,11 +144,20 @@ def main():
                 logs.append(f"    ❌ [{device}] {img_path.name}: {e}")
 
         torch.cuda.empty_cache()
-        total    = sum(1 for r in rows if r["patent_id"] == excel_id)
-        labelled = sum(1 for r in rows if r["patent_id"] == excel_id and not r["needs_review"])
+        new_rows = [r for r in rows if r["patent_id"] == excel_id]
+        total    = len(new_rows)
+        labelled = sum(1 for r in new_rows if not r["needs_review"])
         log = f"  ✓ [{device}] {excel_id}  sheets={len(img_files)}  crops={total}  labelled={labelled}"
         logs.append(log)
         print(log, flush=True)
+
+        for r in new_rows:
+            partial_writer.writerow(r)
+        partial_f.flush()
+        import os as _os
+        _os.fsync(partial_f.fileno())
+
+    partial_f.close()
 
     Path(result_path).write_text(json.dumps({
         "rows": rows,

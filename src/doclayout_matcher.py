@@ -53,6 +53,13 @@ QWEN_PAD_SIDE_PX  = 150
 # is ≤ FU_MERGE_GAP_PX are merged the same way.
 FU_MERGE_GAP_PX   = 200   # max horizontal gap (px) between two _Fu boxes to merge
 
+# Two boxes getting the same OCR-read label doesn't always mean they're
+# fragments of one figure — a neighboring figure's tail/caption can get
+# misread as the same digit. Only treat same-label boxes as one figure if
+# they're within this gap; further apart, keep them separate and flag the
+# lower-confidence one instead of unioning across whatever sits between them.
+SAME_LABEL_MERGE_GAP_PX = 300
+
 # Vertical-strip merge: YOLO sometimes slices one figure into thin horizontal bands
 # that all share the same x-span. Merge vertically-adjacent boxes whose x-spans
 # overlap by ≥ VMERGE_X_OVERLAP_FRAC of the smaller box's width AND whose vertical
@@ -817,10 +824,27 @@ def _review_hint_for_box(box: list[int]) -> str:
     return ""
 
 
+def _box_gap(a: list[int], b: list[int]) -> int:
+    """Max of the horizontal and vertical gap (px) between two xyxy boxes; 0 if they overlap/touch."""
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    dx = max(0, max(ax1, bx1) - min(ax2, bx2))
+    dy = max(0, max(ay1, by1) - min(ay2, by2))
+    return max(dx, dy)
+
+
 def _merge_labeled(labeled: list[dict]) -> list[dict]:
     """
     Group labeled crops by their figure label; merge each group into a single
     union-bbox entry. Keeps the highest-confidence box's metadata as representative.
+
+    Same label alone isn't enough to merge — first cluster by proximity
+    (SAME_LABEL_MERGE_GAP_PX) so legitimate split fragments (e.g. split rotor
+    tips) still merge, but a same-label collision from an OCR misread on a
+    far-away box (e.g. a neighboring figure's tail wing) doesn't get unioned
+    in, which would silently swallow whatever sits between them. The cluster
+    with the highest confidence keeps the label; any other same-label cluster
+    is kept separate and flagged for review instead.
     """
     from collections import defaultdict
     groups: dict[str, list[dict]] = defaultdict(list)
@@ -831,9 +855,35 @@ def _merge_labeled(labeled: list[dict]) -> list[dict]:
     for lbl, items in groups.items():
         if len(items) == 1:
             merged.append(items[0])
-        else:
-            best = max(items, key=lambda x: x["conf"])
-            union_box = _union_box([x["box"] for x in items])
+            continue
+
+        n = len(items)
+        parent = list(range(n))
+
+        def find(i: int) -> int:
+            while parent[i] != i:
+                i = parent[i]
+            return i
+
+        def union(i: int, j: int) -> None:
+            ri, rj = find(i), find(j)
+            if ri != rj:
+                parent[ri] = rj
+
+        for i in range(n):
+            for j in range(i + 1, n):
+                if _box_gap(items[i]["box"], items[j]["box"]) <= SAME_LABEL_MERGE_GAP_PX:
+                    union(i, j)
+
+        clusters: dict[int, list[dict]] = defaultdict(list)
+        for i in range(n):
+            clusters[find(i)].append(items[i])
+        cluster_list = sorted(clusters.values(), key=lambda grp: max(x["conf"] for x in grp), reverse=True)
+
+        for ci, grp in enumerate(cluster_list):
+            best = max(grp, key=lambda x: x["conf"])
+            union_box = _union_box([x["box"] for x in grp])
+            is_primary = ci == 0
             merged.append({
                 "box":   union_box,
                 "conf":  best["conf"],
@@ -841,8 +891,8 @@ def _merge_labeled(labeled: list[dict]) -> list[dict]:
                 "cap":   best.get("cap"),
                 "label_rotation": best.get("label_rotation", 0),
                 "method": best.get("method", "doclayout_easyocr"),
-                "needs_review": False,
-                "review_hint": _review_hint_for_box(union_box),
+                "needs_review": not is_primary,
+                "review_hint": _review_hint_for_box(union_box) if is_primary else "duplicate_label_far_apart",
                 "qwen_status": best.get("qwen_status", "not_attempted"),
             })
     return merged
@@ -895,6 +945,76 @@ def _merge_fu(unlabeled: list[dict]) -> list[dict]:
             "qwen_status": best.get("qwen_status", "not_attempted"),
         })
     return merged
+
+
+def _clamp_pad_against_neighbors(box: list[int], pad: int, other_boxes: list[list[int]],
+                                  w: int, h: int) -> tuple[int, int, int, int]:
+    """
+    Expand `box` by `pad` on every side, but never cross into a neighboring
+    figure box on the same sheet. Without this, CROP_PAD_PX_FIXED bleeds into
+    the next figure's caption/leader-lines on densely-stacked multi-figure
+    sheets (e.g. FIG. 10A's pad reaching down into FIG. 10B's "1002B" label).
+    Only clamps in the direction the neighbor actually sits in (above/below for
+    a horizontally-overlapping neighbor, left/right for a vertically-overlapping one).
+    """
+    x1, y1, x2, y2 = box
+    nx1, ny1, nx2, ny2 = x1 - pad, y1 - pad, x2 + pad, y2 + pad
+    for ox1, oy1, ox2, oy2 in other_boxes:
+        h_overlap = min(x2, ox2) - max(x1, ox1)
+        if h_overlap > 0:
+            if oy2 <= y1:
+                ny1 = max(ny1, oy2)
+            if oy1 >= y2:
+                ny2 = min(ny2, oy1)
+        v_overlap = min(y2, oy2) - max(y1, oy1)
+        if v_overlap > 0:
+            if ox2 <= x1:
+                nx1 = max(nx1, ox2)
+            if ox1 >= x2:
+                nx2 = min(nx2, ox1)
+    return max(0, nx1), max(0, ny1), min(w, nx2), min(h, ny2)
+
+
+def _crop_touches_border(crop: np.ndarray, ink_thresh: int = 200,
+                          frac_thresh: float = 0.15, border_px: int = 2) -> bool:
+    """
+    True if drawing strokes (dark pixels) run right up against any edge of the
+    crop — a strong signal the YOLO box under-detected the figure's true extent
+    and sliced through real content (e.g. a rotor disc or wingtip), rather than
+    cleanly framing it with whitespace. Used to catch crops that would otherwise
+    be silently auto-labelled despite being cut off.
+    """
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.ndim == 3 else crop
+    if gray.shape[0] <= border_px * 2 or gray.shape[1] <= border_px * 2:
+        return False
+    edges = [gray[0:border_px, :], gray[-border_px:, :], gray[:, 0:border_px], gray[:, -border_px:]]
+    return any((edge < ink_thresh).mean() > frac_thresh for edge in edges)
+
+
+def _expand_box_until_clear(img: np.ndarray, box: list[int], other_boxes: list[list[int]],
+                             w: int, h: int, base_pad: int,
+                             extra_step: int = 150, max_extra: int = 3) -> tuple[int, int, int, int, np.ndarray]:
+    """
+    Grow the crop beyond the base CROP_PAD_PX when content still touches the
+    crop edge — some figures (e.g. a rotated single-figure design-patent sheet
+    drawn close to the page margins) extend further than the fixed pad
+    recovers. Stops as soon as the crop clears the border, or stops growing
+    because it hit a neighboring figure box or the page edge (still clamped
+    via _clamp_pad_against_neighbors, so it never bleeds into the next figure).
+    """
+    pad = base_pad
+    x1, y1, x2, y2 = _clamp_pad_against_neighbors(box, pad, other_boxes, w, h)
+    crop = img[y1:y2, x1:x2]
+    for _ in range(max_extra):
+        if crop.size == 0 or not _crop_touches_border(crop):
+            break
+        pad += extra_step
+        nx1, ny1, nx2, ny2 = _clamp_pad_against_neighbors(box, pad, other_boxes, w, h)
+        if (nx1, ny1, nx2, ny2) == (x1, y1, x2, y2):
+            break
+        x1, y1, x2, y2 = nx1, ny1, nx2, ny2
+        crop = img[y1:y2, x1:x2]
+    return x1, y1, x2, y2, crop
 
 
 def crop_and_save(img_path: Path, figures: list[dict], captions: list[dict],
@@ -983,26 +1103,50 @@ def crop_and_save(img_path: Path, figures: list[dict], captions: list[dict],
 
     merged_labeled   = _merge_labeled(labeled)
     merged_unlabeled = _merge_fu(unlabeled)
+
+    # A sheet with only one caption can only contain one figure. If detection
+    # still left multiple disjoint _Fu fragments (e.g. a wide multi-rotor eVTOL
+    # drawing split into left/right clusters with a gap > FU_MERGE_GAP_PX),
+    # _merge_fu's proximity threshold won't catch it — union them all into one
+    # full-figure crop instead of emitting several meaningless partial ones.
+    if len(captions) <= 1 and not merged_labeled and len(merged_unlabeled) > 1:
+        union_box = _union_box([m["box"] for m in merged_unlabeled])
+        best = max(merged_unlabeled, key=lambda x: x["conf"])
+        merged_unlabeled = [{
+            "box":           union_box,
+            "conf":          best["conf"],
+            "label":         None,
+            "cap":           best.get("cap"),
+            "label_rotation": 0,
+            "method":        best.get("method", "doclayout_easyocr"),
+            "needs_review":  True,
+            "review_hint":   "single_caption_sheet_merge",
+            "qwen_status":   best.get("qwen_status", "not_attempted"),
+        }]
+
     to_save = merged_labeled + merged_unlabeled
 
     # ── Pass 3: crop, rotate, save ────────────────────────────────────────────
     _sheet_rot_cache: int | None = None
 
+    sheet_area = w * h
+
     records: list[dict] = []
     for idx, item in enumerate(to_save):
-        x1, y1, x2, y2 = item["box"]
-        # Expand box by CROP_PAD_PX on all sides, clamped to image bounds
-        x1 = max(0, x1 - CROP_PAD_PX)
-        y1 = max(0, y1 - CROP_PAD_PX)
-        x2 = min(w, x2 + CROP_PAD_PX)
-        y2 = min(h, y2 + CROP_PAD_PX)
+        # Expand box by CROP_PAD_PX on all sides, but never cross into a
+        # neighboring figure box on the same sheet (prevents bleed-through
+        # into the next figure's caption/leader-lines). If content still
+        # touches the crop edge after that, try growing further first instead
+        # of immediately giving up and flagging it.
+        other_boxes = [other["box"] for j, other in enumerate(to_save) if j != idx]
+        x1, y1, x2, y2, crop = _expand_box_until_clear(img, item["box"], other_boxes, w, h, CROP_PAD_PX)
 
-        crop = img[y1:y2, x1:x2]
         if crop.shape[0] < MIN_CROP_PX or crop.shape[1] < MIN_CROP_PX:
             continue
 
         label_rotation = item["label_rotation"]
         needs_review   = item["needs_review"]
+        review_hint    = item.get("review_hint", "")
 
         if label_rotation != 0:
             crop = np.rot90(crop, k=label_rotation // 90)
@@ -1011,6 +1155,34 @@ def crop_and_save(img_path: Path, figures: list[dict], captions: list[dict],
                 _sheet_rot_cache = _infer_sheet_rotation(reader, img)
             if _sheet_rot_cache != 0:
                 crop = np.rot90(crop, k=_sheet_rot_cache // 90)
+
+        # Drawing strokes still touching the crop edge after the grow attempt
+        # mean YOLO under-detected the figure's true extent and the saved crop
+        # slices through real content — flag for human review instead of
+        # silently auto-labelling it.
+        if not needs_review and _crop_touches_border(crop):
+            needs_review = True
+            review_hint  = "crop_touches_border"
+
+        # A box covering most of the sheet that also substantially contains a
+        # different, separately-labelled figure's box means detection merged
+        # two distinct figures into one oversized crop (e.g. FIG. 4's box
+        # swallowing FIG. 3 above it) — flag rather than auto-accept the label.
+        own_box  = item["box"]
+        own_area = max(1, (own_box[2] - own_box[0]) * (own_box[3] - own_box[1]))
+        if not needs_review and own_area >= 0.85 * sheet_area:
+            for other in to_save:
+                if other is item:
+                    continue
+                ob = other["box"]
+                ob_area = max(1, (ob[2] - ob[0]) * (ob[3] - ob[1]))
+                ix1, iy1 = max(own_box[0], ob[0]), max(own_box[1], ob[1])
+                ix2, iy2 = min(own_box[2], ob[2]), min(own_box[3], ob[3])
+                inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+                if inter / ob_area >= 0.7:
+                    needs_review = True
+                    review_hint  = "oversized_box_overlaps_other_figure"
+                    break
 
         clean_lbl = item["label"]
         suffix    = f"_F{clean_lbl}" if not needs_review else "_Fu"
@@ -1024,7 +1196,7 @@ def crop_and_save(img_path: Path, figures: list[dict], captions: list[dict],
             "box_px":       [x1, y1, x2, y2],
             "method":       item["method"],
             "needs_review": needs_review,
-            "review_hint":  item.get("review_hint", ""),
+            "review_hint":  review_hint,
             "qwen_status":  item.get("qwen_status", "not_attempted"),
         })
     return records
@@ -1246,19 +1418,50 @@ def process_patents_parallel(
     threads = [threading.Thread(target=_stream, args=(procs[i], gpu_ids[i]), daemon=True)
                for i in range(n_workers)]
     for t in threads: t.start()
-    for p in procs:   p.wait()
-    for t in threads: t.join()
+    try:
+        for p in procs:   p.wait()
+        for t in threads: t.join()
+    except BaseException:
+        # An interrupt (Ctrl-C / Jupyter "Interrupt Kernel") only reliably
+        # reaches whichever worker the signal happens to land on — the other
+        # GPU's worker is otherwise left running unsupervised in the
+        # background with nothing to ever stop it. Make sure every worker
+        # actually dies before this function exits, no matter why we're
+        # leaving early.
+        for p in procs:
+            if p.poll() is None:
+                p.terminate()
+        for p in procs:
+            try:
+                p.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                p.kill()
+        raise
 
     # Collect results
     all_rows: list[dict] = []
     triage_skipped_total = 0
     for rp in result_paths:
-        if not rp.exists():
-            print(f"⚠  Result file missing: {rp} — worker may have crashed")
+        if rp.exists():
+            data = json.loads(rp.read_text())
+            all_rows.extend(data["rows"])
+            triage_skipped_total += data["triage_skipped_total"]
             continue
-        data = json.loads(rp.read_text())
-        all_rows.extend(data["rows"])
-        triage_skipped_total += data["triage_skipped_total"]
+        # Worker crashed/was killed before writing its final result_json — fall
+        # back to the incrementally-flushed partial CSV so patents it already
+        # finished aren't silently lost.
+        partial_csv = _Path(str(rp) + ".partial.csv")
+        if partial_csv.exists():
+            import csv as _csv
+            with open(partial_csv, newline="") as f:
+                partial_rows = list(_csv.DictReader(f))
+            for r in partial_rows:
+                r["needs_review"] = r["needs_review"] == "True"
+            all_rows.extend(partial_rows)
+            print(f"⚠  Result file missing: {rp} — worker crashed, recovered "
+                  f"{len(partial_rows)} row(s) from its partial CSV")
+        else:
+            print(f"⚠  Result file missing: {rp} — worker may have crashed (no partial CSV either)")
 
     # Cleanup temp dir
     import shutil

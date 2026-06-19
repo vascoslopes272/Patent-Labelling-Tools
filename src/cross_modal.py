@@ -33,13 +33,18 @@ from tqdm import tqdm
 
 # ─── Model loading ────────────────────────────────────────────────────────────
 
-def load_siglip_model(cache_dir: "Path | str | None" = None) -> tuple:
+def load_siglip_model(cache_dir: "Path | str | None" = None, device: "str | None" = None) -> tuple:
     """
     Load the SigLIP ViT-SO400M-14 model via open_clip.
 
     Downloads ~3 GB of weights on first call. When `cache_dir` is given
     (cfg["paths"]["siglip_cache"]), weights are cached there instead of the
     default `~/.cache/huggingface` so the project stays self-contained.
+
+    `device` overrides auto-detection (e.g. "cuda:1") — pass this whenever the
+    caller already picked a specific GPU (see the notebook's GPU-selection
+    cell): plain "cuda" always resolves to device 0, which silently ignores
+    that choice and can OOM a GPU some other process already filled.
     Returns (model, tokenizer, preprocess, device).
     """
     import os
@@ -55,12 +60,13 @@ def load_siglip_model(cache_dir: "Path | str | None" = None) -> tuple:
     )
     tokenizer = open_clip.get_tokenizer("hf-hub:timm/ViT-SO400M-14-SigLIP-384")
 
-    if torch.cuda.is_available():
-        device = "cuda"
-    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        device = "mps"
-    else:
-        device = "cpu"
+    if device is None:
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
 
     model = model.to(device).eval()
     print(f"[SigLIP] Loaded ViT-SO400M-14-SigLIP-384 on {device}")
