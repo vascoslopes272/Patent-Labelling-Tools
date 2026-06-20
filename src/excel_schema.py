@@ -214,6 +214,23 @@ def build_patent_rows(patent_id: str, record: dict, patent_img_dir: "Path | None
             img.get("match_status"), img.get("composite_confidence"), img.get("match_method"), img_path,
         ))
 
+        # ── Duplicate-image cross-reference (SigLIP image-to-image) ───────────
+        # Populated by the notebook's duplicate-detection cell (or a human in
+        # the HTML wizard); emitted here — empty by default — so the schema is
+        # stable and the wizard's rowsToAIData() always finds these fields.
+        # dupOfPatent = the original patent this exact drawing first appeared
+        # in; dupOfFig = that patent's figure number.
+        rows.append(_row(
+            patent_id, "T2", sub_dim, "dupOfPatent", f"{sub_dim} — duplicate of patent",
+            "", img.get("dup_of_patent"), img.get("dup_score"),
+            "siglip" if img.get("dup_of_patent") else None, img_path,
+        ))
+        rows.append(_row(
+            patent_id, "T2", sub_dim, "dupOfFig", f"{sub_dim} — duplicate of figure",
+            "", img.get("dup_of_fig"), None,
+            "siglip" if img.get("dup_of_fig") else None, img_path,
+        ))
+
     # ── G1 ──────────────────────────────────────────────────────────────────
     g1 = record.get("G1_prediction") or {}
     top_type = g1.get("value")

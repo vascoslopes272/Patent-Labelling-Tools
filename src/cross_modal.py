@@ -676,6 +676,115 @@ def classify_m3_fields(
 
 # ─── Aggregate per-figure predictions to patent-level ─────────────────────────
 
+# ─── Duplicate detection ──────────────────────────────────────────────────────
+# Two complementary modalities, kept strictly separate per the pipeline design:
+#   • SigLIP image-to-image  → figure-level duplicates (the SAME drawing reused
+#                              across patents — e.g. continuations of one
+#                              aircraft sharing a main architecture figure).
+#   • PatentSBERTa text-to-text → patent-level duplicates (near-identical
+#                              title/abstract/claim text).
+# SigLIP is NOT used on text and SBERT is NOT used on images — image similarity
+# and document similarity are different questions and conflating them produces
+# false matches (two different aircraft described in similar words, or one
+# aircraft drawn two different ways).
+
+def detect_image_duplicates(
+    entries: list[dict],
+    model,
+    preprocess,
+    device: str,
+    threshold: float = 0.85,
+) -> dict:
+    """
+    Find figures whose crop is (near-)identical to an earlier figure's, using
+    SigLIP image embeddings.
+
+    Parameters
+    ----------
+    entries : list of {"patent_id": str, "fig_num": str, "image_path": str|Path}.
+              Processed in the given order — the FIRST occurrence of a visual is
+              treated as the canonical original; later near-identical crops point
+              back to it. Order entries so the patent you want treated as the
+              "original" (e.g. earliest publication) comes first.
+    threshold : cosine-similarity cutoff in [0, 1]. Pairs at/above this are
+                considered the same image. ~0.85+ is a safe "same drawing"
+                cutoff for SigLIP on patent line art.
+
+    Returns
+    -------
+    dict keyed by (patent_id, fig_num) for each DUPLICATE figure ->
+        {"dup_of_patent": str, "dup_of_fig": str, "score": float}.
+    Figures with no earlier match (the originals) are absent from the dict.
+    """
+    # Encode every crop once. encode_image_features already L2-normalizes, so a
+    # plain dot product is cosine similarity.
+    feats = [(e, encode_image_features(Path(e["image_path"]), model, preprocess, device))
+             for e in entries]
+
+    dups: dict = {}
+    canonical: list = []   # [(entry, feat)] — first-seen visuals
+    for e, f in feats:
+        if f is None:
+            continue
+        best = None  # (score, original_entry)
+        for oe, of in canonical:
+            score = float((f @ of.T).item())
+            if score >= threshold and (best is None or score > best[0]):
+                best = (score, oe)
+        if best is not None:
+            dups[(e["patent_id"], e["fig_num"])] = {
+                "dup_of_patent": best[1]["patent_id"],
+                "dup_of_fig":    best[1]["fig_num"],
+                "score":         round(best[0], 4),
+            }
+        else:
+            canonical.append((e, f))
+    return dups
+
+
+def detect_text_duplicates(
+    text_by_patent: dict,
+    sbert_model,
+    threshold: float = 0.70,
+) -> dict:
+    """
+    Find patents whose text is a near-duplicate of an earlier patent's, using
+    PatentSBERTa sentence embeddings (text-to-text only — no image input).
+
+    Parameters
+    ----------
+    text_by_patent : {patent_id: text}. Insertion order defines which patent is
+                     treated as the original (earlier key = original).
+    threshold : cosine-similarity cutoff in [0, 1].
+
+    Returns
+    -------
+    dict keyed by the DUPLICATE patent_id ->
+        {"dup_of_patent": str, "score": float}.
+    """
+    import numpy as np
+
+    pids = [p for p, t in text_by_patent.items() if t and str(t).strip()]
+    if len(pids) < 2:
+        return {}
+
+    embs = sbert_model.encode(
+        [text_by_patent[p] for p in pids],
+        convert_to_numpy=True, normalize_embeddings=True,
+    )
+
+    dups: dict = {}
+    for i in range(len(pids)):
+        best = None  # (score, original_pid)
+        for j in range(i):
+            score = float(np.dot(embs[i], embs[j]))
+            if score >= threshold and (best is None or score > best[0]):
+                best = (score, pids[j])
+        if best is not None:
+            dups[pids[i]] = {"dup_of_patent": best[1], "score": round(best[0], 4)}
+    return dups
+
+
 def aggregate_architecture_predictions(
     per_figure_preds: list[dict],
     fields: list[str],

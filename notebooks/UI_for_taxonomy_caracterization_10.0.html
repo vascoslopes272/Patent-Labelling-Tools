@@ -623,6 +623,32 @@ function t2AllFigNums() {
   return nums;
 }
 
+// Real, numbered FIG. entries from the patent's own description of drawings —
+// the existing taxonomy framework that unlabeled Fu_ images get assigned into.
+// Excludes Fu_ placeholder keys so the dropdown never offers another unlabeled
+// figure as a target.
+function t2RealFigNums() {
+  return t2AllFigNums().filter(function(n){ return !/^Fu/i.test(n); });
+}
+
+// Merge an unlabeled Fu_ figure's data into an existing real FIG. entry
+// (Part 6: no free-text labeling field — reassignment reuses the structured
+// taxonomy that's already there). Existing target values win on conflict;
+// the Fu_ entry's values only fill gaps. Updates t2figNum/mainFigure if they
+// pointed at the now-removed Fu_ key.
+function reassignFigure(sourceFig, targetFig) {
+  if (!sourceFig || !targetFig || sourceFig === targetFig) return;
+  var src = S.figData[sourceFig];
+  if (src) {
+    if (!S.figData[targetFig]) S.figData[targetFig] = {};
+    var dst = S.figData[targetFig];
+    Object.keys(src).forEach(function(k){ if (dst[k] == null) dst[k] = src[k]; });
+    delete S.figData[sourceFig];
+  }
+  if (S.t2figNum === sourceFig) S.t2figNum = targetFig;
+  if (S.mainFigure === sourceFig) S.mainFigure = targetFig;
+}
+
 function figGridCard(fNum) {
   var status = figGet(fNum,'status',null);
   var dotColor = status==='approved' ? 'var(--ok)' : status==='disapproved' ? 'var(--danger)' : 'var(--text3)';
@@ -632,13 +658,58 @@ function figGridCard(fNum) {
   var dupBadge = dupOfPatent ? '<span title="Same image as ' + escHtml(dupOfPatent) + (figGet(fNum,'dupOfFig',null) ? (' FIG.' + escHtml(figGet(fNum,'dupOfFig',null))) : '') + '" style="font-size:9px;font-family:var(--mono);text-transform:uppercase;background:var(--accent-bg,#eef);color:var(--accent);border:1px solid var(--accent);border-radius:3px;padding:1px 5px;">DUP IMG</span>' : '';
   var per = figGet(fNum,'per','—'), sym = figGet(fNum,'sym','—'), acSty = figGet(fNum,'acSty','—');
   var active = (S.t2figNum === fNum);
-  var imgPath = realFigImage(fNum) || ('https://placehold.co/160x110/E8E7E0/5A5955?text=FIG.+' + escHtml(fNum));
-  return '<div class="m3-card" style="padding:8px;cursor:pointer;border-color:'+(dupOfPatent?'var(--accent)':(active?'var(--accent)':'var(--border)'))+';" data-fig-card="'+escHtml(fNum)+'">'
-    + '<div style="position:relative;"><img src="'+imgPath+'" style="width:100%;border-radius:4px;display:block;'+(dupOfPatent?'opacity:0.7;':'')+'">'
+  var realPath = realFigImage(fNum);
+  var placeholder = 'https://placehold.co/160x110/E8E7E0/5A5955?text=FIG.+' + escHtml(fNum);
+  var showText = figGet(fNum,'gridShowText',false);
+  var isUnlabeled = /^Fu/i.test(fNum);
+
+  // Approve/Disapprove visual feedback (Audit: per-image green/red border glow).
+  // Status border wins over the active/dup outline so approval state is always
+  // unambiguous at a glance across the whole grid.
+  var border = status==='approved'
+      ? 'border-color:var(--ok);box-shadow:0 0 0 2px var(--ok-bdr),0 0 12px rgba(26,127,78,.35);'
+    : status==='disapproved'
+      ? 'border-color:var(--danger);box-shadow:0 0 0 2px var(--danger),0 0 12px rgba(192,57,43,.32);'
+    : (dupOfPatent || active) ? 'border-color:var(--accent);' : 'border-color:var(--border);';
+
+  // Image area: real crop with an onerror fallback to the placeholder, OR a
+  // text panel when the user toggled "Text" or no real image exists at all
+  // (missing/broken source). The text panel surfaces the same labels so the
+  // figure stays reviewable even with no usable image.
+  var textPanel =
+      '<div style="width:100%;height:110px;border-radius:4px;background:var(--bg2);border:1px dashed var(--border2);'
+    + 'display:flex;flex-direction:column;justify-content:center;gap:2px;padding:6px;box-sizing:border-box;overflow:hidden;">'
+    + '<div style="font-size:11px;font-family:var(--mono);font-weight:600;color:var(--text2);">FIG. '+escHtml(fNum)+'</div>'
+    + '<div style="font-size:10px;color:var(--text3);">'+escHtml(per)+' &middot; '+escHtml(sym)+'</div>'
+    + '<div style="font-size:10px;color:var(--text3);">'+escHtml(acSty)+'</div>'
+    + (realPath ? '' : '<div style="font-size:9px;color:var(--warn);margin-top:2px;">no image on disk</div>')
+    + '</div>';
+  var imageArea = (showText || !realPath)
+    ? textPanel
+    : '<img src="'+realPath+'" onerror="this.onerror=null;this.src=\''+placeholder+'\';this.dataset.broken=\'1\';" style="width:100%;border-radius:4px;display:block;'+(dupOfPatent?'opacity:0.7;':'')+'">';
+
+  return '<div class="m3-card" style="padding:8px;cursor:pointer;'+border+'" data-fig-card="'+escHtml(fNum)+'">'
+    + '<div style="position:relative;">'+imageArea
     + '<span style="position:absolute;top:4px;right:4px;width:9px;height:9px;border-radius:50%;background:'+dotColor+';border:1px solid #fff;"></span></div>'
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;flex-wrap:wrap;gap:4px;"><span style="font-size:11px;font-family:var(--mono);font-weight:600;">FIG. '+escHtml(fNum)+'</span>'+qBadge+dupBadge+'</div>'
     + '<div style="font-size:10px;color:var(--text3);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+escHtml(per)+' &middot; '+escHtml(sym)+'</div>'
     + '<div style="font-size:10px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+escHtml(acSty)+'</div>'
+    // Per-image Approve / Disapprove + Text toggle. Buttons carry data-grid-*
+    // attributes handled before the card-select branch so a click here toggles
+    // status (and re-applies the glow) instead of just selecting the figure.
+    + '<div style="display:flex;gap:4px;margin-top:7px;">'
+      + '<button type="button" data-grid-approve="'+escHtml(fNum)+'" title="Approve image" style="flex:1;padding:3px 0;font-size:11px;border-radius:4px;cursor:pointer;border:1px solid '+(status==='approved'?'var(--ok)':'var(--border)')+';background:'+(status==='approved'?'var(--ok)':'var(--surface)')+';color:'+(status==='approved'?'#fff':'var(--ok)')+';">✓</button>'
+      + '<button type="button" data-grid-disapprove="'+escHtml(fNum)+'" title="Disapprove image" style="flex:1;padding:3px 0;font-size:11px;border-radius:4px;cursor:pointer;border:1px solid '+(status==='disapproved'?'var(--danger)':'var(--border)')+';background:'+(status==='disapproved'?'var(--danger)':'var(--surface)')+';color:'+(status==='disapproved'?'#fff':'var(--danger)')+';">✗</button>'
+      + '<button type="button" data-grid-text-toggle="'+escHtml(fNum)+'" title="Toggle image / text labels" style="flex:0 0 auto;padding:3px 8px;font-size:10px;border-radius:4px;cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--text2);">'+(showText?'🖼':'🅣')+'</button>'
+    + '</div>'
+    // Part 6: unlabeled Fu_ images get assigned into an existing FIG. from this
+    // patent's own description of drawings — no free-text labeling field.
+    + (isUnlabeled
+        ? '<select data-fig-reassign="'+escHtml(fNum)+'" style="width:100%;margin-top:6px;font-size:10px;padding:3px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text2);" onclick="event.stopPropagation();">'
+          + '<option value="">Assign to FIG…</option>'
+          + t2RealFigNums().map(function(n){ return '<option value="'+escHtml(n)+'">FIG. '+escHtml(n)+'</option>'; }).join('')
+          + '</select>'
+        : '')
     + '</div>';
 }
 
@@ -843,7 +914,8 @@ function pageT2(){
   var warnHtml = !mapped ? '<div class="flag warn" style="margin-top:0;"><span class="f-lbl">⚠ Unmapped Crop — _Fu Figure</span>This image crop has no corresponding FIG. description in the patent text. Label from visual content only.</div>' : '';
   // Real crop image (file:// URL built from this batch's Image_Path column) when
   // available, falling back to a placeholder only if no Image_Path was loaded.
-  var imgPath = realFigImage(fNum) || ('https://placehold.co/600x400/E8E7E0/5A5955?text=Mock+Crop:+FIG.+' + escHtml(fNum));
+  var previewPlaceholder = 'https://placehold.co/600x400/E8E7E0/5A5955?text=Mock+Crop:+FIG.+' + escHtml(fNum);
+  var imgPath = realFigImage(fNum) || previewPlaceholder;
 
   h += '<div class="t2-left"><div class="sec" style="margin-top:0;">Description of Drawings</div>'
     + '<div style="margin-bottom:12px; display:flex; align-items:center; gap:8px;">'
@@ -851,7 +923,7 @@ function pageT2(){
     + '<input type="text" class="m3-num" style="width:64px; padding:6px 8px; min-height:0;" data-field="t2figNum" value="'+escHtml(fNum)+'">'
     + '</div>'
     + warnHtml
-    + '<div style="margin-bottom:8px;"><img id="t2-img-preview" src="' + imgPath + '" style="width:100%;border-radius:6px;border:1px solid var(--border);background:var(--bg2);transform:rotate(' + rotation + 'deg);transition:transform .15s ease;"></div>'
+    + '<div style="margin-bottom:8px;"><img id="t2-img-preview" src="' + imgPath + '" onerror="this.onerror=null;this.src=\'' + previewPlaceholder + '\';" style="width:100%;border-radius:6px;border:1px solid var(--border);background:var(--bg2);transform:rotate(' + rotation + 'deg);transition:transform .15s ease;"></div>'
     + '<div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">'
       + '<button type="button" class="btn" data-t2-rotate="true" style="padding:6px 12px; font-size:12px;">↻ Rotate 90°</button>'
       + (rotation !== 0 ? '<span class="crumb" style="font-family:var(--mono);">Current: ' + rotation + '°</span>' : '')
@@ -1380,11 +1452,24 @@ function exportReviewedBatch() {
 // with no digit, captured as "u" — an existing quirk in ai_labeler.py, kept
 // here for consistency rather than "fixed" independently in two places).
 function figNumFromFilename(fname) {
-  var fu = /_Fu(\d+)\.png$/.exec(fname || '');
+  fname = fname || '';
+  var fu = /_Fu(\d+)\.png$/.exec(fname);
   if (fu) return 'Fu' + fu[1];
-  var f = /_F(\w+)\.png$/.exec(fname || '');
+  // Bare "_Fu.png" (no digit suffix) marks a genuinely unmapped crop — the
+  // pipeline couldn't read a FIG. number off the page, so every unmapped
+  // crop in a patent can share this exact suffix. Without a unique key
+  // they'd all collapse onto the same fNum "u" and silently overwrite each
+  // other in T2[fNum]/FIG_FILENAMES[fNum]/FIG_IMAGE_PATH[fNum] (only the
+  // last one survived — this is why patents with 2+ unmapped crops only
+  // ever showed one image). The D-number earlier in the filename (the
+  // drawing/page index, e.g. "D00002") is unique per crop, so use that.
+  if (/_Fu\.png$/.test(fname)) {
+    var dnum = /_D(\d+)_/.exec(fname);
+    return dnum ? ('Fu_D' + dnum[1]) : fname.replace(/\.png$/i, '');
+  }
+  var f = /_F(\w+)\.png$/.exec(fname);
   if (f) return f[1];
-  return (fname || '').replace(/\.png$/i, '');
+  return fname.replace(/\.png$/i, '');
 }
 
 // Excel/SheetJS hands booleans back as JS booleans, but the reviewed-export
@@ -1691,7 +1776,10 @@ document.getElementById('batch-xlsx-input').addEventListener('change', function(
   reader.readAsArrayBuffer(file);
 });
 document.getElementById('batch-prev').addEventListener('click', function() {
-  if (BATCH) loadBatchPatent(BATCH.idx - 1);
+  if (BATCH) {
+    loadBatchPatent(BATCH.idx - 1);
+    openOrUpdatePatentWindow(T1_META.pdfLink);
+  }
 });
 document.getElementById('batch-export').addEventListener('click', exportReviewedBatch);
 document.getElementById('batch-next').addEventListener('click', function() {
@@ -1801,6 +1889,7 @@ document.querySelector('.wiz').addEventListener('change', function(e){
   if (!panel) return;
   var DIRTY_SEL = '[data-field],[data-arrfield],[data-figfield],[data-figarrfield],'
     + '[data-t1-approve],[data-dup-type],[data-fig-quality],[data-t2-status],'
+    + '[data-grid-approve],[data-grid-disapprove],'
     + '[data-t2-main],[data-t2-rotate],[data-t2-arch],[data-g1-top],'
     + '[data-m3-action],[data-inc],[data-dec],#btn-m1-bypass';
   panel.addEventListener('click', function(e){
@@ -1855,9 +1944,6 @@ document.getElementById('panel').addEventListener('click', function(e){
     render(); return;
   }
 
-  if(tgt.id === 'btn-fig-next') { var n = parseInt(S.t2figNum||0)+1; S.t2figNum=String(n); render(); return; }
-  if(tgt.id === 'btn-fig-prev') { var n = Math.max(1,parseInt(S.t2figNum||2)-1); S.t2figNum=String(n); render(); return; }
-
   var figNavBtn = tgt.closest('[data-fig-nav]');
   if (figNavBtn) { S.t2figNum = figNavBtn.getAttribute('data-fig-nav'); render(); return; }
 
@@ -1890,6 +1976,31 @@ document.getElementById('panel').addEventListener('click', function(e){
   if (figQualBtn) {
     var fNumQ = (S.t2figNum||'1').trim();
     figSet(fNumQ, 'qualityFlag', figQualBtn.getAttribute('data-fig-quality'));
+    render(); return;
+  }
+
+  // T2 Figure Grid — per-card Approve / Disapprove / Text-toggle. Checked
+  // BEFORE the card-select branch so a click on these buttons toggles the
+  // figure's state (and re-renders the green/red glow) instead of merely
+  // selecting the card. Clicking the same status again clears it.
+  var gridApproveBtn = tgt.closest('[data-grid-approve]');
+  if (gridApproveBtn) {
+    var fNumA = gridApproveBtn.getAttribute('data-grid-approve');
+    figSet(fNumA, 'status', figGet(fNumA,'status',null) === 'approved' ? null : 'approved');
+    render(); return;
+  }
+  var gridDisBtn = tgt.closest('[data-grid-disapprove]');
+  if (gridDisBtn) {
+    var fNumD = gridDisBtn.getAttribute('data-grid-disapprove');
+    var nextD = figGet(fNumD,'status',null) === 'disapproved' ? null : 'disapproved';
+    figSet(fNumD, 'status', nextD);
+    if (nextD === 'disapproved' && S.mainFigure === fNumD) S.mainFigure = null;
+    render(); return;
+  }
+  var gridTextBtn = tgt.closest('[data-grid-text-toggle]');
+  if (gridTextBtn) {
+    var fNumT = gridTextBtn.getAttribute('data-grid-text-toggle');
+    figSet(fNumT, 'gridShowText', !figGet(fNumT,'gridShowText',false));
     render(); return;
   }
 
@@ -2037,6 +2148,13 @@ document.getElementById('panel').addEventListener('change', function(e){
   var field = tgt.dataset.field;
   
   if (tgt.hasAttribute('data-t2-arch')) { var fNum = (S.t2figNum||'1').trim(); if(fNum){ figSet(fNum, 'arch', tgt.value); render(); } return; }
+
+  // Part 6: Fu_ unlabeled figure → existing taxonomy FIG. assignment
+  if (tgt.hasAttribute('data-fig-reassign')) {
+    var srcFig = tgt.getAttribute('data-fig-reassign'), dstFig = tgt.value;
+    if (dstFig) { reassignFigure(srcFig, dstFig); markBatchDirty(); render(); }
+    return;
+  }
   
   // Audit B-03 Fix: Defer t2figNum render to 'change' event to allow multi-digit typing without losing focus
   if (field === 't2figNum') { S.t2figNum = tgt.value.trim(); render(); return; }

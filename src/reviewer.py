@@ -452,12 +452,26 @@ def classify_m3_text(text: str | None, sbert_model=None) -> dict:
     }
 
 
+# ─── Cross-modal ensemble weighting (tunable) ───────────────────────────────
+# Relative trust given to each modality when a SigLIP (visual) prediction and
+# an SBERT (text) prediction disagree on the same field. The two confidences
+# are scaled by these weights before comparison, so raising VISUAL_WEIGHT lets
+# a visual prediction win more close calls (good when the figures are cleaner
+# than the description text) and raising TEXT_WEIGHT favours the text side.
+# Both 1.0 reproduces the original "pick the raw higher-confidence side"
+# behaviour. The returned confidence is always the winning side's *unscaled*
+# value, so downstream thresholds keep their normal meaning.
+VISUAL_WEIGHT = 1.0
+TEXT_WEIGHT   = 1.0
+
+
 def merge_field_predictions(visual: dict | None, text: dict | None) -> dict:
     """Pick the higher-confidence prediction between a SigLIP (visual) and
     SBERT (text) prediction for one field. Either side may be None/empty.
     Marks source="ensemble" when both sides agree on the value (cross-modal
     confirmation), otherwise keeps the winning side's own source tag so a
-    human reviewer can tell which modality produced it."""
+    human reviewer can tell which modality produced it. Close-call ties are
+    broken using VISUAL_WEIGHT / TEXT_WEIGHT (see above)."""
     v = visual if visual and visual.get("value") is not None else None
     t = text   if text   and text.get("value")   is not None else None
     if v is None and t is None:
@@ -468,7 +482,7 @@ def merge_field_predictions(visual: dict | None, text: dict | None) -> dict:
         return v
     if v["value"] == t["value"]:
         return {"value": v["value"], "confidence": max(v["confidence"], t["confidence"]), "source": "ensemble"}
-    return v if v["confidence"] >= t["confidence"] else t
+    return v if v["confidence"] * VISUAL_WEIGHT >= t["confidence"] * TEXT_WEIGHT else t
 
 
 def merge_prediction_dicts(visual: dict, text: dict, fields: list[str]) -> dict:
