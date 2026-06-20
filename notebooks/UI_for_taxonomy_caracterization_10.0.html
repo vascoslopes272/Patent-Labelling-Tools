@@ -200,6 +200,13 @@ details.m3-readonly[open] summary::after { content: '\2212'; }
   <div id="throughput" class="progress-tracker"></div>
   <div class="stepper" id="stepper"></div>
   <div class="bc" id="bc"></div>
+  <div id="aircraft-header" style="
+    position:sticky;top:0;z-index:50;
+    background:var(--surface);border-bottom:1px solid var(--border);
+    padding:6px 16px;display:flex;align-items:center;gap:12px;">
+    <span style="font-size:11px;font-family:var(--mono);color:var(--text3);" id="hdr-id"></span>
+    <span style="font-size:13px;font-weight:600;color:var(--text);" id="hdr-name"></span>
+  </div>
   <div class="panel" id="panel"></div>
 </div>
 <!-- SheetJS — parses ml_predict_labels_<batch>.xlsx client-side for the batch loader below -->
@@ -219,6 +226,7 @@ var T1_META = {
   pdfLink: 'https://patents.google.com/patent/US20220145A1/en', 
   backwardCites: ['US-20220145-A1', 'US-1029348-B2', 'EP-3482910-A1', 'US-987349-B1', 'WO-20214829-A1'],
   forwardCites: ['US-20279932-A1', 'EP-4029384-B1', 'US 2027-9932 B1'],
+  aircraftName: '',
   title: 'Electric Vertical Take-off and Landing Aircraft Architecture with Integrated Tilt-Wing Dynamics',
   abstract: 'An electric vertical take-off and landing (eVTOL) aircraft comprising a central fuselage, a primary lifting wing, and a distributed electric propulsion system. The thrust units are mapped to provide both vertical lift and forward thrust operations via a pivoting structural element.',
   descriptionOfDrawings: 'BRIEF DESCRIPTION OF THE DRAWINGS\n\nFIG. 1 is a perspective view of the eVTOL aircraft in a hover configuration.\n\nFIG. 2 is an orthographic side view of the aircraft showing the landing gear and passenger cabin.\n\nFIG. 3 is an orthographic top plan view illustrating the primary wing and secondary canard wing layout.\n\nFIG. 4 shows a detailed cross-section of the tilt hinge mechanism and rotor assembly.\n\nFIG. 5 is an exploded view of the internal battery components and wiring harness.'
@@ -283,13 +291,14 @@ var EMP_KIN = [{id:'Fixed', n:'Empennage fixed through transition'},{id:'Tilt', 
 var CHORD = [{id:'Front', n:'Front (Puller / Tractor)'},{id:'Back', n:'Back (Pusher)'}];
 var BLADE_MECH = [{id:'Open', n:'Open / Free Rotor'},{id:'Ducted', n:'Ducted Fan / Shrouded'},{id:'Folded', n:'Folding / Stowed Blades'}];
 var RETRACT_MECH = [{id:'Exposed', n:'Non-Retractable (Exposed)'},{id:'Retractable', n:'Retractable (Folds into structure)'}];
+// Propulsor articulation kinematics — ids match vlm_extractor.py / cross_modal.py / reviewer.py
+var PROP_KIN = [{id:'Fixed', n:'Fixed (No Articulation)'},{id:'Tilt', n:'Tilt (Vectoring Unit)'},{id:'Vectored', n:'Thrust Vectored'},{id:'Cyclic', n:'Cyclic (Swashplate)'}];
 
-var FUS_SHAPE = [{id:'Circular', n:'Circular / Tubular'},{id:'Oval', n:'Oval / Elliptical'},{id:'Rectangular', n:'Rectangular / Box'},{id:'Blended', n:'Blended / Lifting Body'}];
+var FUS_SHAPE = [{id:'Circular', n:'Circular / Tubular'},{id:'Oval', n:'Oval / Elliptical'},{id:'Rectangular', n:'Rectangular / Box'},{id:'Blended', n:'Blended / Lifting Body'},{id:'PodBoom', n:'Pod and Boom'}];
 var FUS_KIN = [{id:'Fixed', n:'Fixed / Conventional'},{id:'Variable', n:'Variable Incidence / Tilting Body'}];
 var GEAR_ARCH = [{id:'Skids', n:'Skids / Fixed Skids'},{id:'FixedWheel', n:'Fixed Wheeled Gear'},{id:'RetrWheel', n:'Retractable Wheeled Gear'},{id:'PadsHull', n:'Pads / Hull'}];
 
 var T2_PER = ['Top', 'Bottom/Down', 'Front', 'Back', 'Side', 'Front-Isometric', 'Rear-Isometric', 'Generic 3D'];
-var T2_SYM = ['Symmetric View', 'Asymmetric View'];
 var T2_AC_STY = ['Line Drawing', 'Shaded Render', 'Solid/Filled Model', 'Schematic'];
 var T2_AC_COL = ['B/W (Monochrome)', 'Grayscale', 'Full Color'];
 var T2_BG_STY = ['Solid Fill', 'Shaded/Gradient', 'Grid/Pattern'];
@@ -340,7 +349,9 @@ var S=fresh();
 
 // FigData Accessors
 function figGet(fNum, key, fallback) {
-  var d = S.figData[fNum]; return (d && d[key] != null) ? d[key] : (fallback !== undefined ? fallback : null);
+  var d = S.figData[fNum];
+  if (!d && key === 'status') return 'disapproved';
+  return (d && d[key] != null) ? d[key] : (fallback !== undefined ? fallback : null);
 }
 function figSet(fNum, key, val) {
   if (!S.figData[fNum]) S.figData[fNum] = {}; S.figData[fNum][key] = val;
@@ -423,6 +434,15 @@ function buildLbl() {
 }
 
 function m3Field(key, suffix) { return 'm3_' + key + '_' + suffix; }
+// TP physics lock: tilt propulsors articulate by definition, so force
+// propKin = Tilt across every possible M3 component (the component set is
+// dynamic, so cover all known keys). Mirrored by the render-time lock in
+// m3Card() and the export-time force in buildExport().
+function lockPropKinTilt() {
+  ['core_layout','hull_array','fuselage','emp','wing1','wing2','wing3','wing4'].forEach(function(k){
+    S[m3Field(k,'propKin')] = 'Tilt';
+  });
+}
 function m3Get(key, suffix, fallback) {
   var field = m3Field(key, suffix);
   if (typeof S[field] == 'undefined' || S[field] === null || S[field] === '') return fallback;
@@ -467,11 +487,11 @@ function m3Blueprints() {
 }
 
 function m3OrientationOptions() {
-  if (S.topType === 'SRW') {
-    return [{id:'Fixed_Vertical', n:'Fixed Vertical (Hover Mode, Spinning)'}, {id:'Fixed_Horizontal', n:'Fixed Horizontal / Cruise Pusher'}, {id:'Stopped_Wing', n:'Stopped / Locked Rotor (Cruise Wing Mode)'}];
-  }
-  if (isIndependentThrust()) return [{id:'Fixed_Vertical', n:'Fixed Vertical / Lift Engine'},{id:'Fixed_Horizontal', n:'Fixed Horizontal / Cruise Pusher'}];
-  return [{id:'Fixed_Vertical', n:'Fixed Vertical'},{id:'Fixed_Horizontal', n:'Fixed Horizontal'},{id:'Tilting_Mechanism', n:'Vectoring / Tilting Mechanism'}];
+  // orient vocab [Horizontal, Vertical, Mixed] — identical across the stack
+  // (vlm_extractor.py / cross_modal.py / reviewer.py / excel_schema.py).
+  // Independent fixed lift+cruise thrust never tilts, so it omits "Mixed".
+  if (isIndependentThrust()) return [{id:'Vertical', n:'Vertical / Lift Engine'},{id:'Horizontal', n:'Horizontal / Cruise Pusher'}];
+  return [{id:'Horizontal', n:'Horizontal (Cruise)'},{id:'Vertical', n:'Vertical (Hover)'},{id:'Mixed', n:'Mixed (Vectoring / Tilting)'}];
 }
 function m3ZoneOptions(bp) {
   if (bp.key === 'emp') return [{id:'StackV', n:'Stacked Vertically'},{id:'StackH', n:'Stacked Horizontally'},{id:'Tip', n:'Tip Mounted'}];
@@ -518,13 +538,23 @@ function m3Card(bp) {
       
       if (S.topType === 'TW' && bp.key.indexOf('wing') > -1) {
         h += '<div class="flag skip"><span class="f-lbl">Kinematic Modifiers Locked</span>Thrust Kinematics are fixed relative to the wing, as the entire wing rotates.</div>';
-        h += '<div class="m2-kv">Thrust Kinematics (Locked)</div>' + grid('', m3OrientationOptions().map(function(o){ return oc(m3Field(bp.key,'orient'), o.id, o.n, null, null, o.id !== 'Fixed_Horizontal'); }));
+        h += '<div class="m2-kv">Thrust Kinematics (Locked)</div>' + grid('', m3OrientationOptions().map(function(o){ return oc(m3Field(bp.key,'orient'), o.id, o.n, null, null, o.id !== 'Horizontal'); }));
       } else {
         h += '<div class="m2-kv">Thrust Kinematics</div>' + grid('', m3OrientationOptions().map(function(o){ return oc(m3Field(bp.key,'orient'), o.id, o.n); }));
       }
 
       h += '<div class="m2-kv">Aerodynamic Blade Behavior</div>' + grid('', BLADE_MECH.map(function(o){ return oc(m3Field(bp.key,'bmech'), o.id, o.n); }));
       h += '<div class="m2-kv">Retraction Kinematics</div>' + grid('', RETRACT_MECH.map(function(o){ return oc(m3Field(bp.key,'rmech'), o.id, o.n); }));
+
+      // Propulsor Articulation (propKin). Physics lock: for TP (Tilt Propulsors)
+      // the propulsors tilt by definition, so propKin is forced to Tilt and the
+      // group is rendered selected + disabled (state is persisted in the g1Sub /
+      // ingestAI physics-lock blocks and forced again in buildExport).
+      var propKinLocked = (S.topType === 'TP');
+      h += '<div class="m2-kv">Propulsor Articulation' + (propKinLocked ? ' (Locked)' : '') + '</div>' + grid('', PROP_KIN.map(function(o){
+        var sel = propKinLocked ? (o.id === 'Tilt') : (m3Get(bp.key,'propKin',null) === o.id);
+        return '<div class="opt' + (sel ? ' sel' : '') + (propKinLocked ? ' dis' : '') + '" data-field="' + m3Field(bp.key,'propKin') + '" data-val="' + encodeURIComponent(o.id) + '" title="' + o.n + '"><div class="o-name">' + o.n + '</div></div>';
+      }));
     }
     
     if (bp.zoneMode) {
@@ -903,8 +933,6 @@ function pageT2(){
   var archOptions = '';
   for(var i=1; i<=S.archCount; i++) { archOptions += '<option value="'+i+'" '+(arch==String(i)?'selected':'')+'>Architecture '+i+'</option>'; }
 
-  var highlightedText=T1_META.descriptionOfDrawings.split('\n').map(function(line){return (fNum&&line.match(new RegExp('FIG\\.?\\s*'+fNum.replace(/_Fu/i,'').replace(/[A-Z]$/i,'')+'\\b','i')))?'<span class="highlight-fig">'+escHtml(line)+'</span>':escHtml(line);}).join('\n');
-
   var h='<div class="p-module">Module T2 &middot; Image Characteristics &amp; Drawing-Level Analysis</div><div class="p-q">Visual Token Attributes &amp; Document Extraction Labels</div>'
 
   h += '<div class="t2-split">';
@@ -917,19 +945,25 @@ function pageT2(){
   var previewPlaceholder = 'https://placehold.co/600x400/E8E7E0/5A5955?text=Mock+Crop:+FIG.+' + escHtml(fNum);
   var imgPath = realFigImage(fNum) || previewPlaceholder;
 
-  h += '<div class="t2-left"><div class="sec" style="margin-top:0;">Description of Drawings</div>'
+  var srcUrl = figGet(fNum, "sourceUrl", null);
+
+  h += '<div class="t2-left">'
     + '<div style="margin-bottom:12px; display:flex; align-items:center; gap:8px;">'
     + '<span class="m3-label" style="margin-bottom:0;">Active: FIG.</span>'
     + '<input type="text" class="m3-num" style="width:64px; padding:6px 8px; min-height:0;" data-field="t2figNum" value="'+escHtml(fNum)+'">'
     + '</div>'
     + warnHtml
     + '<div style="margin-bottom:8px;"><img id="t2-img-preview" src="' + imgPath + '" onerror="this.onerror=null;this.src=\'' + previewPlaceholder + '\';" style="width:100%;border-radius:6px;border:1px solid var(--border);background:var(--bg2);transform:rotate(' + rotation + 'deg);transition:transform .15s ease;"></div>'
-    + '<div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">'
+    + (srcUrl
+        ? '<div style="margin-top:4px;font-size:11px;">'
+          + '<a href="' + escHtml(srcUrl) + '" target="_blank" rel="noopener"'
+          + ' style="color:var(--accent);text-decoration:none;">↗ View source</a></div>'
+        : '')
+    + '<div style="display:flex; align-items:center; gap:8px; margin-bottom:12px; margin-top:8px;">'
       + '<button type="button" class="btn" data-t2-rotate="true" style="padding:6px 12px; font-size:12px;">↻ Rotate 90°</button>'
       + (rotation !== 0 ? '<span class="crumb" style="font-family:var(--mono);">Current: ' + rotation + '°</span>' : '')
       + (rotSuggested !== 0 && rotation === rotSuggested ? '<span style="font-size:11px; color:var(--text3);">(AI suggestion)</span>' : '')
     + '</div>'
-    + '<div style="white-space:pre-wrap; font-size:13px; line-height:1.6; color:var(--text2);">'+highlightedText+'</div>'
     + '</div>';
 
   // RIGHT PANEL — Level 1 (figure grid, always visible) + Level 2 (active figure detail)
@@ -969,7 +1003,6 @@ function pageT2(){
 
     h += '<div class="m3-card" style="margin-bottom:8px; padding:12px;"><div class="m3-head">A. Projection Coordinates</div>'
        + sec('Perspective / Camera Angle') + grid('n',T2_PER.map(function(p){return ocFig('per',p,p);}))
-       + sec('Symmetry') + grid('n',T2_SYM.map(function(s){return ocFig('sym',s,s);}))
        + '</div>';
 
     h += '<div class="m3-card" style="margin-bottom:8px; padding:12px;"><div class="m3-head">B. Image Rendering Style</div>'
@@ -983,10 +1016,36 @@ function pageT2(){
        + '</div>';
 
     h += '<div class="m3-card" style="margin-bottom:8px; padding:12px;"><div class="m3-head">D. Image Quality Flag</div>'
-       + grid('n', QUALITY_FLAGS.map(qualityChip))
-       + '</div>';
+       + grid('n', QUALITY_FLAGS.map(qualityChip));
+    h += '<div style="display:flex;align-items:center;gap:8px;margin-top:8px;">'
+       + '<input type="checkbox" id="t2-has-legends"'
+       + (figGet(fNum,"hasLegends",false) ? " checked" : "")
+       + ' data-fig-bool="hasLegends" style="width:14px;height:14px;">'
+       + '<label for="t2-has-legends" style="font-size:13px;cursor:pointer;">'
+       + 'Contains callouts / legends / text overlays</label></div>';
+    h += '</div>';
 
-    h += commentsSection();
+    // Per-figure commentary — replaces the global commentsSection() in T2 only;
+    // notes and edge-case tags are stored on figData[fNum] so they travel with
+    // this specific figure instead of the whole patent.
+    h += '<div class="m3-card" style="margin-bottom:8px;padding:12px;">'
+       + '<div class="m3-head">Figure Notes</div>'
+       + '<textarea class="m3-num" data-fig-comment="true" placeholder="Notes for this figure..."'
+       + ' style="width:100%;min-height:60px;padding:8px;resize:vertical;font-size:13px;">'
+       + escHtml(figGet(fNum, "comment", "")) + '</textarea>'
+       + '<div style="margin-top:8px;display:flex;gap:8px;">'
+       + '<input type="text" id="t2-edge-tag-input" class="m3-num"'
+       + ' placeholder="New edge-case token..." style="flex:1;padding:6px 10px;min-height:0;">'
+       + '<button type="button" class="btn" id="btn-add-edge-tag" style="padding:6px 12px;">+ Tag</button>'
+       + '</div>'
+       + (figGet(fNum,"edgeTags",[]).length > 0
+          ? '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;">'
+            + figGet(fNum,"edgeTags",[]).map(function(t){
+                return '<span class="crumb" style="cursor:pointer;" data-remove-tag="'+escHtml(t)+'">'
+                       + escHtml(t) + ' ×</span>';
+              }).join("") + "</div>"
+          : "")
+       + "</div>";
   } else {
     h += '<div class="flag skip"><span class="f-lbl">No Figure Selected</span>Select a figure card above to begin labeling.</div>';
   }
@@ -999,7 +1058,8 @@ function pageGate(){ return '<div class="p-module">Level 1 &middot; G1 Architect
 
 function pageM1(){ 
   var blurInputs = S.footAmbiguous ? ' style="opacity:0.4; pointer-events:none;"' : '';
-  return '<div class="p-module">Module M1 &middot; Structural Dimensions &amp; Airframe Kinematics</div><div class="p-q">Airframe Geometric Footprint &amp; Symmetry Tokens</div><div class="m3-shell"><div class="m3-card"><div class="m3-head">Dataset Symmetry Matrix (ML Parameter Identifiers)</div><div class="m3-sub">Identify mathematical mirror planes to optimize downstream classification weights.</div><div class="m3-grid"><div><label class="m2-check" style="font-size:13px; font-weight:500;"><input type="checkbox" data-field="latSym" ' + (S.latSym ? 'checked' : '') + '> Lateral Plane Symmetry (Left-to-Right Balance)</label></div><div><label class="m2-check" style="font-size:13px; font-weight:500;"><input type="checkbox" data-field="longSym" ' + (S.longSym ? 'checked' : '') + '> Longitudinal Fore/Aft Mirror Symmetry (Tandem / Quad arrays)</label></div></div></div><div class="m3-card"><div class="m3-head" style="display:flex; justify-content:space-between; align-items:center;">Airframe Exterior Bounding Box <button type="button" class="btn ' + (S.footAmbiguous?'danger':'') + '" id="btn-m1-bypass" style="padding:4px 10px; font-size:11px;">' + (S.footAmbiguous?'Re-Enable Inputs':'Bypass Missing Measurements') + '</button></div><div class="m3-sub">Document absolute operational footprints for pads clearance verification.</div><div class="m3-grid"'+blurInputs+'><div class="m3-field"><div class="m3-label">Maximum Length (meters)</div><input class="m3-num" type="number" step="0.1" min="0" inputmode="decimal" data-field="footLen" value="'+(S.footLen||'')+'" placeholder="0.0"></div><div class="m3-field"><div class="m3-label">Maximum Wingspan (meters)</div><input class="m3-num" type="number" step="0.1" min="0" inputmode="decimal" data-field="footWid" value="'+(S.footWid||'')+'" placeholder="0.0"></div><div class="m3-field"><div class="m3-label">Maximum Height (meters)</div><input class="m3-num" type="number" step="0.1" min="0" inputmode="decimal" data-field="footHgt" value="'+(S.footHgt||'')+'" placeholder="0.0"></div><div class="m3-field"><div class="m3-label">Total Projection Area</div><input class="m3-readonly" type="text" readonly value="'+(m1FootprintArea()?m1FootprintArea()+' m\u00b2':'\u2014')+'"></div></div></div><div class="m3-card"><div class="m3-head">Fuselage Profiles &amp; Kinematics</div><div class="m3-grid"><div><div class="m3-label">Structural Cross-Section Profile</div>' + grid('', FUS_SHAPE.map(function(o){ return oc('fusShape', o.id, o.n); })) + '</div><div><div class="m3-label">Fuselage Incidence Mechanics</div>' + grid('', FUS_KIN.map(function(o){ return oc('fusKin', o.id, o.n); })) + '</div></div>'
+  var bypassOn = (S.footAmbiguous === undefined) ? true : S.footAmbiguous;
+  return '<div class="p-module">Module M1 &middot; Structural Dimensions &amp; Airframe Kinematics</div><div class="p-q">Airframe Geometric Footprint &amp; Symmetry Tokens</div><div class="m3-shell"><div class="m3-card"><div class="m3-head">Dataset Symmetry Matrix (ML Parameter Identifiers)</div><div class="m3-sub">Identify mathematical mirror planes to optimize downstream classification weights.</div><div class="m3-grid"><div><label class="m2-check" style="font-size:13px; font-weight:500;"><input type="checkbox" data-field="latSym" ' + (S.latSym ? 'checked' : '') + '> Lateral Plane Symmetry (Left-to-Right Balance)</label></div><div><label class="m2-check" style="font-size:13px; font-weight:500;"><input type="checkbox" data-field="longSym" ' + (S.longSym ? 'checked' : '') + '> Longitudinal Fore/Aft Mirror Symmetry (Tandem / Quad arrays)</label></div></div></div><div class="m3-card"><div class="m3-head" style="display:flex; justify-content:space-between; align-items:center;">Airframe Exterior Bounding Box <button type="button" class="btn ' + (bypassOn?'danger':'') + '" id="btn-m1-bypass" style="padding:4px 10px; font-size:11px;">' + (bypassOn?'Re-Enable Inputs':'Bypass Missing Measurements') + '</button></div><div class="m3-sub">Document absolute operational footprints for pads clearance verification.</div><div class="m3-grid"'+blurInputs+'><div class="m3-field"><div class="m3-label">Maximum Length (meters)</div><input class="m3-num" type="number" step="0.1" min="0" inputmode="decimal" data-field="footLen" value="'+(S.footLen||'')+'" placeholder="0.0"></div><div class="m3-field"><div class="m3-label">Maximum Wingspan (meters)</div><input class="m3-num" type="number" step="0.1" min="0" inputmode="decimal" data-field="footWid" value="'+(S.footWid||'')+'" placeholder="0.0"></div><div class="m3-field"><div class="m3-label">Maximum Height (meters)</div><input class="m3-num" type="number" step="0.1" min="0" inputmode="decimal" data-field="footHgt" value="'+(S.footHgt||'')+'" placeholder="0.0"></div><div class="m3-field"><div class="m3-label">Total Projection Area</div><input class="m3-readonly" type="text" readonly value="'+(m1FootprintArea()?m1FootprintArea()+' m\u00b2':'\u2014')+'"></div></div></div><div class="m3-card"><div class="m3-head">Fuselage Profiles &amp; Kinematics</div><div class="m3-grid"><div><div class="m3-label">Structural Cross-Section Profile</div>' + grid('', FUS_SHAPE.map(function(o){ return oc('fusShape', o.id, o.n); })) + '</div><div><div class="m3-label">Fuselage Incidence Mechanics</div>' + grid('', FUS_KIN.map(function(o){ return oc('fusKin', o.id, o.n); })) + '</div></div>'
   + '<div class="m3-field" style="margin-top:10px;"><div class="m3-label">Fuselage Edge-Case Notes</div><textarea class="comments" style="min-height:56px;" data-field="fusNotes" placeholder="Log fuselage ambiguities here...">' + escHtml(S.fusNotes) + '</textarea></div>'
   + '</div><div class="m3-card"><div class="m3-head">Ground Contact Interface</div><div class="m3-zone">' + GEAR_ARCH.map(function(o){ return oc('gearArch', o.id, o.n); }).join('') + '</div>'
   + '<div class="m3-field" style="margin-top:10px;"><div class="m3-label">Ground Contact Edge-Case Notes</div><textarea class="comments" style="min-height:56px;" data-field="gearNotes" placeholder="Log landing gear ambiguities here...">' + escHtml(S.gearNotes) + '</textarea></div>'
@@ -1074,8 +1134,18 @@ function pageDone(){ return '<div class="p-module">Complete Morphological Profil
 function renderStep(){ document.getElementById('stepper').innerHTML = STEPS.map(function(s,i){ return (i>0?'<div class="s-bar'+(i<=S.step?' done':'')+'"></div>':'')+'<div class="s-wrap"><div class="s-dot '+(i<S.step?'done':i===S.step?'active':'')+'">'+(i<S.step?'\u2713':(i+1))+'</div><div class="s-lbl '+(i<S.step?'done':i===S.step?'active':'')+'">'+s.lbl+'</div></div>'; }).join(''); }
 function renderBC(){ var h=''; if(S.t1Scope) h+='<span class="crumb hi">'+S.t1Scope.split(' ')[0]+'</span>'; if(S.topType) h+='<span class="crumb hi">'+S.topType+'</span>'; if(S.wingConf) h+='<span class="crumb">'+S.wingConf+(S.wingConf=='W'?'\u00d7'+S.wCount:'')+'</span>'; if(S.empType) h+='<span class="crumb">'+S.empType+'</span>'; if(curSID()=='m3') h+='<span class="crumb">M3 Core Array: '+m3TotalCount()+' units</span>'; document.getElementById('bc').innerHTML=h; }
 
+function renderPreserveScroll() {
+  var panel = document.getElementById('panel');
+  var pos = panel ? panel.scrollTop : 0;
+  render();
+  if (panel) panel.scrollTop = pos;
+}
+
 function render(){
   renderStep(); renderBC(); renderThroughput();
+  document.getElementById('hdr-id').textContent = T1_META.recordNumber || '';
+  document.getElementById('hdr-name').textContent =
+    T1_META.aircraftName || T1_META.title || 'Unnamed';
   var sid=curSID(), p=document.getElementById('panel'), content='';
   if(sid=='t1') content=pageT1(); else if(sid=='t2') content=pageT2(); else if(sid=='gate') content=pageGate(); else if(sid=='m1') content=pageM1(); else if(sid=='m2') content=pageM2(); else if(sid=='m3') content=pageM3(); else if(sid=='done'){ p.innerHTML=pageDone(); return; }
   p.innerHTML=content+'<div class="nav">'+(S.step>0?'<button type="button" class="btn" id="btn-back">\u2190 Back</button>':'<div></div>')+'<div class="bgrp"><button type="button" class="btn pri" id="btn-next"'+(!canGo()?' disabled':'')+'>Next Step \u2192</button></div></div>';
@@ -1099,7 +1169,7 @@ function buildExport() {
     fusShape: S.fusShape, fusKin: S.fusKin, fusNotes: S.fusNotes, gearArch: S.gearArch, gearNotes: S.gearNotes, wingNotes: S.wingNotes,
     footLen: S.footLen, footWid: S.footWid, footHgt: S.footHgt, latSym: S.latSym, longSym: S.longSym,
     propulsionCards: m3Blueprints().map(function(bp){
-      return { component: bp.key, count: m3Count(bp.key), chord: m3Get(bp.key,'chord'), orient: m3Get(bp.key,'orient'), bmech: m3Get(bp.key,'bmech'), rmech: m3Get(bp.key,'rmech'), zone: m3Get(bp.key,'zone'), zoneChord: m3Get(bp.key,'zoneChord'), zoneSpan: m3Get(bp.key,'zoneSpan'), notes: m3Get(bp.key,'notes') };
+      return { component: bp.key, count: m3Count(bp.key), chord: m3Get(bp.key,'chord'), orient: m3Get(bp.key,'orient'), bmech: m3Get(bp.key,'bmech'), rmech: m3Get(bp.key,'rmech'), propKin: (S.topType === 'TP' ? 'Tilt' : m3Get(bp.key,'propKin')), zone: m3Get(bp.key,'zone'), zoneChord: m3Get(bp.key,'zoneChord'), zoneSpan: m3Get(bp.key,'zoneSpan'), notes: m3Get(bp.key,'notes') };
     }),
     labelToken: buildLbl(), comments: S.comments, timestamp: new Date().toISOString()
   };
@@ -1120,6 +1190,7 @@ function ingestAI(data) {
     if (t1.t1Target)            S.t1Target           = t1.t1Target;
     if (t1.innovTarget && !t1.t1Target) S.t1Target   = t1.innovTarget; // fallback key
     if (t1.arch_count  != null) S.archCount          = parseInt(t1.arch_count) || 1;
+    if (t1.aircraftName)        T1_META.aircraftName = t1.aircraftName;
   }
   // G1
   if (data.G1 && data.G1.topType) {
@@ -1129,9 +1200,10 @@ function ingestAI(data) {
     // Apply all physics locks — mirrors Audit B-02 exactly
     if (S.topType === 'TP') {
       for (var i = 1; i <= 4; i++) { S['wTilt' + i] = 'Fixed'; }
+      lockPropKinTilt();   // tilt propulsors → propKin = Tilt for every component
     } else if (S.topType === 'TW') {
       S.wTilt1 = 'Tilt';
-      for (var i = 1; i <= 4; i++) { S['m3_wing' + i + '_orient'] = 'Fixed_Horizontal'; }
+      for (var i = 1; i <= 4; i++) { S['m3_wing' + i + '_orient'] = 'Horizontal'; }
     } else if (S.topType === 'RC' || S.topType === 'MR') {
       for (var i = 1; i <= 4; i++) { S['wTilt' + i] = null; }
     }
@@ -1194,7 +1266,7 @@ function ingestAI(data) {
       var fig = data.T2[figNum];
       if (!fig || typeof fig !== 'object') return;
       // Only write fields that are non-null and valid strings
-      ['per','acSty','acCol','bgSty','bgCol','sym','dupOfPatent','dupOfFig'].forEach(function(key) {
+      ['per','acSty','acCol','bgSty','bgCol','dupOfPatent','dupOfFig','sourceUrl'].forEach(function(key) {
         if (fig[key] != null) figSet(figNum, key, fig[key]);
       });
       if (Array.isArray(fig.parts) && fig.parts.length > 0) {
@@ -1214,7 +1286,7 @@ function ingestAI(data) {
     data.propulsionCards.forEach(function(card) {
       var key = card.component;
       if (!key) return;
-      ['count','chord','orient','bmech','rmech','zone','zoneChord','zoneSpan','notes'].forEach(function(f) {
+      ['count','chord','orient','bmech','rmech','propKin','zone','zoneChord','zoneSpan','notes'].forEach(function(f) {
         if (card[f] != null) { S['m3_' + key + '_' + f] = card[f]; }
       });
       // Symmetric-pairs flag is a boolean — coerce so "true"/"false" strings
@@ -1222,12 +1294,14 @@ function ingestAI(data) {
       if (card.sym != null) { S['m3_' + key + '_sym'] = xlBool(card.sym); }
       // TW wing orient lock: override any AI value
       if (S.topType === 'TW' && key.indexOf('wing') > -1) {
-        S['m3_' + key + '_orient'] = 'Fixed_Horizontal';
+        S['m3_' + key + '_orient'] = 'Horizontal';
       }
-      // SLC/SRW: strip Tilting_Mechanism if AI hallucinated it
+      // SLC/SRW: strip Mixed (tilting/vectoring) if AI hallucinated it
       if (['SLC','SRW'].indexOf(S.topType) > -1) {
-        if (S['m3_' + key + '_orient'] === 'Tilting_Mechanism') { S['m3_' + key + '_orient'] = null; }
+        if (S['m3_' + key + '_orient'] === 'Mixed') { S['m3_' + key + '_orient'] = null; }
       }
+      // TP propKin lock: override any AI value with Tilt
+      if (S.topType === 'TP') { S['m3_' + key + '_propKin'] = 'Tilt'; }
     });
   }
   // Confidence summary in status bar
@@ -1377,7 +1451,7 @@ function recordToRows(record, pid) {
     var fname   = FIG_FILENAMES[fNum] || "";
     var imgPath = FIG_IMAGE_PATH[fNum] || null;
     var subDim  = fname ? ("Image: " + fname) : ("Image: (fig " + fNum + ")");
-    ["per","sym","acSty","acCol","bgSty","bgCol"].forEach(function(f) {
+    ["per","acSty","acCol","bgSty","bgCol"].forEach(function(f) {
       rows.push(reviewRow(pid, "T2", subDim, f, fd[f] != null ? fd[f] : null, null, "human", imgPath));
     });
     rows.push(reviewRow(pid, "T2", subDim, "parts", Array.isArray(fd.parts) ? fd.parts.join("|") : (fd.parts || null), null, "human", imgPath));
@@ -1551,7 +1625,7 @@ function rowsToAIData(rows) {
   FIG_IMAGE_PATH = {};
   Object.keys(byImage).forEach(function(fname) {
     var rec = byImage[fname], entry = {};
-    ['per', 'sym', 'acSty', 'acCol', 'bgSty', 'bgCol', 'dupOfPatent', 'dupOfFig'].forEach(function(k) {
+    ['per', 'acSty', 'acCol', 'bgSty', 'bgCol', 'dupOfPatent', 'dupOfFig'].forEach(function(k) {
       if (rec[k] != null) entry[k] = rec[k];
     });
     if (rec.parts != null) entry.parts = String(rec.parts).split('|').filter(Boolean);
@@ -1708,6 +1782,7 @@ function loadBatchPatent(idx) {
   // Derive the Google Patents URL from the Patent_ID, normalizing the
   // PatSeer 6-digit sequence number to GP's 7-digit format first.
   T1_META.pdfLink              = 'https://patents.google.com/patent/' + normalizePatentIdForGoogle(pid) + '/en';
+  T1_META.aircraftName          = metaVal('aircraftName') || T1_META.aircraftName;
   T1_META.title                = metaVal('title')        || T1_META.title;
   T1_META.abstract             = metaVal('abstract')      || T1_META.abstract;
   T1_META.assignee             = metaVal('assignee')      || T1_META.assignee;
@@ -1905,9 +1980,9 @@ document.getElementById('panel').addEventListener('click', function(e){
 
   if(tgt.tagName === 'SUMMARY' || tgt.closest('summary')) return;
 
-  if(tgt.id === 'btn-m1-bypass') { S.footAmbiguous = !S.footAmbiguous; render(); return; }
-  if(tgt.id === 'btn-next' && !tgt.disabled) { S.step++; render(); return; }
-  if(tgt.id === 'btn-back') { S.step--; render(); return; }
+  if(tgt.id === 'btn-m1-bypass') { S.footAmbiguous = !S.footAmbiguous; renderPreserveScroll(); return; }
+  if(tgt.id === 'btn-next' && !tgt.disabled) { S.step++; renderPreserveScroll(); return; }
+  if(tgt.id === 'btn-back') { S.step--; renderPreserveScroll(); return; }
   
   if(tgt.id === 'btn-export-next') {
     var record = buildExport();
@@ -1941,11 +2016,11 @@ document.getElementById('panel').addEventListener('click', function(e){
       THROUGHPUT.figCur = '1';
       S=fresh();
     }
-    render(); return;
+    renderPreserveScroll(); return;
   }
 
   var figNavBtn = tgt.closest('[data-fig-nav]');
-  if (figNavBtn) { S.t2figNum = figNavBtn.getAttribute('data-fig-nav'); render(); return; }
+  if (figNavBtn) { S.t2figNum = figNavBtn.getAttribute('data-fig-nav'); renderPreserveScroll(); return; }
 
   if (tgt.id === 'btn-copy-morphology') {
     copyMorphologyFromOriginal((S.duplicateId||'').trim());
@@ -1964,19 +2039,42 @@ document.getElementById('panel').addEventListener('click', function(e){
       if (!S.t1Field)  S.t1Field  = 'Aerodynamic/Structural';
       if (!S.t1Target) S.t1Target = 'Layout Convergence';
     }
-    render(); return;
+    renderPreserveScroll(); return;
   }
 
   // T1 Duplicate Type
   var dupTypeBtn = tgt.closest('[data-dup-type]');
-  if (dupTypeBtn) { S.duplicateType = dupTypeBtn.getAttribute('data-dup-type'); render(); return; }
+  if (dupTypeBtn) { S.duplicateType = dupTypeBtn.getAttribute('data-dup-type'); renderPreserveScroll(); return; }
 
   // T2 Figure Quality Flag
   var figQualBtn = tgt.closest('[data-fig-quality]');
   if (figQualBtn) {
     var fNumQ = (S.t2figNum||'1').trim();
     figSet(fNumQ, 'qualityFlag', figQualBtn.getAttribute('data-fig-quality'));
-    render(); return;
+    renderPreserveScroll(); return;
+  }
+
+  // T2 Per-figure edge-case tags
+  if (tgt.id === 'btn-add-edge-tag') {
+    var tagInput = document.getElementById('t2-edge-tag-input');
+    var newTag = tagInput ? tagInput.value.trim() : '';
+    if (newTag) {
+      var fNumTag = (S.t2figNum||'1').trim();
+      var tags = figGet(fNumTag, 'edgeTags', []);
+      if (tags.indexOf(newTag) === -1) { tags = tags.concat([newTag]); figSet(fNumTag, 'edgeTags', tags); }
+      tagInput.value = '';
+      renderPreserveScroll();
+    }
+    return;
+  }
+  var removeTagEl = tgt.closest('[data-remove-tag]');
+  if (removeTagEl) {
+    var fNumRmTag = (S.t2figNum||'1').trim();
+    var tagToRemove = removeTagEl.getAttribute('data-remove-tag');
+    var tagsArr = figGet(fNumRmTag, 'edgeTags', []).filter(function(t){ return t !== tagToRemove; });
+    figSet(fNumRmTag, 'edgeTags', tagsArr);
+    renderPreserveScroll();
+    return;
   }
 
   // T2 Figure Grid — per-card Approve / Disapprove / Text-toggle. Checked
@@ -1987,7 +2085,7 @@ document.getElementById('panel').addEventListener('click', function(e){
   if (gridApproveBtn) {
     var fNumA = gridApproveBtn.getAttribute('data-grid-approve');
     figSet(fNumA, 'status', figGet(fNumA,'status',null) === 'approved' ? null : 'approved');
-    render(); return;
+    renderPreserveScroll(); return;
   }
   var gridDisBtn = tgt.closest('[data-grid-disapprove]');
   if (gridDisBtn) {
@@ -1995,22 +2093,22 @@ document.getElementById('panel').addEventListener('click', function(e){
     var nextD = figGet(fNumD,'status',null) === 'disapproved' ? null : 'disapproved';
     figSet(fNumD, 'status', nextD);
     if (nextD === 'disapproved' && S.mainFigure === fNumD) S.mainFigure = null;
-    render(); return;
+    renderPreserveScroll(); return;
   }
   var gridTextBtn = tgt.closest('[data-grid-text-toggle]');
   if (gridTextBtn) {
     var fNumT = gridTextBtn.getAttribute('data-grid-text-toggle');
     figSet(fNumT, 'gridShowText', !figGet(fNumT,'gridShowText',false));
-    render(); return;
+    renderPreserveScroll(); return;
   }
 
   // T2 Figure Grid Card select
   var figCardBtn = tgt.closest('[data-fig-card]');
-  if (figCardBtn) { S.t2figNum = figCardBtn.getAttribute('data-fig-card'); render(); return; }
+  if (figCardBtn) { S.t2figNum = figCardBtn.getAttribute('data-fig-card'); renderPreserveScroll(); return; }
   if (tgt.id === 'btn-add-figure') {
     var maxN = 0;
     t2AllFigNums().forEach(function(n){ var p = parseInt(n,10); if(!isNaN(p) && p>maxN) maxN=p; });
-    S.t2figNum = String(maxN+1); render(); return;
+    S.t2figNum = String(maxN+1); renderPreserveScroll(); return;
   }
 
   // T2 Status & Main Figure
@@ -2021,14 +2119,14 @@ document.getElementById('panel').addEventListener('click', function(e){
           var newStatus = t2StatBtn.getAttribute('data-t2-status');
           figSet(fNum, 'status', newStatus); 
           if (newStatus === 'disapproved' && S.mainFigure === fNum) S.mainFigure = null;
-          render(); 
+          renderPreserveScroll(); 
       } 
       return; 
   }
   var t2MainBtn = tgt.closest('[data-t2-main]');
   if (t2MainBtn) {
       var fNum2 = (S.t2figNum||'1').trim();
-      if(fNum2){ S.mainFigure = fNum2; figSet(fNum2, 'status', 'approved'); render(); }
+      if(fNum2){ S.mainFigure = fNum2; figSet(fNum2, 'status', 'approved'); renderPreserveScroll(); }
       return;
   }
 
@@ -2039,16 +2137,16 @@ document.getElementById('panel').addEventListener('click', function(e){
       if (fNumR) {
           var curRot = figGet(fNumR, 't2_rotation', 0);
           figSet(fNumR, 't2_rotation', (curRot + 90) % 360);
-          render();
+          renderPreserveScroll();
       }
       return;
   }
 
   var t1Btn = tgt.closest('.t1-scopebtn');
-  if (t1Btn) { S.t1Scope = decodeURIComponent(t1Btn.getAttribute('data-val')); render(); return; }
+  if (t1Btn) { S.t1Scope = decodeURIComponent(t1Btn.getAttribute('data-val')); renderPreserveScroll(); return; }
 
   var g1Master = tgt.closest('.g1-master');
-  if(g1Master){ S.g1Focus = g1Master.getAttribute('data-g1-master'); S.topType = null; render(); return; }
+  if(g1Master){ S.g1Focus = g1Master.getAttribute('data-g1-master'); S.topType = null; renderPreserveScroll(); return; }
 
   var g1Sub = tgt.closest('.g1-subbtn');
   if(g1Sub && g1Sub.getAttribute('data-g1-top')){ 
@@ -2058,13 +2156,14 @@ document.getElementById('panel').addEventListener('click', function(e){
     // Audit B-02 Fix: Apply Physics Locks here, not in render
     if (S.topType === 'TP') {
         for (var i = 1; i <= 4; i++) { S['wTilt'+i] = 'Fixed'; }
+        lockPropKinTilt();   // tilt propulsors → propKin = Tilt for every component
     } else if (S.topType === 'TW') {
         S['wTilt1'] = 'Tilt';
-        for (var i = 1; i <= 4; i++) { S['m3_wing'+i+'_orient'] = 'Fixed_Horizontal'; }
+        for (var i = 1; i <= 4; i++) { S['m3_wing'+i+'_orient'] = 'Horizontal'; }
     } else if (S.topType === 'RC' || S.topType === 'MR') {
         for (var i = 1; i <= 4; i++) { S['wTilt'+i] = null; }
     }
-    render(); return; 
+    renderPreserveScroll(); return;
   }
   
   var opt = tgt.closest('.opt');
@@ -2082,17 +2181,17 @@ document.getElementById('panel').addEventListener('click', function(e){
             [1,2,3,4].forEach(function(i){ S[base+i] = (base==='wPlanOth')?'':null; });
           });
       }
-      render(); return;
+      renderPreserveScroll(); return;
     } else if (arrfield) {
       var arr = S[arrfield] || [], idx = arr.indexOf(val);
       if (idx > -1) arr.splice(idx, 1); else arr.push(val);
-      S[arrfield] = arr; render(); return;
+      S[arrfield] = arr; renderPreserveScroll(); return;
     } else if (figfield) {
-      figSet((S.t2figNum||'1').trim(), figfield, val); render(); return;
+      figSet((S.t2figNum||'1').trim(), figfield, val); renderPreserveScroll(); return;
     } else if (figarrfield) {
       var fN = (S.t2figNum||'1').trim(), fArr = figGet(fN, figarrfield, []), fIdx = fArr.indexOf(val);
       if (fIdx > -1) fArr.splice(fIdx, 1); else fArr.push(val);
-      figSet(fN, figarrfield, fArr); render(); return;
+      figSet(fN, figarrfield, fArr); renderPreserveScroll(); return;
     }
   }
 
@@ -2104,7 +2203,7 @@ document.getElementById('panel').addEventListener('click', function(e){
       var fNumDup = (S.t2figNum||'1').trim();
       figSet(fNumDup, 'dupOfPatent', dupPid);
       figSet(fNumDup, 'dupOfFig', dupFigInput ? dupFigInput.value.trim() : '');
-      render();
+      renderPreserveScroll();
     }
     return;
   }
@@ -2112,7 +2211,7 @@ document.getElementById('panel').addEventListener('click', function(e){
     var fNumDupClear = (S.t2figNum||'1').trim();
     figSet(fNumDupClear, 'dupOfPatent', '');
     figSet(fNumDupClear, 'dupOfFig', '');
-    render();
+    renderPreserveScroll();
     return;
   }
 
@@ -2124,7 +2223,7 @@ document.getElementById('panel').addEventListener('click', function(e){
       var fN2 = (S.t2figNum||'1').trim(), arr2 = figGet(fN2, 'parts', []);
       if (arr2.indexOf(newTag) === -1) arr2.push(newTag);
       figSet(fN2, 'parts', arr2);
-      render();
+      renderPreserveScroll();
     }
     return;
   }
@@ -2133,13 +2232,13 @@ document.getElementById('panel').addEventListener('click', function(e){
   if(m3Btn){
     var comp = m3Btn.getAttribute('data-comp'), action = m3Btn.getAttribute('data-m3-action'), countField = m3Field(comp,'count'), stepAmt = m3Sym(comp) ? 2 : 1, cur = m3Count(comp);
     if(action === 'inc') cur += stepAmt; if(action === 'dec') cur = Math.max(0, cur - stepAmt);
-    S[countField] = cur; render(); return;
+    S[countField] = cur; renderPreserveScroll(); return;
   }
 
   var ib = tgt.closest('.ibtn');
   if(ib && !ib.hasAttribute('data-m3-action')){
     var f = ib.getAttribute('data-field'), mn = parseInt(ib.getAttribute('data-min'), 10), mx = parseInt(ib.getAttribute('data-max'), 10), d = ib.hasAttribute('data-dec') ? -1 : 1;
-    S[f] = Math.min(mx, Math.max(mn, (S[f] || (f==='archCount'?1:0)) + d)); render(); return;
+    S[f] = Math.min(mx, Math.max(mn, (S[f] || (f==='archCount'?1:0)) + d)); renderPreserveScroll(); return;
   }
 });
 
@@ -2148,6 +2247,12 @@ document.getElementById('panel').addEventListener('change', function(e){
   var field = tgt.dataset.field;
   
   if (tgt.hasAttribute('data-t2-arch')) { var fNum = (S.t2figNum||'1').trim(); if(fNum){ figSet(fNum, 'arch', tgt.value); render(); } return; }
+
+  if (tgt.hasAttribute('data-fig-bool')) {
+    var fNumBool = (S.t2figNum||'1').trim();
+    if (fNumBool) { figSet(fNumBool, tgt.getAttribute('data-fig-bool'), tgt.checked); render(); }
+    return;
+  }
 
   // Part 6: Fu_ unlabeled figure → existing taxonomy FIG. assignment
   if (tgt.hasAttribute('data-fig-reassign')) {
@@ -2181,6 +2286,11 @@ document.getElementById('panel').addEventListener('change', function(e){
 
 document.getElementById('panel').addEventListener('input', function(e){
   var tgt = e.target;
+  if (tgt && tgt.hasAttribute && tgt.hasAttribute('data-fig-comment')) {
+    var fNumC = (S.t2figNum||'1').trim();
+    if (fNumC) figSet(fNumC, 'comment', tgt.value);
+    return;
+  }
   if (tgt && tgt.dataset && tgt.dataset.field) {
     var f = tgt.dataset.field;
     if (f === 'duplicateId') S.duplicateId = tgt.value;

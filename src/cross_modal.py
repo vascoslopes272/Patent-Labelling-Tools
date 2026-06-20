@@ -283,7 +283,37 @@ def _text_features(texts: list[str], model, tokenizer, device: str):
 
 T2_PER    = ["Top", "Bottom/Down", "Front", "Back", "Side",
              "Front-Isometric", "Rear-Isometric", "Generic 3D"]
-T2_SYM    = ["Symmetric View", "Asymmetric View"]
+
+# Per-label prompt overrides for the "per" (perspective) axis. The returned
+# *value* stays the canonical T2_PER label (the HTML wizard consumes those
+# strings verbatim), but SigLIP is scored against a longer, discriminative
+# sentence instead of the generic "A patent drawing showing a {} view…" template.
+#
+# "Front" vs "Front-Isometric" was the dominant confusion pair: a flat
+# orthographic nose elevation and a three-quarter front perspective both contain
+# the nose + wing roots, so the short template embeddings sat almost on top of
+# each other in SigLIP's contrastive space. These two prompts deliberately
+# push the embeddings apart along the features SigLIP can actually see:
+#   • Front  → bilateral symmetry, NO depth/foreshortening, NO top surface,
+#              wing leading edges as thin horizontal lines (single visible face).
+#   • Front-Isometric → visible depth/foreshortening, fuselage TOP + one wing's
+#              UPPER surface visible, near wing root vs far wing tip (three faces).
+# (Sanity check — a top-down helicopter: "Front" shows the rotor disc as a thin
+# ellipse with no hub depth; "Front-Isometric" shows the disc raked at an angle
+# with part of the fuselage top — exactly the depth/top-surface split below.)
+# Labels not listed here fall back to the generic TEMPLATES["per"] sentence.
+T2_PER_PROMPTS = {
+    "Front":
+        "a patent technical line drawing of an aircraft viewed directly from the "
+        "nose in a flat orthographic front elevation: left-right bilateral symmetry, "
+        "no visible depth or foreshortening, wing leading edges appear as thin "
+        "horizontal lines, no top surface visible",
+    "Front-Isometric":
+        "a patent technical line drawing of an aircraft in a three-quarter front "
+        "perspective view: simultaneously shows the nose, one wing's upper surface, "
+        "and the fuselage top, with visible depth foreshortening, wing tips appear "
+        "further away than wing roots, three faces visible",
+}
 T2_AC_STY = ["Line Drawing", "Shaded Render", "Solid/Filled Model", "Schematic"]
 T2_AC_COL = ["B/W (Monochrome)", "Grayscale", "Full Color"]
 T2_BG_STY = ["Solid Fill", "Shaded/Gradient", "Grid/Pattern"]
@@ -319,7 +349,6 @@ def classify_t2_fields(
 
         {
           "per":    {"value": str, "confidence": float},
-          "sym":    {"value": str, "confidence": float},
           "acSty":  {"value": str, "confidence": float},
           "acCol":  {"value": str, "confidence": float},
           "bgSty":  {"value": str, "confidence": float},
@@ -334,7 +363,6 @@ def classify_t2_fields(
 
     TEMPLATES = {
         "per":   "A patent drawing showing a {} view of an aircraft",
-        "sym":   "This aircraft patent drawing has a {}",
         "acSty": "The aircraft in this patent figure is drawn as a {}",
         "acCol": "The rendering color of this patent figure is {}",
         "bgSty": "The background of this patent drawing is {}",
@@ -348,8 +376,9 @@ def classify_t2_fields(
     if feat is None:
         return {}
 
-    def _score(candidates: list, template: str) -> list:
-        texts     = [template.format(c) for c in candidates]
+    def _score(candidates: list, template: str, prompt_overrides: dict | None = None) -> list:
+        overrides = prompt_overrides or {}
+        texts     = [overrides.get(c, template.format(c)) for c in candidates]
         text_feat = _text_features(texts, model, tokenizer, device)
         raw       = (feat @ text_feat.T).squeeze(0).cpu().tolist()
         return [float(max(0.0, min(1.0, s))) for s in raw]
@@ -357,14 +386,17 @@ def classify_t2_fields(
     result: dict = {}
     for axis, candidates in [
         ("per",   T2_PER),
-        ("sym",   T2_SYM),
         ("acSty", T2_AC_STY),
         ("acCol", T2_AC_COL),
         ("bgSty", T2_BG_STY),
         ("bgCol", T2_BG_COL),
     ]:
         try:
-            scores  = _score(candidates, TEMPLATES[axis])
+            # The "per" axis uses discriminative per-label prompt overrides
+            # (T2_PER_PROMPTS) to separate Front vs Front-Isometric; every
+            # other axis uses its plain template.
+            overrides = T2_PER_PROMPTS if axis == "per" else None
+            scores  = _score(candidates, TEMPLATES[axis], overrides)
             best_i  = scores.index(max(scores))
             result[axis] = {"value": candidates[best_i],
                             "confidence": round(scores[best_i], 4)}
@@ -509,6 +541,8 @@ def classify_m1_fields(
         ("Oval",        "aircraft with an oval or elliptical fuselage cross-section"),
         ("Rectangular", "aircraft with a rectangular or box-shaped fuselage"),
         ("Blended",     "aircraft with a blended wing body or lifting body fuselage merged into the wings"),
+        ("PodBoom",     "pod-and-boom fuselage: compact central body with one or two thin tail booms, "
+                         "no conventional fuselage tube"),
     ]
     FUS_KIN = [
         ("Fixed",    "aircraft with a conventional fixed fuselage that does not tilt or pivot"),
@@ -644,14 +678,13 @@ def classify_m3_fields(
         ("Front", "rotors or propellers positioned at the front leading edge pulling the aircraft forward"),
         ("Back",  "rotors or propellers positioned at the back trailing edge pushing the aircraft"),
     ]
+    # orient vocab is [Horizontal, Vertical, Mixed] — identical strings to
+    # vlm_extractor.py (the reference), _M3_ORIENT_DEFS in src/reviewer.py and
+    # the HTML wizard's m3OrientationOptions(), so all modalities merge cleanly.
     ORIENT = [
-        ("Fixed_Vertical",    "rotors oriented vertically for hovering lift with no tilting mechanism"),
-        ("Fixed_Horizontal",  "propulsors oriented horizontally for forward cruise thrust with no tilting"),
-        ("Tilting_Mechanism", "rotors or propulsors with a visible tilting or vectoring mechanism that rotates between hover and cruise"),
-        # SRW-only option, matching _M3_ORIENT_DEFS in src/reviewer.py and the
-        # HTML wizard's m3OrientationOptions() — the rotor/wing stops and
-        # locks in cruise to act as a fixed wing, rather than tilting.
-        ("Stopped_Wing",      "rotor or wing that stops and locks in cruise to act as a fixed wing rather than tilting"),
+        ("Horizontal", "propulsors oriented horizontally for forward cruise thrust"),
+        ("Vertical",   "rotors oriented vertically for hovering lift"),
+        ("Mixed",      "rotors or propulsors with a visible tilting or vectoring mechanism that rotates between hover and cruise"),
     ]
     BLADE_MECH = [
         ("Open",   "open free rotor or propeller blades exposed to airflow"),
@@ -662,13 +695,22 @@ def classify_m3_fields(
         ("Exposed",     "non-retractable rotors permanently exposed outside the aircraft structure"),
         ("Retractable", "retractable rotors that fold or retract into the aircraft structure during cruise"),
     ]
+    # propKin (propulsor articulation kinematics) — same 4 prompts as
+    # vlm_extractor.py's M3 vocabulary, so SigLIP and the VLM emit identical ids.
+    PROP_KIN = [
+        ("Fixed",    "a fixed propulsor with no articulation"),
+        ("Tilt",     "a propulsor that tilts as a unit to vector thrust between hover and cruise"),
+        ("Vectored", "a propulsor with thrust vectoring that redirects the exhaust or slipstream"),
+        ("Cyclic",   "a rotor with cyclic swashplate pitch control like a helicopter"),
+    ]
 
     try:
         return {
-            "chord": _best(CHORD,       "A patent drawing showing an eVTOL with {}"),
-            "orient": _best(ORIENT,     "A patent drawing showing an eVTOL with {}"),
-            "bmech":  _best(BLADE_MECH, "A patent drawing showing an eVTOL with {}"),
-            "rmech":  _best(RETRACT_MECH, "A patent drawing showing an eVTOL with {}"),
+            "chord":   _best(CHORD,       "A patent drawing showing an eVTOL with {}"),
+            "orient":  _best(ORIENT,      "A patent drawing showing an eVTOL with {}"),
+            "bmech":   _best(BLADE_MECH,  "A patent drawing showing an eVTOL with {}"),
+            "rmech":   _best(RETRACT_MECH, "A patent drawing showing an eVTOL with {}"),
+            "propKin": _best(PROP_KIN,    "A patent drawing showing an eVTOL with {}"),
         }
     except Exception:
         return {}

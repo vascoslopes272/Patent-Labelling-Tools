@@ -28,12 +28,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.cross_modal import T2_PER, T2_SYM, T2_AC_STY, T2_AC_COL, T2_BG_STY, T2_BG_COL, T2_PARTS, T2_ROT, G1_TOP_TYPES
+from src.cross_modal import T2_PER, T2_AC_STY, T2_AC_COL, T2_BG_STY, T2_BG_COL, T2_PARTS, T2_ROT, G1_TOP_TYPES
 from src.reviewer import (
     _T1_SCOPE_DEFS, _T1_FIELD_DEFS, _T1_TARGET_DEFS,
     _M1_FUS_SHAPE_DEFS, _M1_FUS_KIN_DEFS, _M1_GEAR_ARCH_DEFS, _M1_LAT_SYM_DEFS,
     _M2_WING_CONF_DEFS, _M2_EMP_TYPE_DEFS, _M2_EMP_KIN_DEFS, _M2_WCOUNT_DEFS,
-    _M3_CHORD_DEFS, _M3_ORIENT_DEFS, _M3_BMECH_DEFS, _M3_RMECH_DEFS,
+    _M3_CHORD_DEFS, _M3_ORIENT_DEFS, _M3_BMECH_DEFS, _M3_RMECH_DEFS, _M3_PROPKIN_DEFS,
     m3_card_keys, PLACEHOLDER_IMAGE_PATH,
 )
 
@@ -193,7 +193,7 @@ def build_patent_rows(patent_id: str, record: dict, patent_img_dir: "Path | None
         preds = img.get("T2_predictions") or {}
 
         for field, options in [
-            ("per", T2_PER), ("sym", T2_SYM), ("acSty", T2_AC_STY),
+            ("per", T2_PER), ("acSty", T2_AC_STY),
             ("acCol", T2_AC_COL), ("bgSty", T2_BG_STY), ("bgCol", T2_BG_COL),
         ]:
             entry = preds.get(field) or {}
@@ -303,25 +303,28 @@ def build_patent_rows(patent_id: str, record: dict, patent_img_dir: "Path | None
     # ── M3 — one set of rows per propulsion-card component ───────────────────
     m3 = record.get("M3_predictions") or {}
     orient_v, orient_conf, orient_src = _pred_val(m3, "orient")
-    if top_type in ("SLC", "SRW") and orient_v == "Tilting_Mechanism":
-        orient_v, orient_conf, orient_src = None, None, None
-    # Stopped_Wing is only ever offered as a choice for SRW in the HTML
-    # wizard's m3OrientationOptions() — strip it for every other topology so
-    # an ML prediction can never disagree with what a human reviewer is even
-    # allowed to pick.
-    if top_type != "SRW" and orient_v == "Stopped_Wing":
+    # SLC (separate fixed lift+cruise) and SRW (stopped rotor) don't tilt, so a
+    # "Mixed" (tilting/vectoring) orient prediction is disallowed for them —
+    # strip it so an ML guess can't disagree with what the human can even pick.
+    if top_type in ("SLC", "SRW") and orient_v == "Mixed":
         orient_v, orient_conf, orient_src = None, None, None
     chord_v, chord_conf, chord_src = _pred_val(m3, "chord")
     bmech_v, bmech_conf, bmech_src = _pred_val(m3, "bmech")
     rmech_v, rmech_conf, rmech_src = _pred_val(m3, "rmech")
+    propkin_v, propkin_conf, propkin_src = _pred_val(m3, "propKin")
+    # TP (tilt propulsors) physics lock — the propulsors tilt by definition, so
+    # force propKin=Tilt, mirroring the HTML wizard's TP lock.
+    if top_type == "TP":
+        propkin_v, propkin_conf, propkin_src = "Tilt", propkin_conf, "ensemble"
 
     for component in m3_card_keys(top_type, wing_conf, w_count, emp_type):
         sub_dim = f"Propulsion: {component}"
         for field, defs, value, conf, source in [
-            ("chord",  _M3_CHORD_DEFS,  chord_v,  chord_conf,  chord_src),
-            ("orient", _M3_ORIENT_DEFS, orient_v, orient_conf, orient_src),
-            ("bmech",  _M3_BMECH_DEFS,  bmech_v,  bmech_conf,  bmech_src),
-            ("rmech",  _M3_RMECH_DEFS,  rmech_v,  rmech_conf,  rmech_src),
+            ("chord",   _M3_CHORD_DEFS,   chord_v,   chord_conf,   chord_src),
+            ("orient",  _M3_ORIENT_DEFS,  orient_v,  orient_conf,  orient_src),
+            ("bmech",   _M3_BMECH_DEFS,   bmech_v,   bmech_conf,   bmech_src),
+            ("rmech",   _M3_RMECH_DEFS,   rmech_v,   rmech_conf,   rmech_src),
+            ("propKin", _M3_PROPKIN_DEFS, propkin_v, propkin_conf, propkin_src),
         ]:
             rows.append(_row(patent_id, "M3", sub_dim, f"{component}_{field}",
                               f"{sub_dim} — {field}", _OPT(defs), value, conf, source,

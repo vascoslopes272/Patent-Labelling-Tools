@@ -150,7 +150,7 @@ def _load_match_results(data_dir: Path, filename: str = "crops_mapping.csv") -> 
 
 # ─── Visual field keyword rules ─────────────────────────────────────────────
 # Field names AND values below match the master HTML wizard's T2 enums
-# exactly (per/acSty/sym/acCol/bgSty/bgCol) so this output can be ingested
+# exactly (per/acSty/acCol/bgSty/bgCol) so this output can be ingested
 # by ingestAI() with zero mapping step.
 
 _PERSPECTIVE_RULES: list[tuple[list[str], str]] = [
@@ -171,12 +171,6 @@ _STYLE_RULES: list[tuple[list[str], str]] = [
     (["solid model", "filled model", "solid/filled"],      "Solid/Filled Model"),
 ]
 
-_SYMMETRY_RULES: list[tuple[list[str], str]] = [
-    (["asymmetric", "asymmetrical"],  "Asymmetric View"),
-    (["symmetric", "symmetrical"],    "Symmetric View"),   # order matters: check asym first
-]
-
-
 def _first_match(text: str, rules: list[tuple[list[str], str]]) -> str | None:
     lower = text.lower()
     for keywords, value in rules:
@@ -189,7 +183,7 @@ def auto_fill_visual(description: str | None) -> dict:
     """
     Keyword-scan a figure description line and return the visual field dict.
 
-    Field names/values match the master HTML wizard exactly (per/acSty/sym/
+    Field names/values match the master HTML wizard exactly (per/acSty/
     acCol/bgSty/bgCol/parts). Fields that can be inferred get source="auto".
     Unknown fields get value=None, source=None (filled later by the wizard).
     """
@@ -200,7 +194,6 @@ def auto_fill_visual(description: str | None) -> dict:
         return {
             "per":   {"value": None, "source": None},
             "acSty": {"value": None, "source": None},
-            "sym":   {"value": None, "source": None},
             "acCol": {"value": None, "source": None},
             "bgSty": {"value": None, "source": None},
             "bgCol": {"value": None, "source": None},
@@ -210,7 +203,6 @@ def auto_fill_visual(description: str | None) -> dict:
     return {
         "per":   _auto(_first_match(description, _PERSPECTIVE_RULES)),
         "acSty": _auto(_first_match(description, _STYLE_RULES) or "Line Drawing"),
-        "sym":   _auto(_first_match(description, _SYMMETRY_RULES)),
         "acCol": {"value": None, "source": None},
         "bgSty": {"value": None, "source": None},
         "bgCol": {"value": None, "source": None},
@@ -320,6 +312,9 @@ _M1_FUS_SHAPE_DEFS = {
     "Oval":        "the aircraft has an oval or elliptical fuselage cross-section",
     "Rectangular": "the aircraft has a rectangular or box-shaped fuselage",
     "Blended":     "the aircraft has a blended wing body or lifting body fuselage merged into the wings",
+    "PodBoom":     "pod and boom fuselage: a small central pod or nacelle housing occupants or "
+                   "payload, with one or two slender structural booms extending rearward to carry the "
+                   "empennage, typical of Robinson R22-style helicopter derivatives and tandem-rotor UAVs",
 }
 _M1_FUS_KIN_DEFS = {
     "Fixed":    "the aircraft has a conventional fixed fuselage that does not tilt or pivot",
@@ -366,15 +361,13 @@ _M3_CHORD_DEFS = {
     "Front": "the rotors or propellers are positioned at the front leading edge, pulling the aircraft forward",
     "Back":  "the rotors or propellers are positioned at the back trailing edge, pushing the aircraft",
 }
+# orient vocab is [Horizontal, Vertical, Mixed], identical to vlm_extractor.py
+# (the reference) and the HTML wizard's m3OrientationOptions(), so the SigLIP,
+# SBERT and VLM modalities all emit the same strings and merge cleanly.
 _M3_ORIENT_DEFS = {
-    "Fixed_Vertical":    "the rotors are oriented vertically for hovering lift with no tilting mechanism",
-    "Fixed_Horizontal":  "the propulsors are oriented horizontally for forward cruise thrust with no tilting",
-    "Tilting_Mechanism": "the rotors or propulsors have a tilting or vectoring mechanism that rotates between hover and cruise",
-    # SRW-only option (the HTML wizard's m3OrientationOptions() offers this
-    # instead of Tilting_Mechanism when topType === "SRW") — the rotor/wing
-    # itself stops and locks to act as a fixed wing in cruise, rather than
-    # tilting a propulsor.
-    "Stopped_Wing":      "the rotor or wing stops and locks in cruise to act as a fixed wing, rather than tilting a propulsor",
+    "Horizontal": "the propulsors are oriented horizontally for forward cruise thrust",
+    "Vertical":   "the rotors are oriented vertically for hovering lift",
+    "Mixed":      "the rotors or propulsors tilt or vector between vertical hover and horizontal cruise",
 }
 _M3_BMECH_DEFS = {
     "Open":   "the aircraft has open free rotor or propeller blades exposed to airflow",
@@ -384,6 +377,13 @@ _M3_BMECH_DEFS = {
 _M3_RMECH_DEFS = {
     "Exposed":     "the rotors are non-retractable and permanently exposed outside the aircraft structure",
     "Retractable": "the rotors are retractable and fold into the aircraft structure during cruise",
+}
+# propKin (propulsor articulation kinematics) — vocab mirrors vlm_extractor.py.
+_M3_PROPKIN_DEFS = {
+    "Fixed":    "the propulsor is fixed in place with no articulation",
+    "Tilt":     "the propulsor tilts as a unit to vector thrust between hover and cruise",
+    "Vectored": "the propulsor uses thrust vectoring to redirect the exhaust or slipstream",
+    "Cyclic":   "the rotor uses cyclic swashplate pitch control like a helicopter",
 }
 
 
@@ -445,10 +445,11 @@ def classify_m3_text(text: str | None, sbert_model=None) -> dict:
     """SBERT text-based M3 propulsion field classification — counterpart to
     cross_modal.classify_m3_fields()."""
     return {
-        "chord":  _sbert_best(text, _M3_CHORD_DEFS,  sbert_model),
-        "orient": _sbert_best(text, _M3_ORIENT_DEFS, sbert_model),
-        "bmech":  _sbert_best(text, _M3_BMECH_DEFS,  sbert_model),
-        "rmech":  _sbert_best(text, _M3_RMECH_DEFS,  sbert_model),
+        "chord":   _sbert_best(text, _M3_CHORD_DEFS,   sbert_model),
+        "orient":  _sbert_best(text, _M3_ORIENT_DEFS,  sbert_model),
+        "bmech":   _sbert_best(text, _M3_BMECH_DEFS,   sbert_model),
+        "rmech":   _sbert_best(text, _M3_RMECH_DEFS,   sbert_model),
+        "propKin": _sbert_best(text, _M3_PROPKIN_DEFS, sbert_model),
     }
 
 
@@ -463,6 +464,14 @@ def classify_m3_text(text: str | None, sbert_model=None) -> dict:
 # value, so downstream thresholds keep their normal meaning.
 VISUAL_WEIGHT = 1.0
 TEXT_WEIGHT   = 1.0
+
+# When a VLM second opinion (src/vlm_extractor) is wired in, the local VLM
+# (InternVL2-8B, M1/M2/M3) is only invoked for a figure if SigLIP is
+# under-confident on at least one field — i.e. any field's confidence is below
+# this threshold — so we don't spend VLM compute on figures SigLIP already reads
+# cleanly. All inference is local; the path is opt-in (off unless the caller
+# passes a vlm_bundle), so the default batch run is unaffected.
+VLM_TRIGGER_CONFIDENCE = 0.65
 
 
 def merge_field_predictions(visual: dict | None, text: dict | None) -> dict:
@@ -489,6 +498,15 @@ def merge_prediction_dicts(visual: dict, text: dict, fields: list[str]) -> dict:
     """Apply merge_field_predictions() across every field in `fields` for two
     {field: {value, confidence, source}} dicts (e.g. M1/M2/M3 prediction sets)."""
     return {f: merge_field_predictions(visual.get(f), text.get(f)) for f in fields}
+
+
+def _siglip_underconfident(pred: dict | None) -> bool:
+    """True when a SigLIP prediction set is worth a VLM second opinion — i.e.
+    it's empty, or any field's confidence is below VLM_TRIGGER_CONFIDENCE."""
+    if not pred:
+        return True
+    return any((p or {}).get("confidence", 0.0) < VLM_TRIGGER_CONFIDENCE
+               for p in pred.values())
 
 
 # ─── M3 propulsion-card key derivation (mirrors m3Blueprints() in the HTML) ──
@@ -626,6 +644,7 @@ def process_patent(
     skip_files: set | None = None,
     review_flags: dict[str, dict[str, str]] | None = None,
     match_results_cache: dict[str, dict[str, dict]] | None = None,
+    vlm_bundle: tuple | None = None,
 ) -> dict:
     """
     Full Stage 01 pipeline for one patent.
@@ -653,6 +672,11 @@ def process_patent(
     sbert_model   : SentenceTransformer (PatentSBERTa) — required.
     siglip_bundle : (model, tokenizer, preprocess, device) from load_siglip_model() — required.
     skip_siglip   : Pass True only for debugging/fast runs (disables all SigLIP calls).
+    vlm_bundle    : Optional (model, tokenizer) from vlm_extractor.load_vlm_model().
+                    When supplied, the local VLM (InternVL2-8B) gives a second
+                    opinion on M1/M2/M3 for any figure where SigLIP is
+                    under-confident (see VLM_TRIGGER_CONFIDENCE). All inference is
+                    local. Default None → SigLIP+SBERT only.
 
     Returns
     -------
@@ -668,6 +692,11 @@ def process_patent(
         aggregate_architecture_predictions,
         encode_image_features,
     )
+    # Optional second-opinion backends. Safe to import unconditionally:
+    # vlm_extractor defers torch/transformers to call time, so this import never
+    # pulls a hard dependency. The functions are only *invoked* when the caller
+    # passes a vlm_bundle.
+    from src.vlm_extractor import vlm_extract_m1, vlm_extract_m2, vlm_extract_m3
 
     # review_flags / match_results_cache are normally preloaded once (for the
     # whole batch) by run_stage01() and passed in here, since the correct file
@@ -793,9 +822,31 @@ def process_patent(
                 nlp_confidence=g1_text_confidence,
                 img_feat=img_feat,
             )
-            m1_per_fig.append(classify_m1_fields(img_path, model, tokenizer, preprocess, device, img_feat=img_feat))
-            m2_per_fig.append(classify_m2_fields(img_path, model, tokenizer, preprocess, device, img_feat=img_feat))
-            m3_per_fig.append(classify_m3_fields(img_path, model, tokenizer, preprocess, device, img_feat=img_feat))
+            m1_pred = classify_m1_fields(img_path, model, tokenizer, preprocess, device, img_feat=img_feat)
+            m2_pred = classify_m2_fields(img_path, model, tokenizer, preprocess, device, img_feat=img_feat)
+            m3_pred = classify_m3_fields(img_path, model, tokenizer, preprocess, device, img_feat=img_feat)
+
+            # ── Optional local-VLM second opinion (opt-in; see vlm_bundle) ────
+            # The same local InternVL2-8B backs up M1/M2/M3, invoked only when
+            # SigLIP is under-confident on this figure (any of the three sets has
+            # a weak field). merge_prediction_dicts keeps the higher-confidence
+            # side per field (source="vlm" never beats a more-confident SigLIP
+            # value), so a None/unavailable backend is a safe no-op. All local.
+            if vlm_bundle is not None and (
+                _siglip_underconfident(m1_pred)
+                or _siglip_underconfident(m2_pred)
+                or _siglip_underconfident(m3_pred)
+            ):
+                vlm_m1 = vlm_extract_m1(img_path, vlm_bundle)
+                vlm_m2 = vlm_extract_m2(img_path, vlm_bundle)
+                vlm_m3 = vlm_extract_m3(img_path, vlm_bundle)
+                m1_pred = merge_prediction_dicts(m1_pred, vlm_m1, ["fusShape", "fusKin", "gearArch", "latSym"])
+                m2_pred = merge_prediction_dicts(m2_pred, vlm_m2, ["wingConf", "empType", "empKin", "wCount"])
+                m3_pred = merge_prediction_dicts(m3_pred, vlm_m3, ["chord", "orient", "bmech", "rmech", "propKin"])
+
+            m1_per_fig.append(m1_pred)
+            m2_per_fig.append(m2_pred)
+            m3_per_fig.append(m3_pred)
 
     # ── Aggregate per-figure SigLIP predictions → patent-level (visual) ───────
     m1_visual = aggregate_architecture_predictions(
@@ -807,7 +858,7 @@ def process_patent(
     ) if m2_per_fig else {}
 
     m3_visual = aggregate_architecture_predictions(
-        m3_per_fig, ["chord", "orient", "bmech", "rmech"]
+        m3_per_fig, ["chord", "orient", "bmech", "rmech", "propKin"]
     ) if m3_per_fig else {}
 
     g1_visual: dict | None = None
@@ -838,7 +889,7 @@ def process_patent(
     g1_prediction  = merge_field_predictions(g1_visual, g1_text)
     m1_predictions = merge_prediction_dicts(m1_visual, m1_text, ["fusShape", "fusKin", "gearArch", "latSym"])
     m2_predictions = merge_prediction_dicts(m2_visual, m2_text, ["wingConf", "empType", "empKin", "wCount"])
-    m3_predictions = merge_prediction_dicts(m3_visual, m3_text, ["chord", "orient", "bmech", "rmech"])
+    m3_predictions = merge_prediction_dicts(m3_visual, m3_text, ["chord", "orient", "bmech", "rmech", "propKin"])
 
     return assemble_patent_json(
         patent_id, excel_row, match_results, desc_text,
@@ -971,3 +1022,33 @@ def run_stage01(
         print(f"  Needs review     : {rr.sum() if not rr.empty else 0} patents")
     print(f"{'='*55}")
     return df
+
+
+# ─── Family deduplication ────────────────────────────────────────────────────
+# Standalone helper — NOT called automatically anywhere in this module. Batch-
+# processing code invokes it explicitly once a Simple Family ID grouping exists.
+
+def select_family_primary(family_records: list[dict]) -> str | None:
+    """
+    Given a list of patent records sharing a Simple Family ID, return the patent_id
+    of the primary (original) record using a three-tier tiebreaker:
+      1. Earliest priority_date (ISO string YYYY-MM-DD, nulls last)
+      2. Granted status: publication numbers ending in B1, B2, B, or EP Bx beat A-series
+      3. Lowest application_number lexicographically
+    Returns None if family_records is empty.
+    """
+    import re
+
+    def _is_granted(patent_id: str) -> bool:
+        return bool(re.search(r'B\d?$', patent_id, re.IGNORECASE))
+
+    def _sort_key(r: dict):
+        pid  = r.get("patent_id", "")
+        date = r.get("priority_date") or "9999-99-99"
+        granted = 0 if _is_granted(pid) else 1   # granted sorts before pending
+        app_num = r.get("application_number") or pid
+        return (date, granted, app_num)
+
+    if not family_records:
+        return None
+    return min(family_records, key=_sort_key).get("patent_id")
