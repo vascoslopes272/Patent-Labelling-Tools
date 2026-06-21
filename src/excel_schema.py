@@ -250,8 +250,18 @@ def build_patent_rows(patent_id: str, record: dict, patent_img_dir: "Path | None
         rows.append(_row(patent_id, "M1", field, field, field, _OPT(defs), value, conf, source,
                           needs_review=_needs_review("M1", conf)))
 
+    # The pipeline never extracts real footprint dimensions (length/width/height),
+    # so default footAmbiguous=True — this makes the wizard's "Bypass Missing
+    # Measurements" button render pre-ticked, instead of forcing the reviewer to
+    # tick it on every patent. The reviewer can still un-bypass and enter values.
+    _m1_foot = record.get("M1_predictions") or {}
+    _has_dims = any(_m1_foot.get(k) for k in ("footLen", "footWid", "footHgt"))
     for field, sub_dim, options in _M1_MANUAL:
-        rows.append(_row(patent_id, "M1", sub_dim, field, sub_dim, options))
+        if field == "footAmbiguous" and not _has_dims:
+            rows.append(_row(patent_id, "M1", sub_dim, field, sub_dim, options,
+                              True, None, "auto_heuristic"))
+        else:
+            rows.append(_row(patent_id, "M1", sub_dim, field, sub_dim, options))
 
     # ── M2 ── sanitize against wizard's option filters (mirrors the old
     # build_patent_html()'s eOpts/kOpts/physics-lock logic) ──────────────────

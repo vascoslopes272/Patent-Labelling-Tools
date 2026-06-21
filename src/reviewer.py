@@ -164,11 +164,15 @@ _PERSPECTIVE_RULES: list[tuple[list[str], str]] = [
     (["perspective view", "isometric", "3d view"],       "Generic 3D"),
 ]
 
+# Rendering-style vocab is [Render, Line Drawing, Draft, Blueprint] — matches
+# T2_AC_STY in cross_modal.py and the HTML wizard. Unmatched text falls back to
+# "Line Drawing" (the default in auto_fill_visual below), which also absorbs the
+# old schematic/diagram cases since those are line art in this scheme.
 _STYLE_RULES: list[tuple[list[str], str]] = [
-    (["schematic", "block diagram", "flow field", "flow plot",
-      "cfd", "graph", "chart", "plot"],                  "Schematic"),
-    (["shaded", "rendered", "render"],                    "Shaded Render"),
-    (["solid model", "filled model", "solid/filled"],      "Solid/Filled Model"),
+    (["blueprint", "blue print", "cyanotype"],                       "Blueprint"),
+    (["shaded", "rendered", "render", "solid model", "filled model",
+      "photoreal", "perspective render"],                            "Render"),
+    (["draft", "draught", "sketch", "preliminary"],                  "Draft"),
 ]
 
 def _first_match(text: str, rules: list[tuple[list[str], str]]) -> str | None:
@@ -307,6 +311,55 @@ _G1_TOP_TYPE_DEFS = {
     "HB":  "this patent describes a motorcycle-style frame with tandem or side-by-side rotors mounted above a seated rider straddle position",
     "PFV": "this patent describes a wearable jetpack or thrust-vectored suit strapped directly to a standing human body with no separate vehicle frame",
 }
+# ── G1 keyword priors ───────────────────────────────────────────────────────
+# High-precision phrase → topology rules. Architecture and (especially)
+# whether propulsors TILT is almost always *stated* in the claims/abstract, but
+# is invisible in a single static line drawing — so these giveaway phrases pin
+# the unambiguous cases before the SBERT/SigLIP fight, which otherwise confuses
+# the visually-near-identical SLC (separate fixed lift+cruise) and TP (tilting
+# propulsors). Order matters: the most specific multi-word phrases are checked
+# first (see classify_g1_keyword). Phrases are matched case-insensitively as
+# substrings, with light separator tolerance (space/hyphen) applied in the
+# matcher, so "tilt-rotor"/"tilt rotor"/"tiltrotor" all hit.
+_G1_KEYWORD_RULES: list[tuple[list[str], str]] = [
+    # Tilt families — explicit tilt language ⇒ a tilt topology, never SLC.
+    (["tilt wing", "tiltwing"],                                              "TW"),
+    (["tiltrotor", "tilt rotor", "tilt prop", "tilting prop", "tilting rotor",
+      "tiltable", "rotatable nacelle", "tiltable nacelle", "nacelle tilts",
+      "nacelles tilt", "tilts to transition", "tilt mechanism",
+      "tilting mechanism", "pivoting nacelle"],                             "TP"),
+    # Lift+Cruise / independent fixed thrust — the case that was misread as TP.
+    (["lift plus cruise", "lift and cruise", "lift+cruise", "lift cruise",
+      "dedicated cruise", "separate cruise", "independent cruise",
+      "separate hover", "dedicated lift rotor", "no tilting",
+      "non-tilting", "fixed cruise prop", "fixed lift rotor"],              "SLC"),
+    (["deflected slipstream", "blown flap", "blown wing"],                  "DS"),
+    (["stopped rotor", "stoppable rotor", "stop-fold", "stowed rotor"],     "SRW"),
+    (["multirotor", "multicopter", "quadcopter", "octocopter",
+      "distributed electric propulsion"],                                   "MR"),
+    (["helicopter", "coaxial rotor", "tandem rotor", "main rotor and tail"], "RC"),
+]
+
+
+def classify_g1_keyword(text: str | None) -> "dict | None":
+    """High-precision keyword prior for G1 topology. Returns a high-confidence
+    {value, confidence, source:"keyword"} when a giveaway phrase is present, else
+    None. Whitespace/hyphens between words are treated as interchangeable so
+    "tilt-rotor"/"tilt rotor"/"tiltrotor" all match. Rules are evaluated in
+    order; the first matching topology wins (most specific tilt phrases first)."""
+    if not text or not text.strip():
+        return None
+    import re as _re
+    # collapse runs of spaces/hyphens to a single space for tolerant matching
+    hay = _re.sub(r"[\s\-]+", " ", text.lower())
+    for phrases, value in _G1_KEYWORD_RULES:
+        for p in phrases:
+            needle = _re.sub(r"[\s\-]+", " ", p.lower())
+            if needle in hay:
+                return {"value": value, "confidence": 0.92, "source": "keyword"}
+    return None
+
+
 _M1_FUS_SHAPE_DEFS = {
     "Circular":    "the aircraft has a circular or cylindrical tubular fuselage",
     "Oval":        "the aircraft has an oval or elliptical fuselage cross-section",
@@ -405,7 +458,49 @@ def _sbert_best(text: str | None, defs: dict, sbert_model) -> dict:
     def_emb  = sbert_model.encode([defs[i] for i in ids], convert_to_numpy=True, normalize_embeddings=True)
     sims     = (def_emb @ text_emb.T).flatten()
     best_i   = int(np.argmax(sims))
-    return {"value": ids[best_i], "confidence": round(float(sims[best_i]), 4), "source": "sbert"}
+    # margin = how far the winner beats the runner-up. A tiny margin means the
+    # model is effectively guessing between two near-equal options (e.g. SLC vs
+    # TP) — _margin_flag() uses this to mark the prediction for human review.
+    margin = 1.0
+    if len(sims) > 1:
+        srt = np.sort(sims)[::-1]
+        margin = float(srt[0] - srt[1])
+    return {"value": ids[best_i], "confidence": round(float(sims[best_i]), 4),
+            "source": "sbert", "margin": round(margin, 4)}
+
+
+# Margin / confidence thresholds for "guess but flag" on the hard, ambiguous
+# architecture/kinematic calls. A prediction is kept (we still output the best
+# guess) but its confidence is capped below the review threshold so the wizard
+# highlights it for verification when EITHER the winner barely beats the
+# runner-up (close call) OR the raw confidence is already low.
+_MARGIN_FLAG_THRESHOLD = 0.05   # top1 - top2 below this ⇒ effectively a tie
+_LOW_CONF_THRESHOLD    = 0.45   # matches excel_schema's needs-review cutoff
+# Capped confidence applied to a flagged guess. Kept strictly below the lowest
+# confidence_routing threshold in config.yaml (M3=0.35) so a flagged prediction
+# reliably trips Needs_Review in EVERY section, not just the high-threshold ones.
+_FLAGGED_CONFIDENCE    = 0.30
+
+
+def _margin_flag(pred: "dict | None") -> "dict | None":
+    """Guess-but-flag for ambiguous architecture/kinematic predictions. If the
+    prediction is a near-tie (small margin) or already low-confidence, KEEP the
+    value but cap its confidence below the review threshold so the human is
+    prompted to verify it — instead of letting a confident-looking wrong guess
+    (e.g. SLC misread as TP) pass silently. Keyword-sourced predictions are
+    trusted and never flagged. Returns the (possibly modified) prediction."""
+    if not pred or pred.get("value") is None:
+        return pred
+    if pred.get("source") == "keyword":
+        return pred
+    margin = pred.get("margin", 1.0)
+    conf   = pred.get("confidence", 0.0) or 0.0
+    if (margin is not None and margin < _MARGIN_FLAG_THRESHOLD) or conf < _LOW_CONF_THRESHOLD:
+        flagged = dict(pred)
+        flagged["confidence"] = min(conf, _FLAGGED_CONFIDENCE)
+        flagged["flagged_ambiguous"] = True
+        return flagged
+    return pred
 
 
 def classify_g1_text(text: str | None, sbert_model=None) -> "dict | None":
@@ -498,6 +593,51 @@ def merge_prediction_dicts(visual: dict, text: dict, fields: list[str]) -> dict:
     """Apply merge_field_predictions() across every field in `fields` for two
     {field: {value, confidence, source}} dicts (e.g. M1/M2/M3 prediction sets)."""
     return {f: merge_field_predictions(visual.get(f), text.get(f)) for f in fields}
+
+
+# Confidence floor below which the SBERT text prediction is considered "weak"
+# enough that the SigLIP visual side may override it as a tiebreaker.
+_G1_TEXT_WEAK_THRESHOLD = 0.42
+
+
+def resolve_g1(keyword: dict | None, text: dict | None, visual: dict | None) -> dict:
+    """Resolve the G1 topology with TEXT as the authority and VISION as a
+    tiebreaker — the opposite of merge_field_predictions' confidence race.
+
+    Precedence (architecture/tilt is a text-level fact, rarely legible in a
+    single static drawing — see classify_g1_keyword / G1_VISUAL_PROMPTS):
+      1. A keyword giveaway phrase ("lift plus cruise", "tiltrotor", …) wins
+         outright (high precision), never flagged.
+      2. Otherwise SBERT text leads. Vision only OVERRIDES text when the text
+         side is weak (confidence < _G1_TEXT_WEAK_THRESHOLD) AND vision is
+         clearly more confident; agreement is marked source="ensemble".
+      3. With no text and no visual, returns an empty prediction.
+    The resolved guess is always kept, but _margin_flag() caps its confidence
+    (so the wizard prompts for review) when it's a near-tie / low-confidence —
+    we guess but flag, never silently emit a confident wrong topology."""
+    if keyword and keyword.get("value") is not None:
+        return keyword
+
+    t = text   if text   and text.get("value")   is not None else None
+    v = visual if visual and visual.get("value") is not None else None
+    if t is None and v is None:
+        return _empty_pred()
+    if t is None:
+        return _margin_flag(v) or _empty_pred()
+    if v is None:
+        return _margin_flag(t) or _empty_pred()
+
+    if t["value"] == v["value"]:
+        return {"value": t["value"],
+                "confidence": max(t.get("confidence", 0.0), v.get("confidence", 0.0)),
+                "source": "ensemble",
+                "margin": max(t.get("margin", 1.0), v.get("margin", 1.0))}
+
+    # Disagreement: text leads unless it's weak and vision is clearly stronger.
+    t_conf, v_conf = t.get("confidence", 0.0) or 0.0, v.get("confidence", 0.0) or 0.0
+    if t_conf < _G1_TEXT_WEAK_THRESHOLD and v_conf > t_conf:
+        return _margin_flag(v) or _empty_pred()
+    return _margin_flag(t) or _empty_pred()
 
 
 def _siglip_underconfident(pred: dict | None) -> bool:
@@ -886,10 +1026,26 @@ def process_patent(
     m2_text = classify_m2_text(classify_text, sbert_model)
     m3_text = classify_m3_text(classify_text, sbert_model)
 
-    g1_prediction  = merge_field_predictions(g1_visual, g1_text)
+    # G1 topology: text-primary, vision-tiebreaker, with a high-precision
+    # keyword prior on top (architecture/tilt is a text fact, not legible in a
+    # static drawing). See resolve_g1() / classify_g1_keyword().
+    g1_keyword     = classify_g1_keyword(classify_text)
+    g1_prediction  = resolve_g1(g1_keyword, g1_text, g1_visual)
     m1_predictions = merge_prediction_dicts(m1_visual, m1_text, ["fusShape", "fusKin", "gearArch", "latSym"])
     m2_predictions = merge_prediction_dicts(m2_visual, m2_text, ["wingConf", "empType", "empKin", "wCount"])
     m3_predictions = merge_prediction_dicts(m3_visual, m3_text, ["chord", "orient", "bmech", "rmech", "propKin"])
+
+    # Guess-but-flag the KINEMATIC fields (the tilt/motion question, like G1, is
+    # not legible in a static drawing): cap confidence on a near-tie/low-conf
+    # prediction so the wizard prompts the human to verify. The genuinely VISUAL
+    # fields (fusShape, perspective, wingConf, …) are left untouched — vision is
+    # the right authority for a drawn geometric fact.
+    for _f in ("empKin",):
+        if _f in m2_predictions:
+            m2_predictions[_f] = _margin_flag(m2_predictions[_f])
+    for _f in ("orient", "propKin"):
+        if _f in m3_predictions:
+            m3_predictions[_f] = _margin_flag(m3_predictions[_f])
 
     return assemble_patent_json(
         patent_id, excel_row, match_results, desc_text,

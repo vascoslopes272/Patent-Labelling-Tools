@@ -314,7 +314,7 @@ T2_PER_PROMPTS = {
         "and the fuselage top, with visible depth foreshortening, wing tips appear "
         "further away than wing roots, three faces visible",
 }
-T2_AC_STY = ["Line Drawing", "Shaded Render", "Solid/Filled Model", "Schematic"]
+T2_AC_STY = ["Render", "Line Drawing", "Draft", "Blueprint"]
 T2_AC_COL = ["B/W (Monochrome)", "Grayscale", "Full Color"]
 T2_BG_STY = ["Solid Fill", "Shaded/Gradient", "Grid/Pattern"]
 T2_BG_COL = ["White", "Blueprint Blue", "Dark", "Grayscale"]
@@ -453,6 +453,26 @@ G1_TOP_TYPES = {
     "PFV": "a wearable jetpack or thrust-vectored suit strapped directly to a standing human body with no separate vehicle frame",
 }
 
+# Discriminative VISION prompts for the confusable TP/SLC/CVT trio, used only
+# by SigLIP (classify_g1_hint). The plain G1_TOP_TYPES defs describe the
+# architecture's *kinematics* ("propulsors tilt") — which is invisible in a
+# single static line drawing, so SigLIP collapses these three together. These
+# rewrites instead describe the DRAWN EVIDENCE that separates them in a figure:
+# a visible pivot/hinge/tilt-arrow (TP), two physically-distinct fixed rotor
+# sets (SLC), or a mix of fixed lift rotors and a separate tilting unit (CVT).
+# Topologies not listed here keep their G1_TOP_TYPES wording.
+G1_VISUAL_PROMPTS = {
+    "TP":  "aircraft with rotor nacelles drawn with a visible tilt pivot, hinge, "
+           "rotation axis, or curved motion arrow at the wing tips or booms, "
+           "showing the propulsors rotate between up and forward",
+    "SLC": "aircraft with two physically separate and distinct sets of fixed "
+           "rotors drawn — upward-facing vertical lift rotors AND a separate "
+           "horizontal pusher or tractor propeller — with no hinge, pivot, or "
+           "tilt mechanism drawn anywhere",
+    "CVT": "aircraft drawing combining fixed upward lift rotors together with a "
+           "separate tilting or rotating propulsor unit shown with a pivot",
+}
+
 
 # ─── Zero-shot G1 architecture classification ─────────────────────────────────
 
@@ -491,16 +511,24 @@ def classify_g1_hint(
         return None
 
     ids       = list(G1_TOP_TYPES.keys())
-    texts     = [TEMPLATE.format(G1_TOP_TYPES[k]) for k in ids]
+    # Use the sharper, drawn-evidence prompts for the visually-confusable
+    # TP/SLC/CVT trio where available (G1_VISUAL_PROMPTS), else the plain def.
+    texts     = [TEMPLATE.format(G1_VISUAL_PROMPTS.get(k, G1_TOP_TYPES[k])) for k in ids]
     text_feat = _text_features(texts, model, tokenizer, device)
     scores    = (feat @ text_feat.T).squeeze(0).cpu().tolist()
 
     scores = [float(max(0.0, min(1.0, s))) for s in scores]
     best_i = scores.index(max(scores))
+    # margin = winner minus runner-up; a tiny margin means SigLIP can't really
+    # separate the top two topologies from this drawing (downstream uses it to
+    # flag the guess for review).
+    _sorted = sorted(scores, reverse=True)
+    margin  = float(_sorted[0] - _sorted[1]) if len(_sorted) > 1 else 1.0
 
     return {
         "value":      ids[best_i],
         "confidence": round(scores[best_i], 4),
+        "margin":     round(margin, 4),
         "source":     "siglip",
     }
 
@@ -695,13 +723,19 @@ def classify_m3_fields(
         ("Exposed",     "non-retractable rotors permanently exposed outside the aircraft structure"),
         ("Retractable", "retractable rotors that fold or retract into the aircraft structure during cruise"),
     ]
-    # propKin (propulsor articulation kinematics) — same 4 prompts as
-    # vlm_extractor.py's M3 vocabulary, so SigLIP and the VLM emit identical ids.
+    # propKin (propulsor articulation kinematics) — SigLIP is deliberately
+    # restricted to a binary [Tilt, Fixed]. A static B&W patent line drawing
+    # shows a tilt mechanism explicitly (pivot/actuator/phantom-position lines),
+    # but "Vectored" (flow deflection, not drawn geometry) and "Cyclic"
+    # (swashplate, a claims-level distinction) are not visually separable from a
+    # single frame — SigLIP would only ever produce false positives on them.
+    # The full 4-value vocab [Fixed, Tilt, Vectored, Cyclic] still lives in
+    # reviewer._M3_PROPKIN_DEFS (SBERT) and vlm_extractor.py; SBERT/text is the
+    # authority for Vectored/Cyclic and merge_field_predictions() reconciles the
+    # two sides (a binary SigLIP value never blocks a text-side Vectored/Cyclic).
     PROP_KIN = [
-        ("Fixed",    "a fixed propulsor with no articulation"),
-        ("Tilt",     "a propulsor that tilts as a unit to vector thrust between hover and cruise"),
-        ("Vectored", "a propulsor with thrust vectoring that redirects the exhaust or slipstream"),
-        ("Cyclic",   "a rotor with cyclic swashplate pitch control like a helicopter"),
+        ("Tilt",  "a propulsor that tilts as a unit to vector thrust between hover and cruise"),
+        ("Fixed", "a fixed propulsor with no articulation"),
     ]
 
     try:

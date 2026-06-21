@@ -205,6 +205,8 @@ details.m3-readonly[open] summary::after { content: '\2212'; }
     background:var(--surface);border-bottom:1px solid var(--border);
     padding:6px 16px;display:flex;align-items:center;gap:12px;">
     <span style="font-size:11px;font-family:var(--mono);color:var(--text3);" id="hdr-id"></span>
+    <span style="color:var(--border);">|</span>
+    <span style="font-size:10px;font-family:var(--mono);color:var(--text3);text-transform:uppercase;letter-spacing:.04em;">Prototype</span>
     <span style="font-size:13px;font-weight:600;color:var(--text);" id="hdr-name"></span>
   </div>
   <div class="panel" id="panel"></div>
@@ -299,7 +301,7 @@ var FUS_KIN = [{id:'Fixed', n:'Fixed / Conventional'},{id:'Variable', n:'Variabl
 var GEAR_ARCH = [{id:'Skids', n:'Skids / Fixed Skids'},{id:'FixedWheel', n:'Fixed Wheeled Gear'},{id:'RetrWheel', n:'Retractable Wheeled Gear'},{id:'PadsHull', n:'Pads / Hull'}];
 
 var T2_PER = ['Top', 'Bottom/Down', 'Front', 'Back', 'Side', 'Front-Isometric', 'Rear-Isometric', 'Generic 3D'];
-var T2_AC_STY = ['Line Drawing', 'Shaded Render', 'Solid/Filled Model', 'Schematic'];
+var T2_AC_STY = ['Render', 'Line Drawing', 'Draft', 'Blueprint'];
 var T2_AC_COL = ['B/W (Monochrome)', 'Grayscale', 'Full Color'];
 var T2_BG_STY = ['Solid Fill', 'Shaded/Gradient', 'Grid/Pattern'];
 var T2_BG_COL = ['White', 'Blueprint Blue', 'Dark', 'Grayscale'];
@@ -340,12 +342,153 @@ function fresh(){
     empType:null, empKin:null, empNotes:'', latSym:true, longSym:false,
     footLen:null, footWid:null, footHgt:null, footAmbiguous:false, fusShape:null, fusKin:null, fusNotes:'', gearArch:null, gearNotes:'', wingNotes:'', win:null,
     comments:'',
-    t2figNum:'1', mainFigure: null, 
+    t2figNum:'1', mainFigure: null, aircraftAutoJump: false,
     // Audit B-01 Fix: Centralized Figure Dictionary
     figData: {}, t2customParts:[]
   };
 }
 var S=fresh();
+
+// ── Cross-patent session memory (NOT wiped by fresh()) ──────────────────────
+// Persists across patents within a labeling session and is rebuilt from the
+// running batch Excel on load (see ingestRegistryFromRows). Two stores:
+//   AIRCRAFT_REGISTRY[normName] = { display, rawNames:[...], snapshot:{...} }
+//     - snapshot is the last-saved M1/M2/M3 (gate/morphology/propulsion) state
+//       for that aircraft, used to pre-fill same-name patents (editable copy).
+//   PART_TOKENS = [...]  custom T2 part tokens added by the reviewer, surfaced
+//       on every subsequent patent (so a token like "test" no longer vanishes).
+var AIRCRAFT_REGISTRY = {};
+var PART_TOKENS = [];
+var NO_NAME_AIRCRAFT = '(No-name aircraft)';
+
+// Custom figure edge-case tokens — same persistence model as PART_TOKENS, so a
+// token added on one figure/patent is offered (via datalist) on every later one.
+var EDGE_TOKENS = [];
+
+// Duplicate-image label memory: the T2 image labels of every figure seen this
+// session, keyed "PATENTID|FIGNUM". When a figure is flagged as a duplicate of
+// (patent, fig), we copy that original's labels in as an editable starting point
+// — the same flag-time-copy model used for same-name aircraft M1/M2/M3.
+var FIGURE_LABEL_REGISTRY = {};
+// T2 image-label keys copied between duplicate images (image-level only — NOT
+// approve/disapprove status, which stays independent per occurrence).
+var FIG_LABEL_KEYS = ['per','acSty','acCol','bgSty','bgCol','parts','edgeTags','comment'];
+
+function figRegKey(patentId, figNum) { return String(patentId||'').trim() + '|' + String(figNum||'').trim(); }
+
+// Snapshot one figure's current T2 labels into the registry.
+function registerFigureLabels(patentId, figNum) {
+  var fd = S.figData[figNum]; if (!fd) return;
+  var snap = {};
+  FIG_LABEL_KEYS.forEach(function(k){ if (fd[k] != null) snap[k] = Array.isArray(fd[k]) ? fd[k].slice() : fd[k]; });
+  FIGURE_LABEL_REGISTRY[figRegKey(patentId, figNum)] = snap;
+}
+
+// Copy an original figure's T2 labels onto the current figure (editable copy).
+// Looks first in the live current patent (same-patent duplicate, labels still in
+// S.figData and not yet committed to the registry), then in the cross-patent
+// registry. Never copies approve/disapprove status. Returns true on success.
+function applyDuplicateFigureLabels(targetFig, originalPatent, originalFig) {
+  var snap = null;
+  var samePatent = !originalPatent || String(originalPatent).trim() === String(T1_META.recordNumber).trim();
+  if (samePatent && S.figData[originalFig]) {
+    snap = {};
+    var fd = S.figData[originalFig];
+    FIG_LABEL_KEYS.forEach(function(k){ if (fd[k] != null) snap[k] = fd[k]; });
+  } else {
+    snap = FIGURE_LABEL_REGISTRY[figRegKey(originalPatent, originalFig)];
+  }
+  if (!snap || targetFig === originalFig) return false;
+  Object.keys(snap).forEach(function(k){
+    figSet(targetFig, k, Array.isArray(snap[k]) ? snap[k].slice() : snap[k]);
+  });
+  return true;
+}
+
+// The S keys that make up the per-aircraft M1/M2/M3 morphology snapshot. Wing
+// arrays are dynamic so we capture indices 1..4 explicitly. figData / T1 triage
+// / duplicate flags are intentionally excluded — those are per-patent.
+function aircraftSnapshotKeys() {
+  var keys = ['topType','g1Focus','wingConf','wCount','empType','empKin','empNotes',
+              'latSym','longSym','footLen','footWid','footHgt','footAmbiguous',
+              'fusShape','fusKin','fusNotes','gearArch','gearNotes','wingNotes'];
+  ['wTilt','wRole','wPosV','wPosL','wPlan','wPlanOth'].forEach(function(base){
+    for (var i=1;i<=4;i++) keys.push(base+i);
+  });
+  return keys;
+}
+
+// Snapshot the current S morphology (+ all m3_* propulsion keys) for storage.
+function captureAircraftSnapshot() {
+  var snap = {};
+  aircraftSnapshotKeys().forEach(function(k){ snap[k] = S[k]; });
+  Object.keys(S).forEach(function(k){ if (k.indexOf('m3_') === 0) snap[k] = S[k]; });
+  return snap;
+}
+
+// Apply a stored snapshot onto the current S (editable pre-fill — not a lock).
+// Clears any stale m3_* keys first so a copied aircraft doesn't inherit leftover
+// propulsion fields from the previous patent.
+function applyAircraftSnapshot(snap) {
+  if (!snap) return;
+  Object.keys(S).forEach(function(k){ if (k.indexOf('m3_') === 0) delete S[k]; });
+  Object.keys(snap).forEach(function(k){ S[k] = snap[k]; });
+}
+
+// Record this patent's aircraft name + morphology snapshot into the registry.
+function registerAircraft(rawName) {
+  var disp = normalizeAircraftName(rawName);
+  if (!disp || disp === NO_NAME_AIRCRAFT) return;            // don't register the no-name bucket
+  var key = disp.toLowerCase();
+  if (!AIRCRAFT_REGISTRY[key]) AIRCRAFT_REGISTRY[key] = { display: disp, rawNames: [], snapshot: null };
+  if (AIRCRAFT_REGISTRY[key].rawNames.indexOf(rawName) === -1) AIRCRAFT_REGISTRY[key].rawNames.push(rawName);
+  AIRCRAFT_REGISTRY[key].snapshot = captureAircraftSnapshot();   // latest wins
+}
+
+// Fuzzy lookup: exact normalized match first, then a lightweight near-match
+// (case/space-insensitive prefix or small edit distance) so minor spelling
+// variants resolve to the same aircraft. Returns the registry entry or null.
+function lookupAircraft(rawName) {
+  var disp = normalizeAircraftName(rawName);
+  if (!disp || disp === NO_NAME_AIRCRAFT) return null;
+  var key = disp.toLowerCase();
+  if (AIRCRAFT_REGISTRY[key]) return AIRCRAFT_REGISTRY[key];
+  // fuzzy: compare the de-spaced lowercase forms
+  var probe = key.replace(/\s+/g,'');
+  var best = null, bestD = 1e9;
+  Object.keys(AIRCRAFT_REGISTRY).forEach(function(k){
+    var cand = k.replace(/\s+/g,'');
+    var d = _editDistance(probe, cand);
+    // accept if identical de-spaced, or within a small distance relative to length
+    if (d < bestD && d <= Math.max(1, Math.floor(Math.min(probe.length,cand.length)*0.15))) { bestD = d; best = AIRCRAFT_REGISTRY[k]; }
+  });
+  return best;
+}
+
+function _editDistance(a, b) {
+  if (a === b) return 0;
+  var m=a.length, n=b.length, dp=[]; for(var i=0;i<=m;i++) dp[i]=[i];
+  for(var j=1;j<=n;j++) dp[0][j]=j;
+  for(i=1;i<=m;i++) for(j=1;j<=n;j++)
+    dp[i][j]=Math.min(dp[i-1][j]+1, dp[i][j-1]+1, dp[i-1][j-1]+(a[i-1]===b[j-1]?0:1));
+  return dp[m][n];
+}
+
+// Seed the aircraft-name registry from a freshly-loaded batch Excel (byId:
+// {patentId: [rowObjects]}). Registers any aircraftName already present so it
+// shows up as a suggestion immediately. Snapshots (M1/M2/M3) are NOT rebuilt
+// here — they accumulate as each patent is reviewed & committed this session.
+function ingestRegistryFromRows(byId) {
+  Object.keys(byId || {}).forEach(function(pid){
+    var nameRow = (byId[pid]||[]).find(function(r){ return r.Field === 'aircraftName'; });
+    var nm = nameRow && nameRow.Value != null ? String(nameRow.Value).trim() : '';
+    if (!nm) return;
+    var disp = normalizeAircraftName(nm), key = disp.toLowerCase();
+    if (disp === NO_NAME_AIRCRAFT) return;
+    if (!AIRCRAFT_REGISTRY[key]) AIRCRAFT_REGISTRY[key] = { display: disp, rawNames: [], snapshot: null };
+    if (AIRCRAFT_REGISTRY[key].rawNames.indexOf(nm) === -1) AIRCRAFT_REGISTRY[key].rawNames.push(nm);
+  });
+}
 
 // FigData Accessors
 function figGet(fNum, key, fallback) {
@@ -361,50 +504,78 @@ function isWinged() { return ['TW','TP','DS','CVT','SLC','SRW'].indexOf(S.topTyp
 function isIndependentThrust() { return ['SLC','SRW'].indexOf(S.topType)>-1; }
 function curSID(){ return STEPS[S.step].id; }
 
-function canGo(){
-  var sid=curSID();
+// Returns an array of human-readable reasons the "Next" button is disabled for
+// the current step. Empty array → ready to advance. canGo() is a thin wrapper
+// so the nav bar can show *why* the user is blocked (single source of truth).
+function nextBlockers(){
+  var sid=curSID(), b=[];
   if(sid=='t1') {
-    if (S.isApproved === null) return false;
+    if (S.isApproved === null) { b.push('Approve or Disapprove this patent'); return b; }
     if (S.isApproved === false) {
-      if (!S.t1DisapproveReason) return false;
-      if (S.t1DisapproveReason === 'Other') return !!(S.t1DisapproveOther||'').trim();
-      return true;
+      if (!S.t1DisapproveReason) b.push('Pick a disapproval reason');
+      else if (S.t1DisapproveReason === 'Other' && !(S.t1DisapproveOther||'').trim()) b.push('Describe the "Other" disapproval reason');
+      return b;
     }
-    // Approved patents always get a default scope/field/target (see the
-    // data-t1-approve click handler), so an approval alone is enough to
-    // advance — don't make the user wait on the Excel round-trip.
-    if (S.isApproved === true) return true;
-    return !!S.t1Scope && !!S.t1Field && !!S.t1Target;
+    // Approved patents get default scope/field/target from the approve handler,
+    // so approval alone is enough to advance.
+    return b;
   }
   if(sid=='t2') {
-    // Audit B-07 Fix: Check if at least one figure is fully labeled and approved
-    var labeled = Object.values(S.figData).filter(function(fd){
-      return fd.status === 'approved' && fd.per && fd.acSty && fd.acCol && fd.bgSty && fd.bgCol && fd.sym;
+    // A figure counts as "done" when it's been labeled and approved. Disapproved
+    // figures are exempt (you don't fully label images you've rejected). At least
+    // one approved+labeled figure is required to advance.
+    var figs = Object.keys(S.figData);
+    var approvedLabeled = figs.filter(function(f){
+      var fd = S.figData[f];
+      return fd.status === 'approved' && fd.per && fd.acSty && fd.acCol && fd.bgSty && fd.bgCol;
     });
-    return labeled.length > 0;
+    if (approvedLabeled.length === 0) {
+      // Help the user: if some figure is approved but missing fields, name the gaps.
+      var approvedMissing = figs.filter(function(f){ return S.figData[f].status === 'approved'; });
+      if (approvedMissing.length === 0) {
+        b.push('Approve at least one figure (✓ on the figure card)');
+      } else {
+        var f0 = approvedMissing[0], fd0 = S.figData[f0];
+        var miss = [];
+        if (!fd0.per)   miss.push('Perspective');
+        if (!fd0.acSty) miss.push('Rendering Style');
+        if (!fd0.acCol) miss.push('Rendering Color');
+        if (!fd0.bgSty) miss.push('Background Style');
+        if (!fd0.bgCol) miss.push('Background Color');
+        b.push('FIG. ' + f0 + ' needs: ' + miss.join(', '));
+      }
+    }
+    return b;
   }
-  if(sid=='gate') return !!S.topType;
-  if(sid=='m1') return (!!S.footLen && !!S.footWid && !!S.footHgt && !!S.fusShape && !!S.fusKin && !!S.gearArch) || S.footAmbiguous;
+  if(sid=='gate') { if(!S.topType) b.push('Select an architecture topology'); return b; }
+  if(sid=='m1') {
+    if (S.footAmbiguous) return b;
+    if (!S.footLen || !S.footWid || !S.footHgt) b.push('Enter footprint dimensions (or Bypass)');
+    if (!S.fusShape) b.push('Fuselage shape');
+    if (!S.fusKin)   b.push('Fuselage kinematics');
+    if (!S.gearArch) b.push('Landing gear architecture');
+    return b;
+  }
   if(sid=='m2') {
      if (isWinged()) {
-        if (!S.wingConf) return false;
-        if (S.wingConf == 'W') {
+        if (!S.wingConf) { b.push('Wing configuration'); }
+        else if (S.wingConf == 'W') {
           for (var i = 1; i <= S.wCount; i++) {
-            if (!S['wTilt' + i] || !S['wPosV' + i] || !S['wPosL' + i] || !S['wPlan' + i]) return false;
-            if (i > 1 && !S['wRole' + i]) return false;
-            if (S['wPlan' + i] === 'Oth' && !(S['wPlanOth' + i]||'').trim()) return false;
+            if (!S['wTilt' + i] || !S['wPosV' + i] || !S['wPosL' + i] || !S['wPlan' + i]) { b.push('Wing ' + i + ' position/planform'); }
+            else if (i > 1 && !S['wRole' + i]) { b.push('Wing ' + i + ' role'); }
+            else if (S['wPlan' + i] === 'Oth' && !(S['wPlanOth' + i]||'').trim()) { b.push('Wing ' + i + ' planform "Other" detail'); }
           }
         }
      }
-     if (!S.empType) return false;
-     if (S.empType != 'Tailless' && S.empType != 'Fins') {
-        if (S.topType=='RC' || isWinged()) { if(!S.empKin) return false; }
-     }
-     return true;
+     if (!S.empType) b.push('Empennage type');
+     else if (S.empType != 'Tailless' && S.empType != 'Fins' && (S.topType=='RC' || isWinged()) && !S.empKin) b.push('Empennage kinematics');
+     return b;
   }
-  if(sid=='m3') return m3Ready();
-  return false;
+  if(sid=='m3') { if(!m3Ready()) b.push('Complete propulsion fields for each active component'); return b; }
+  return b;
 }
+
+function canGo(){ return nextBlockers().length === 0; }
 
 function buildLbl() {
   var p=[];
@@ -580,7 +751,7 @@ function m3Ready(){
     var bp = cards[i], count = m3Count(bp.key);
     if (count > 0) anyCount = true;
     if (count > 0) {
-      if (m3Sym(bp.key) && count % 2 !== 0) return false;
+      // (Symmetric components no longer require an even count — any count is valid.)
       if (S.topType !== 'RC') {
         if (!m3Get(bp.key, 'chord') || !m3Get(bp.key, 'orient') || !m3Get(bp.key, 'bmech') || !m3Get(bp.key, 'rmech')) return false;
       }
@@ -599,6 +770,19 @@ function m3Ready(){
 function m1FootprintArea() { var len = parseFloat(S.footLen), wid = parseFloat(S.footWid); if (!isFinite(len) || !isFinite(wid)) return ''; return (len * wid).toFixed(2); }
 function labelFor(list, id) { var item = list.find(function(x){ return x.id === id; }); return item ? item.n : id; }
 function escHtml(txt) { return String(txt || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+// Canonicalise an aircraft/prototype name so entries differing only by
+// capitalization (e.g. "joby s4" vs "JOBY S4" vs "Joby S4") collapse to one
+// consistent display form. Title-cases every word so casing variants always
+// agree; alphanumeric designators (tokens containing a digit, e.g. S4, X2,
+// 216, EH216) are uppercased since their canonical form is upper-case.
+function normalizeAircraftName(name) {
+  var s = String(name || '').trim().replace(/\s+/g, ' ');
+  if (!s) return '';
+  return s.split(' ').map(function(w){
+    if (/\d/.test(w)) return w.toUpperCase();   // designators: S4, X2, 216, EH216…
+    return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+  }).join(' ');
+}
 function wingField(base, idx) { return base + idx; }
 
 function oc(field,val,name,desc,oid,dis){
@@ -693,14 +877,19 @@ function figGridCard(fNum) {
   var showText = figGet(fNum,'gridShowText',false);
   var isUnlabeled = /^Fu/i.test(fNum);
 
-  // Approve/Disapprove visual feedback (Audit: per-image green/red border glow).
-  // Status border wins over the active/dup outline so approval state is always
-  // unambiguous at a glance across the whole grid.
+  // Approve/Disapprove visual feedback (per-image green/red border glow). The
+  // border reflects ONLY the approve/disapprove status — NOT selection. Clicking
+  // the card body just selects the figure (loads the detail panel); it must not
+  // recolor the card. Selection is shown by a subtle outline ring instead, so a
+  // body-click never looks like an approval action.
   var border = status==='approved'
       ? 'border-color:var(--ok);box-shadow:0 0 0 2px var(--ok-bdr),0 0 12px rgba(26,127,78,.35);'
     : status==='disapproved'
       ? 'border-color:var(--danger);box-shadow:0 0 0 2px var(--danger),0 0 12px rgba(192,57,43,.32);'
-    : (dupOfPatent || active) ? 'border-color:var(--accent);' : 'border-color:var(--border);';
+    : 'border-color:var(--border);';
+  // Selection ring: a thin neutral outline (not a border-color change) so the
+  // active card is findable without implying approve/disapprove.
+  if (active) border += 'outline:2px solid var(--accent);outline-offset:1px;';
 
   // Image area: real crop with an onerror fallback to the placeholder, OR a
   // text panel when the user toggled "Text" or no real image exists at all
@@ -837,10 +1026,22 @@ function figCoverageGrid() {
 }
 
 function figIsMapped(fNum) {
-  // Audit G-08 info: Improved regex to catch sub-figures could be applied here if needed, 
+  // Audit G-08 info: Improved regex to catch sub-figures could be applied here if needed,
   // but for basic _Fu detection, this simple base check suffices.
-  var baseFNum = fNum.replace(/_Fu/i, '').replace(/[A-Z]$/i, ''); 
+  var baseFNum = fNum.replace(/_Fu/i, '').replace(/[A-Z]$/i, '');
   return new RegExp('FIG\\.?\\s*' + baseFNum + '\\b', 'i').test(T1_META.descriptionOfDrawings);
+}
+
+// Return this figure's line(s) from the Brief Description of the Drawings, or
+// null if the figure has no matching FIG. entry (e.g. an unlabeled _Fu crop).
+// Used to show the description directly below the big image in pageT2().
+function figDescriptionLine(fNum) {
+  var baseFNum = String(fNum||'').replace(/_Fu/i, '').replace(/[A-Z]$/i, '').trim();
+  if (!baseFNum) return null;
+  var lines = String(T1_META.descriptionOfDrawings||'').split('\n');
+  var re = new RegExp('FIG\\.?\\s*' + baseFNum + '\\b', 'i');
+  var hits = lines.filter(function(line){ return re.test(line); });
+  return hits.length ? hits.join(' ').trim() : null;
 }
 
 function pageT1(){
@@ -897,6 +1098,23 @@ function pageT1(){
       // Audit G-04: Display Family ID
       + '<div class="m3-field"><div class="m3-label">Family ID / Priority</div><div class="m3-readonly" style="font-size:11px;">' + escHtml(T1_META.familyId) + ' / ' + escHtml(T1_META.priorityDate) + '</div></div>'
       + '<div class="m3-field" style="grid-column:1/-1"><div class="m3-label">Title</div><div class="m3-readonly">' + escHtml(T1_META.title) + '</div></div>'
+      // Aircraft / prototype name — tokenized input. Typing offers existing
+      // session names (datalist) + a "no-name" option. Picking a known name
+      // copies that aircraft's M1/M2/M3 (see the aircraft-name change handler).
+      + '<div class="m3-field" style="grid-column:1/-1;"><div class="m3-label">Aircraft / Prototype Name '
+        + '<span style="font-weight:400;color:var(--text3);font-size:11px;">— same name ⇒ shared M1/M2/M3</span></div>'
+        + '<input type="text" list="aircraft-name-options" id="t1-aircraft-name" class="m3-num" autocomplete="off" '
+        + 'placeholder="Type a name, pick an existing one, or choose No-name…" '
+        + 'value="' + escHtml(T1_META.aircraftName||'') + '" style="width:100%;">'
+        + '<datalist id="aircraft-name-options">'
+        + ['<option value="'+escHtml(NO_NAME_AIRCRAFT)+'"></option>']
+            .concat(Object.keys(AIRCRAFT_REGISTRY).map(function(k){ return '<option value="'+escHtml(AIRCRAFT_REGISTRY[k].display)+'"></option>'; }))
+            .join('')
+        + '</datalist>'
+        + (T1_META.aircraftName && lookupAircraft(T1_META.aircraftName) && lookupAircraft(T1_META.aircraftName).snapshot
+            ? '<div class="flag info" style="margin-top:8px;"><span class="f-lbl">↺ Known aircraft</span>M1/M2/M3 copied from a previous patent named "'+escHtml(lookupAircraft(T1_META.aircraftName).display)+'". Edit as needed — clicking Next on T2 jumps to the summary.</div>'
+            : '')
+        + '</div>'
       + '<div class="m3-field" style="grid-column:1/-1;"><details class="m3-readonly"><summary>Backward Citations (' + (T1_META.backwardCites ? T1_META.backwardCites.length : 0) + ')</summary><div class="cite-list">' + renderCitationsWithLinks(T1_META.backwardCites) + '</div></details></div>'
       + '<div class="m3-field" style="grid-column:1/-1;"><details class="m3-readonly"><summary>Forward Citations (' + (T1_META.forwardCites ? T1_META.forwardCites.length : 0) + ')</summary><div class="cite-list">' + renderCitationsWithLinks(T1_META.forwardCites) + '</div></details></div>'
     + '</div></div>'; 
@@ -959,6 +1177,19 @@ function pageT2(){
           + '<a href="' + escHtml(srcUrl) + '" target="_blank" rel="noopener"'
           + ' style="color:var(--accent);text-decoration:none;">↗ View source</a></div>'
         : '')
+    // Per-figure Brief-Description-of-Drawings text, shown directly under the
+    // big image. Mapped figures show their own description line; unlabeled (_Fu)
+    // / unmapped crops explicitly show that it's missing from the brief drawings.
+    + (function(){
+        var desc = figDescriptionLine(fNum);
+        if (desc) {
+          return '<div style="margin-top:8px;padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;font-size:12px;line-height:1.5;color:var(--text2);">'
+               + '<span style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;">Brief Description of Drawings</span><br>'
+               + escHtml(desc) + '</div>';
+        }
+        return '<div style="margin-top:8px;padding:8px 10px;background:var(--bg2);border:1px dashed var(--border2);border-radius:6px;font-size:12px;color:var(--text3);font-style:italic;">'
+             + 'No matching FIG. entry in the Brief Description of the Drawings for this crop.</div>';
+      })()
     + '<div style="display:flex; align-items:center; gap:8px; margin-bottom:12px; margin-top:8px;">'
       + '<button type="button" class="btn" data-t2-rotate="true" style="padding:6px 12px; font-size:12px;">↻ Rotate 90°</button>'
       + (rotation !== 0 ? '<span class="crumb" style="font-family:var(--mono);">Current: ' + rotation + '°</span>' : '')
@@ -974,9 +1205,6 @@ function pageT2(){
     h += '<div class="m3-card" style="margin-bottom:8px; border-color:var(--accent);">'
       + '<div class="m3-head" style="margin-bottom:10px;">Figure Validation & Assignment</div>'
       + '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">'
-        + '<button type="button" class="btn '+(status==='approved'?'pri':'')+'" data-t2-status="approved">✓ Approve Image</button>'
-        + '<button type="button" class="btn '+(status==='disapproved'?'danger sel':'')+'" data-t2-status="disapproved">✗ Disapprove</button>'
-        + '<div style="width:1px; height:24px; background:var(--border);"></div>'
         + '<button type="button" class="btn '+(isMain?'pri':'')+'" data-t2-main="true">★ Set as Main Figure</button>'
         + '<div style="width:1px; height:24px; background:var(--border);"></div>'
         + '<div style="display:flex; align-items:center; gap:6px;"><span class="m3-label" style="margin-bottom:0;">Assign To:</span><select class="m3-num" data-t2-arch="true" style="padding:6px 10px; min-height:0; width:140px;">'+archOptions+'</select></div>'
@@ -1011,7 +1239,7 @@ function pageT2(){
        + '</div>';
 
     h += '<div class="m3-card" style="margin-bottom:8px; padding:12px;"><div class="m3-head">C. Present Structural Elements (Visual Tokens)</div>'
-       + grid('n',(T2_PARTS_DEFAULT.concat(S.t2customParts||[])).map(function(p){return ocArrFig('parts',p,p);}))
+       + grid('n',(T2_PARTS_DEFAULT.concat(PART_TOKENS||[]).concat(S.t2customParts||[]).filter(function(v,i,a){return a.indexOf(v)===i;})).map(function(p){return ocArrFig('parts',p,p);}))
        + '<div style="margin-top:10px; display:flex; gap:8px;"><input type="text" class="m3-num" id="t2-new-part" placeholder="+ Add Custom Token" style="flex:1; padding:8px 12px; min-height:0;"><button type="button" class="btn" id="btn-add-part" style="padding:8px 16px;">Add Tag</button></div>'
        + '</div>';
 
@@ -1034,8 +1262,11 @@ function pageT2(){
        + ' style="width:100%;min-height:60px;padding:8px;resize:vertical;font-size:13px;">'
        + escHtml(figGet(fNum, "comment", "")) + '</textarea>'
        + '<div style="margin-top:8px;display:flex;gap:8px;">'
-       + '<input type="text" id="t2-edge-tag-input" class="m3-num"'
-       + ' placeholder="New edge-case token..." style="flex:1;padding:6px 10px;min-height:0;">'
+       + '<input type="text" id="t2-edge-tag-input" class="m3-num" list="edge-token-options" autocomplete="off"'
+       + ' placeholder="New or existing edge-case token..." style="flex:1;padding:6px 10px;min-height:0;">'
+       + '<datalist id="edge-token-options">'
+       + EDGE_TOKENS.map(function(t){ return '<option value="'+escHtml(t)+'"></option>'; }).join('')
+       + '</datalist>'
        + '<button type="button" class="btn" id="btn-add-edge-tag" style="padding:6px 12px;">+ Tag</button>'
        + '</div>'
        + (figGet(fNum,"edgeTags",[]).length > 0
@@ -1135,25 +1366,45 @@ function renderStep(){ document.getElementById('stepper').innerHTML = STEPS.map(
 function renderBC(){ var h=''; if(S.t1Scope) h+='<span class="crumb hi">'+S.t1Scope.split(' ')[0]+'</span>'; if(S.topType) h+='<span class="crumb hi">'+S.topType+'</span>'; if(S.wingConf) h+='<span class="crumb">'+S.wingConf+(S.wingConf=='W'?'\u00d7'+S.wCount:'')+'</span>'; if(S.empType) h+='<span class="crumb">'+S.empType+'</span>'; if(curSID()=='m3') h+='<span class="crumb">M3 Core Array: '+m3TotalCount()+' units</span>'; document.getElementById('bc').innerHTML=h; }
 
 function renderPreserveScroll() {
-  var panel = document.getElementById('panel');
-  var pos = panel ? panel.scrollTop : 0;
+  // The page scrolls on the WINDOW (the .panel div has no overflow/fixed height,
+  // so it grows with content) — #panel.scrollTop is always 0. On the T2 page the
+  // two columns (.t2-left / .t2-right) are their own scroll containers, so we
+  // capture/restore those too. render() rebuilds #panel.innerHTML, so the inner
+  // elements are recreated and must be re-scrolled by selector after render.
+  var winY = window.scrollY || document.documentElement.scrollTop || 0;
+  var left = document.querySelector('.t2-left');
+  var right = document.querySelector('.t2-right');
+  var lTop = left ? left.scrollTop : 0;
+  var rTop = right ? right.scrollTop : 0;
   render();
-  if (panel) panel.scrollTop = pos;
+  window.scrollTo(0, winY);
+  var left2 = document.querySelector('.t2-left');
+  var right2 = document.querySelector('.t2-right');
+  if (left2) left2.scrollTop = lTop;
+  if (right2) right2.scrollTop = rTop;
 }
 
 function render(){
   renderStep(); renderBC(); renderThroughput();
   document.getElementById('hdr-id').textContent = T1_META.recordNumber || '';
+  // Prefer a dedicated, capitalization-normalized aircraft/prototype name;
+  // fall back to the patent title when the pipeline doesn't supply one.
+  var acName = normalizeAircraftName(T1_META.aircraftName);
   document.getElementById('hdr-name').textContent =
-    T1_META.aircraftName || T1_META.title || 'Unnamed';
+    acName || T1_META.title || 'Unnamed';
   var sid=curSID(), p=document.getElementById('panel'), content='';
   if(sid=='t1') content=pageT1(); else if(sid=='t2') content=pageT2(); else if(sid=='gate') content=pageGate(); else if(sid=='m1') content=pageM1(); else if(sid=='m2') content=pageM2(); else if(sid=='m3') content=pageM3(); else if(sid=='done'){ p.innerHTML=pageDone(); return; }
-  p.innerHTML=content+'<div class="nav">'+(S.step>0?'<button type="button" class="btn" id="btn-back">\u2190 Back</button>':'<div></div>')+'<div class="bgrp"><button type="button" class="btn pri" id="btn-next"'+(!canGo()?' disabled':'')+'>Next Step \u2192</button></div></div>';
+  var blockers = nextBlockers();
+  var blockerHint = blockers.length
+    ? '<span style="font-size:11px;color:var(--warn);text-align:right;max-width:420px;">\u26a0 To continue: ' + escHtml(blockers.join('  \u00b7  ')) + '</span>'
+    : '';
+  p.innerHTML=content+'<div class="nav">'+(S.step>0?'<button type="button" class="btn" id="btn-back">\u2190 Back</button>':'<div></div>')+'<div class="bgrp" style="display:flex;align-items:center;gap:10px;">'+blockerHint+'<button type="button" class="btn pri" id="btn-next"'+(!canGo()?' disabled':'')+'>Next Step \u2192</button></div></div>';
 }
 
 function buildExport() {
   return {
     recordId: T1_META.recordNumber, familyId: T1_META.familyId,
+    aircraftName: T1_META.aircraftName || '',
     assignee: T1_META.assignee, pubYear: T1_META.pubYear, appYear: T1_META.appYear,
     isApproved: S.isApproved, disapproveReason: S.t1DisapproveReason, disapproveOther: S.t1DisapproveOther,
     isDuplicate: S.isDuplicate, duplicateOf: S.duplicateId, duplicateType: S.duplicateType,
@@ -1279,6 +1530,16 @@ function ingestAI(data) {
         figSet(figNum, 'rotation_deg_suggested', parseInt(fig.rotation_deg_suggested, 10) || 0);
       }
       // Do NOT auto-approve figures — human must confirm each one
+    });
+    // Pipeline-detected duplicates: when a figure is flagged dupOfFig pointing at
+    // another figure in THIS patent, copy that original's T2 labels in (same
+    // image ⇒ same image-level labels), editable. Cross-patent originals are
+    // handled when the reviewer (re)flags them or once that patent is in the
+    // session registry.
+    Object.keys(S.figData).forEach(function(figNum){
+      var dop = figGet(figNum,'dupOfPatent',''), dof = figGet(figNum,'dupOfFig','');
+      var samePatent = !dop || String(dop).trim() === String(T1_META.recordNumber).trim();
+      if (dof && samePatent && S.figData[dof]) applyDuplicateFigureLabels(figNum, dop, dof);
     });
   }
   // M3 propulsion cards
@@ -1418,6 +1679,7 @@ function recordToRows(record, pid) {
   // ── T1 ── title/abstract/description_of_drawings come from T1_META since
   // buildExport() doesn't carry them (they're not editable in the wizard).
   rows.push(reviewRow(pid, "T1", "Patent Title", "title", T1_META.title));
+  rows.push(reviewRow(pid, "T1", "Aircraft / Prototype Name", "aircraftName", record.aircraftName));
   rows.push(reviewRow(pid, "T1", "Abstract", "abstract", T1_META.abstract));
   rows.push(reviewRow(pid, "T1", "Assignee", "assignee", record.assignee));
   rows.push(reviewRow(pid, "T1", "Publication Year", "pub_year", record.pubYear));
@@ -1782,7 +2044,9 @@ function loadBatchPatent(idx) {
   // Derive the Google Patents URL from the Patent_ID, normalizing the
   // PatSeer 6-digit sequence number to GP's 7-digit format first.
   T1_META.pdfLink              = 'https://patents.google.com/patent/' + normalizePatentIdForGoogle(pid) + '/en';
-  T1_META.aircraftName          = metaVal('aircraftName') || T1_META.aircraftName;
+  // Always reset the name per patent (no fallback to the previous patent's name,
+  // which would wrongly carry a name onto a blank-name patent).
+  T1_META.aircraftName          = metaVal('aircraftName') || '';
   T1_META.title                = metaVal('title')        || T1_META.title;
   T1_META.abstract             = metaVal('abstract')      || T1_META.abstract;
   T1_META.assignee             = metaVal('assignee')      || T1_META.assignee;
@@ -1840,6 +2104,8 @@ document.getElementById('batch-xlsx-input').addEventListener('change', function(
       // dirty: the patent currently on screen has unsaved edits.
       BATCH = { ids: ids, byId: byId, idx: 0, label: label, saved: {}, dirty: false };
       REVIEWED_ROWS = [];  // new batch loaded — don't carry over a previous batch's rows
+      AIRCRAFT_REGISTRY = {}; PART_TOKENS = []; EDGE_TOKENS = []; FIGURE_LABEL_REGISTRY = {};  // reset session memory for the new batch
+      ingestRegistryFromRows(byId);              // seed aircraft names from the loaded Excel
       document.getElementById('batch-load-status').textContent =
         ' Loaded ' + ids.length + ' patent(s) from ' + sheetName + ' (batch: ' + label + ').';
       document.getElementById('batch-nav').style.display = 'flex';
@@ -1963,7 +2229,7 @@ document.querySelector('.wiz').addEventListener('change', function(e){
   var panel = document.getElementById('panel');
   if (!panel) return;
   var DIRTY_SEL = '[data-field],[data-arrfield],[data-figfield],[data-figarrfield],'
-    + '[data-t1-approve],[data-dup-type],[data-fig-quality],[data-t2-status],'
+    + '[data-t1-approve],[data-dup-type],[data-fig-quality],'
     + '[data-grid-approve],[data-grid-disapprove],'
     + '[data-t2-main],[data-t2-rotate],[data-t2-arch],[data-g1-top],'
     + '[data-m3-action],[data-inc],[data-dec],#btn-m1-bypass';
@@ -1981,12 +2247,35 @@ document.getElementById('panel').addEventListener('click', function(e){
   if(tgt.tagName === 'SUMMARY' || tgt.closest('summary')) return;
 
   if(tgt.id === 'btn-m1-bypass') { S.footAmbiguous = !S.footAmbiguous; renderPreserveScroll(); return; }
-  if(tgt.id === 'btn-next' && !tgt.disabled) { S.step++; renderPreserveScroll(); return; }
+  if(tgt.id === 'btn-next' && !tgt.disabled) {
+    // Same-name aircraft auto-jump: when the M1/M2/M3 were pre-filled from a
+    // known aircraft on T1, clicking Next on T2 skips Gate/M1/M2/M3 and lands on
+    // the Summary (Done) page — the morphology is already filled. You can still
+    // Back into the skipped steps to verify/edit. Fires only once per patent.
+    if (S.aircraftAutoJump && curSID() === 't2') {
+      var doneIdx = STEPS.map(function(s){return s.id;}).indexOf('done');
+      S.step = doneIdx >= 0 ? doneIdx : S.step + 1;
+      S.aircraftAutoJump = false;
+      renderPreserveScroll(); return;
+    }
+    S.step++; renderPreserveScroll(); return;
+  }
   if(tgt.id === 'btn-back') { S.step--; renderPreserveScroll(); return; }
   
   if(tgt.id === 'btn-export-next') {
     var record = buildExport();
     console.log("JSON Payload Ready for Pipeline:", record);
+
+    // Record this aircraft's name + morphology so the next same-name patent can
+    // copy it (no-op for the no-name bucket / blank name).
+    registerAircraft(T1_META.aircraftName);
+    // Register every figure's T2 labels so a later duplicate (this patent or a
+    // future one) can copy them in, and harvest any edge-case tokens into the
+    // session-wide token list so they keep being suggested.
+    Object.keys(S.figData).forEach(function(fNum){
+      registerFigureLabels(T1_META.recordNumber, fNum);
+      (figGet(fNum,'edgeTags',[])||[]).forEach(function(t){ if (EDGE_TOKENS.indexOf(t) === -1) EDGE_TOKENS.push(t); });
+    });
 
     if (BATCH) {
       // Accumulate into the batch's reviewed rows instead of downloading one
@@ -2062,6 +2351,9 @@ document.getElementById('panel').addEventListener('click', function(e){
       var fNumTag = (S.t2figNum||'1').trim();
       var tags = figGet(fNumTag, 'edgeTags', []);
       if (tags.indexOf(newTag) === -1) { tags = tags.concat([newTag]); figSet(fNumTag, 'edgeTags', tags); }
+      // Persist the token session-wide (like PART_TOKENS / aircraft names) so it
+      // is offered as a suggestion on every later figure/patent.
+      if (EDGE_TOKENS.indexOf(newTag) === -1) EDGE_TOKENS.push(newTag);
       tagInput.value = '';
       renderPreserveScroll();
     }
@@ -2111,18 +2403,9 @@ document.getElementById('panel').addEventListener('click', function(e){
     S.t2figNum = String(maxN+1); renderPreserveScroll(); return;
   }
 
-  // T2 Status & Main Figure
-  var t2StatBtn = tgt.closest('[data-t2-status]');
-  if (t2StatBtn) { 
-      var fNum = (S.t2figNum||'1').trim(); 
-      if(fNum){ 
-          var newStatus = t2StatBtn.getAttribute('data-t2-status');
-          figSet(fNum, 'status', newStatus); 
-          if (newStatus === 'disapproved' && S.mainFigure === fNum) S.mainFigure = null;
-          renderPreserveScroll(); 
-      } 
-      return; 
-  }
+  // T2 Main Figure (approve/disapprove now lives only on the figure cards via
+  // data-grid-approve / data-grid-disapprove — the duplicate buttons that used
+  // to be here in "Figure Validation & Assignment" were removed).
   var t2MainBtn = tgt.closest('[data-t2-main]');
   if (t2MainBtn) {
       var fNum2 = (S.t2figNum||'1').trim();
@@ -2201,8 +2484,17 @@ document.getElementById('panel').addEventListener('click', function(e){
     var dupPid = dupPatentInput ? dupPatentInput.value.trim() : '';
     if (dupPid) {
       var fNumDup = (S.t2figNum||'1').trim();
+      var dupFig  = dupFigInput ? dupFigInput.value.trim() : '';
       figSet(fNumDup, 'dupOfPatent', dupPid);
-      figSet(fNumDup, 'dupOfFig', dupFigInput ? dupFigInput.value.trim() : '');
+      figSet(fNumDup, 'dupOfFig', dupFig);
+      // Same image ⇒ same image-level labels. Copy the original figure's T2
+      // labels in as an editable starting point (image-level only, not status),
+      // mirroring how same-name aircraft share M1/M2/M3.
+      var copied = dupFig ? applyDuplicateFigureLabels(fNumDup, dupPid, dupFig) : false;
+      var st = document.getElementById('batch-load-status');
+      if (st) st.textContent = copied
+        ? ' Copied FIG. ' + dupFig + ' labels from ' + dupPid + ' into FIG. ' + fNumDup + ' (editable).'
+        : (dupFig ? ' Flagged duplicate — original FIG. ' + dupFig + ' not seen yet this session, no labels copied.' : ' Flagged duplicate.');
       renderPreserveScroll();
     }
     return;
@@ -2219,6 +2511,10 @@ document.getElementById('panel').addEventListener('click', function(e){
     var input = document.getElementById('t2-new-part');
     if (input && input.value.trim()) {
       var newTag = input.value.trim();
+      // Persist the token session-wide so it appears on every subsequent patent
+      // (previously it lived only in S.t2customParts, which fresh() wiped — that
+      // is why a token like "test" vanished on the next patent).
+      if (PART_TOKENS.indexOf(newTag) === -1) PART_TOKENS.push(newTag);
       if ((S.t2customParts || []).indexOf(newTag) === -1) { S.t2customParts = S.t2customParts || []; S.t2customParts.push(newTag); }
       var fN2 = (S.t2figNum||'1').trim(), arr2 = figGet(fN2, 'parts', []);
       if (arr2.indexOf(newTag) === -1) arr2.push(newTag);
@@ -2230,8 +2526,10 @@ document.getElementById('panel').addEventListener('click', function(e){
 
   var m3Btn = tgt.closest('.m3-btn');
   if(m3Btn){
-    var comp = m3Btn.getAttribute('data-comp'), action = m3Btn.getAttribute('data-m3-action'), countField = m3Field(comp,'count'), stepAmt = m3Sym(comp) ? 2 : 1, cur = m3Count(comp);
-    if(action === 'inc') cur += stepAmt; if(action === 'dec') cur = Math.max(0, cur - stepAmt);
+    // Counts step by 1 for every component now — symmetric pairs are no longer
+    // forced to even values (a reviewer may legitimately enter any count).
+    var comp = m3Btn.getAttribute('data-comp'), action = m3Btn.getAttribute('data-m3-action'), countField = m3Field(comp,'count'), cur = m3Count(comp);
+    if(action === 'inc') cur += 1; if(action === 'dec') cur = Math.max(0, cur - 1);
     S[countField] = cur; renderPreserveScroll(); return;
   }
 
@@ -2245,43 +2543,64 @@ document.getElementById('panel').addEventListener('click', function(e){
 document.getElementById('panel').addEventListener('change', function(e){
   var tgt = e.target; if (!tgt || !tgt.dataset) return;
   var field = tgt.dataset.field;
-  
-  if (tgt.hasAttribute('data-t2-arch')) { var fNum = (S.t2figNum||'1').trim(); if(fNum){ figSet(fNum, 'arch', tgt.value); render(); } return; }
+
+  // Aircraft / prototype name committed. Store it; if it matches a known
+  // aircraft that already has a saved M1/M2/M3 snapshot, copy that in (editable)
+  // and arm the T2→Done auto-jump. "(No-name aircraft)" stores no name and never
+  // copies.
+  if (tgt.id === 't1-aircraft-name') {
+    var raw = (tgt.value||'').trim();
+    if (raw === NO_NAME_AIRCRAFT) { T1_META.aircraftName = ''; S.aircraftAutoJump = false; renderPreserveScroll(); return; }
+    T1_META.aircraftName = raw;
+    S.aircraftAutoJump = false;
+    var hit = raw ? lookupAircraft(raw) : null;
+    if (hit && hit.snapshot) {
+      applyAircraftSnapshot(hit.snapshot);   // editable pre-fill of M1/M2/M3 (+G1)
+      T1_META.aircraftName = hit.display;     // canonical display form
+      S.aircraftAutoJump = true;              // Next on T2 skips straight to Done
+    }
+    renderPreserveScroll(); return;
+  }
+
+  if (tgt.hasAttribute('data-t2-arch')) { var fNum = (S.t2figNum||'1').trim(); if(fNum){ figSet(fNum, 'arch', tgt.value); renderPreserveScroll(); } return; }
 
   if (tgt.hasAttribute('data-fig-bool')) {
     var fNumBool = (S.t2figNum||'1').trim();
-    if (fNumBool) { figSet(fNumBool, tgt.getAttribute('data-fig-bool'), tgt.checked); render(); }
+    if (fNumBool) { figSet(fNumBool, tgt.getAttribute('data-fig-bool'), tgt.checked); renderPreserveScroll(); }
     return;
   }
 
   // Part 6: Fu_ unlabeled figure → existing taxonomy FIG. assignment
   if (tgt.hasAttribute('data-fig-reassign')) {
     var srcFig = tgt.getAttribute('data-fig-reassign'), dstFig = tgt.value;
-    if (dstFig) { reassignFigure(srcFig, dstFig); markBatchDirty(); render(); }
+    if (dstFig) { reassignFigure(srcFig, dstFig); markBatchDirty(); renderPreserveScroll(); }
     return;
   }
-  
-  // Audit B-03 Fix: Defer t2figNum render to 'change' event to allow multi-digit typing without losing focus
+
+  // Audit B-03 Fix: Defer t2figNum render to 'change' event to allow multi-digit
+  // typing without losing focus. Full render() (not scroll-preserving) here is
+  // intentional — switching the active figure resets to a clean top-of-panel view.
   if (field === 't2figNum') { S.t2figNum = tgt.value.trim(); render(); return; }
 
-  if (field === 'isDuplicate') { S[field] = tgt.checked; render(); return; }
+  if (field === 'isDuplicate') { S[field] = tgt.checked; renderPreserveScroll(); return; }
 
   if (field && field.indexOf('m3_') === 0 && tgt.type === 'number') {
+    // Free counts for all components — no odd→even coercion for symmetric ones.
     var val = parseInt(tgt.value, 10); if (isNaN(val) || val < 0) val = 0;
-    var comp = field.split('_')[1]; if (m3Sym(comp) && val % 2 !== 0) val += 1;
-    S[field] = val; render(); return;
+    S[field] = val; renderPreserveScroll(); return;
   }
   if ((field === 'footLen' || field === 'footWid' || field === 'footHgt') && tgt.type === 'number') {
     var val3 = parseFloat(tgt.value); if (!isFinite(val3) || val3 < 0) val3 = 0;
-    S[field] = val3; render(); return;
+    S[field] = val3; renderPreserveScroll(); return;
   }
-  if (tgt.type === 'checkbox' && (field === 'latSym' || field === 'longSym')) { S[field] = tgt.checked; render(); return; }
+  if (tgt.type === 'checkbox' && (field === 'latSym' || field === 'longSym')) { S[field] = tgt.checked; renderPreserveScroll(); return; }
   if (field && field.indexOf('m3_') === 0 && tgt.type === 'checkbox') {
+    // Ticking "symmetric pairs" no longer bumps an odd count up to even —
+    // counts are free for all components.
     S[field] = tgt.checked;
-    if (tgt.checked) { var compId = field.split('_')[1], countKey = m3Field(compId, 'count'), currentCount = parseInt(S[countKey], 10) || 0; if (currentCount % 2 !== 0) S[countKey] = currentCount + 1; }
-    render(); return;
+    renderPreserveScroll(); return;
   }
-  if (tgt.tagName === 'SELECT') { S[field] = tgt.value; render(); return; }
+  if (tgt.tagName === 'SELECT') { S[field] = tgt.value; renderPreserveScroll(); return; }
 });
 
 document.getElementById('panel').addEventListener('input', function(e){
