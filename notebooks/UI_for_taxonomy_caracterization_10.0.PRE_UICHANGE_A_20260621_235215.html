@@ -1354,13 +1354,7 @@ function pageT2(){
        + sec('Background Rendering') + grid('n',T2_BG_STY.map(function(s){return ocFig('bgSty',s,s);})) + grid('n',T2_BG_COL.map(function(c){return ocFig('bgCol',c,c);}))
        + '</div>';
 
-    // Structural Elements is SINGLE-select by default (SigLIP over-tags parts on a
-    // single layout figure; the human should normally pick exactly one token). The
-    // per-figure partsMulti flag opts into legacy multi-select for genuine edge cases.
-    var partsMulti = figGet(fNum, 'partsMulti', false);
-    h += '<div class="m3-card" style="margin-bottom:8px; padding:12px;"><div class="m3-head" style="display:flex; justify-content:space-between; align-items:center;">C. Present Structural Elements (Visual Tokens)'
-       + '<button type="button" class="btn ' + (partsMulti ? 'danger' : '') + '" id="btn-parts-multi-toggle" style="padding:4px 10px; font-size:11px;">' + (partsMulti ? 'Back to single' : 'Allow multiple (edge case)') + '</button></div>'
-       + '<div class="m3-sub" style="margin-bottom:6px;">' + (partsMulti ? 'MULTI-SELECT (edge case) — pick all structural tokens that apply.' : 'SINGLE-SELECT — pick exactly one structural token. Click it again to clear.') + '</div>'
+    h += '<div class="m3-card" style="margin-bottom:8px; padding:12px;"><div class="m3-head">C. Present Structural Elements (Visual Tokens)</div>'
        + grid('n',(T2_PARTS_DEFAULT.concat(PART_TOKENS||[]).concat(S.t2customParts||[]).filter(function(v,i,a){return a.indexOf(v)===i;})).map(function(p){return ocArrFig('parts',p,p);}))
        + '<div style="margin-top:10px; display:flex; gap:8px;"><input type="text" class="m3-num" id="t2-new-part" placeholder="+ Add Custom Token" style="flex:1; padding:8px 12px; min-height:0;"><button type="button" class="btn" id="btn-add-part" style="padding:8px 16px;">Add Tag</button></div>'
        + '</div>';
@@ -1391,22 +1385,6 @@ function pageT2(){
        + '</datalist>'
        + '<button type="button" class="btn" id="btn-add-edge-tag" style="padding:6px 12px;">+ Tag</button>'
        + '</div>'
-       // Parity with Structural Elements: surface every session edge-case token
-       // (EDGE_TOKENS) as one-click chips so the reviewer never has to retype a tag
-       // they created earlier. Applied tags are highlighted; clicking a chip appends
-       // it to this figure's edgeTags (no-op if already applied). The text input
-       // above still CREATES new tokens (btn-add-edge-tag pushes into EDGE_TOKENS).
-       + (EDGE_TOKENS.length > 0
-          ? '<div style="margin-top:8px;">'
-            + '<div class="m3-sub" style="margin-bottom:4px;">Edge-case tokens (click to apply):</div>'
-            + '<div style="display:flex;flex-wrap:wrap;gap:4px;">'
-            + EDGE_TOKENS.map(function(t){
-                var applied = figGet(fNum,"edgeTags",[]).indexOf(t) > -1;
-                return '<span class="crumb' + (applied ? ' hi' : '') + '" style="cursor:pointer;" data-add-edge-tag="'+escHtml(t)+'">'
-                       + escHtml(t) + '</span>';
-              }).join('')
-            + '</div></div>'
-          : '')
        + (figGet(fNum,"edgeTags",[]).length > 0
           ? '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;">'
             + figGet(fNum,"edgeTags",[]).map(function(t){
@@ -2491,7 +2469,7 @@ document.querySelector('.wiz').addEventListener('change', function(e){
     + '[data-t1-approve],[data-dup-type],[data-fig-quality],'
     + '[data-grid-approve],[data-grid-disapprove],'
     + '[data-t2-main],[data-t2-rotate],[data-t2-arch],[data-g1-top],'
-    + '[data-m3-action],[data-inc],[data-dec],[data-add-edge-tag],#btn-m1-bypass';
+    + '[data-m3-action],[data-inc],[data-dec],#btn-m1-bypass';
   panel.addEventListener('click', function(e){
     if (BATCH && e.target.closest(DIRTY_SEL)) markBatchDirty();
   });
@@ -2650,17 +2628,6 @@ document.getElementById('panel').addEventListener('click', function(e){
     }
     return;
   }
-  var addTagChip = tgt.closest('[data-add-edge-tag]');
-  if (addTagChip) {
-    var fNumAddTag = (S.t2figNum||'1').trim();
-    var tagToAdd = addTagChip.getAttribute('data-add-edge-tag');
-    var curEdgeTags = figGet(fNumAddTag, 'edgeTags', []);
-    if (curEdgeTags.indexOf(tagToAdd) === -1) {
-      figSet(fNumAddTag, 'edgeTags', curEdgeTags.concat([tagToAdd]));
-    }
-    renderPreserveScroll();
-    return;
-  }
   var removeTagEl = tgt.closest('[data-remove-tag]');
   if (removeTagEl) {
     var fNumRmTag = (S.t2figNum||'1').trim();
@@ -2784,15 +2751,7 @@ document.getElementById('panel').addEventListener('click', function(e){
       figSet((S.t2figNum||'1').trim(), figfield, val); renderPreserveScroll(); return;
     } else if (figarrfield) {
       var fN = (S.t2figNum||'1').trim(), fArr = figGet(fN, figarrfield, []), fIdx = fArr.indexOf(val);
-      if (figarrfield === 'parts' && !figGet(fN, 'partsMulti', false)) {
-        // SINGLE mode (default): radio-like. Click the selected token to clear,
-        // otherwise replace the selection. parts stays an ARRAY (length 0 or 1) so
-        // the export schema (recordToRows joins with "|") is unchanged.
-        fArr = (fIdx > -1) ? [] : [val];
-      } else {
-        // MULTI mode (figData[fN].partsMulti) or any other figarrfield: legacy toggle.
-        if (fIdx > -1) fArr.splice(fIdx, 1); else fArr.push(val);
-      }
+      if (fIdx > -1) fArr.splice(fIdx, 1); else fArr.push(val);
       figSet(fN, figarrfield, fArr); renderPreserveScroll(); return;
     }
   }
@@ -2826,20 +2785,6 @@ document.getElementById('panel').addEventListener('click', function(e){
     return;
   }
 
-  if (tgt.id === 'btn-parts-multi-toggle') {
-    var fNumPM = (S.t2figNum||'1').trim();
-    var nowMulti = !figGet(fNumPM, 'partsMulti', false);
-    figSet(fNumPM, 'partsMulti', nowMulti);
-    // Switching MULTI -> SINGLE while >1 token is selected: keep only the first
-    // (single mode can hold at most one; the extra edge-case picks are dropped).
-    if (!nowMulti) {
-      var partsArrPM = figGet(fNumPM, 'parts', []);
-      if (partsArrPM.length > 1) figSet(fNumPM, 'parts', [partsArrPM[0]]);
-    }
-    renderPreserveScroll();
-    return;
-  }
-
   if (tgt.id === 'btn-add-part') {
     var input = document.getElementById('t2-new-part');
     if (input && input.value.trim()) {
@@ -2850,13 +2795,7 @@ document.getElementById('panel').addEventListener('click', function(e){
       if (PART_TOKENS.indexOf(newTag) === -1) PART_TOKENS.push(newTag);
       if ((S.t2customParts || []).indexOf(newTag) === -1) { S.t2customParts = S.t2customParts || []; S.t2customParts.push(newTag); }
       var fN2 = (S.t2figNum||'1').trim(), arr2 = figGet(fN2, 'parts', []);
-      // Auto-select the freshly created token. In single mode it REPLACES the
-      // current selection (keeps parts length 1); in multi mode it is appended.
-      if (figGet(fN2, 'partsMulti', false)) {
-        if (arr2.indexOf(newTag) === -1) arr2.push(newTag);
-      } else {
-        arr2 = [newTag];
-      }
+      if (arr2.indexOf(newTag) === -1) arr2.push(newTag);
       figSet(fN2, 'parts', arr2);
       renderPreserveScroll();
     }

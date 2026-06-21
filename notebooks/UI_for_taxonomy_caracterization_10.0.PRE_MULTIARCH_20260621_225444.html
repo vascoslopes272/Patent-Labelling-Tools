@@ -344,16 +344,7 @@ function fresh(){
     comments:'',
     t2figNum:'1', mainFigure: null, aircraftAutoJump: false,
     // Audit B-01 Fix: Centralized Figure Dictionary
-    figData: {}, t2customParts:[],
-    // ── Multi-architecture support ──────────────────────────────────────────
-    // A patent can describe several distinct architectures across its figures.
-    // archProfiles[i] holds the G1/M1/M2/M3 morphology snapshot for architecture
-    // i+1 (same shape as captureAircraftSnapshot()); curArch is the 0-based index
-    // currently being edited. The flat S.topType/S.wingConf/... keys always mirror
-    // the ACTIVE architecture (saveCurArchProfile/loadArchProfile swap them in and
-    // out) so every M-page renderer keeps reading S.* unchanged. A single-arch
-    // patent has archProfiles.length<=1 and behaves exactly as before.
-    archProfiles: [], curArch: 0
+    figData: {}, t2customParts:[]
   };
 }
 var S=fresh();
@@ -442,52 +433,6 @@ function applyAircraftSnapshot(snap) {
   if (!snap) return;
   Object.keys(S).forEach(function(k){ if (k.indexOf('m3_') === 0) delete S[k]; });
   Object.keys(snap).forEach(function(k){ S[k] = snap[k]; });
-}
-
-// ── Multi-architecture profile helpers ──────────────────────────────────────
-// A "profile" is the same key-set as captureAircraftSnapshot() (G1/M1/M2/M3
-// morphology). archProfiles[] stores one per architecture; the flat S.* keys
-// mirror whichever is active (S.curArch). These swap them in/out so the page
-// renderers and validators never have to know about multi-arch.
-
-// How many architectures this patent has: the max of the distinct architecture
-// numbers the reviewer assigned to figures, the stored profile count, and any
-// manual override (S.archCount). Always at least 1.
-function getArchCount() {
-  var maxTag = 1;
-  Object.keys(S.figData || {}).forEach(function(f){
-    var a = parseInt((S.figData[f] || {}).arch, 10);
-    if (a > maxTag) maxTag = a;
-  });
-  return Math.max(1, maxTag, S.archProfiles ? S.archProfiles.length : 1, S.archCount || 1);
-}
-
-// Save the flat S.* morphology keys into archProfiles[curArch].
-function saveCurArchProfile() {
-  if (!S.archProfiles) S.archProfiles = [];
-  S.archProfiles[S.curArch] = captureAircraftSnapshot();
-}
-
-// Make architecture `idx` (0-based) the active one: stash the current flat keys
-// back to their slot, then load idx's stored profile into the flat keys (or a
-// blank morphology if that arch hasn't been visited yet). m3_* keys are cleared
-// by applyAircraftSnapshot so one arch never inherits another's propulsion rows.
-function loadArchProfile(idx) {
-  if (!S.archProfiles) S.archProfiles = [];
-  // stash current edits first (unless we're loading the very slot we're on)
-  if (idx !== S.curArch || S.archProfiles[S.curArch] == null) saveCurArchProfile();
-  S.curArch = idx;
-  var prof = S.archProfiles[idx];
-  if (prof) {
-    applyAircraftSnapshot(prof);
-  } else {
-    // blank slate for a not-yet-edited architecture: reset just the morphology
-    // keys to their fresh() defaults so the previous arch's answers don't bleed in
-    var blank = fresh();
-    Object.keys(S).forEach(function(k){ if (k.indexOf('m3_') === 0) delete S[k]; });
-    aircraftSnapshotKeys().forEach(function(k){ S[k] = blank[k]; });
-    saveCurArchProfile();
-  }
 }
 
 // Record this patent's aircraft name + morphology snapshot into the registry.
@@ -1225,8 +1170,7 @@ function pageT1(){
   h += '<div class="m3-card" style="margin-top:12px;">'
     + '<div class="m3-head">Analytical Bounds Matrix</div>'
     + '<div class="m3-grid">'
-      // Distinct-architectures count moved to T2 (it's derived from how the
-      // reviewer assigns figures to architectures — see pageT2's arch panel).
+      + '<div class="m3-field" style="grid-column:1/-1"><div class="m3-label">Distinct Architectures Present</div>' + ic('archCount', S.archCount, 1, 10, 'Total Unique Morphologies') + '</div>'
       + '<div class="m3-field" style="grid-column:1/-1"><div class="m3-label">Innovation Scope Assignment</div>'
       + '<div class="g1-subgrid">' + t1ScopeOptions().map(function(o){ return '<button type="button" class="t1-scopebtn' + (S.t1Scope === o.id ? ' sel' : '') + '" data-field="t1Scope" data-val="' + encodeURIComponent(o.id) + '"><div class="g1-subid">Scope Token</div><div class="g1-subname">' + o.n + '</div></button>'; }).join('') + '</div></div>'
       + '<div class="m3-field"><div class="m3-label">Technological Field</div><select class="m3-num" data-field="t1Field"><option value="">Select parameter field</option>' + t1FieldOptions().map(function(o){ return '<option value="' + o.id + '"' + (S.t1Field==o.id ? ' selected' : '') + '>' + o.n + '</option>'; }).join('') + '</select></div>'
@@ -1252,12 +1196,8 @@ function pageT2(){
   var rotation = figGet(fNum, 't2_rotation', 0);
   var rotSuggested = figGet(fNum, 'rotation_deg_suggested', 0);
 
-  // Architecture count is auto-derived from the figure assignments (the highest
-  // architecture number assigned to any figure), but the reviewer can still bump
-  // it up manually to declare an architecture not yet tied to a specific figure.
-  var nArch = getArchCount();
   var archOptions = '';
-  for(var i=1; i<=nArch; i++) { archOptions += '<option value="'+i+'" '+(arch==String(i)?'selected':'')+'>Architecture '+i+'</option>'; }
+  for(var i=1; i<=S.archCount; i++) { archOptions += '<option value="'+i+'" '+(arch==String(i)?'selected':'')+'>Architecture '+i+'</option>'; }
 
   var h='<div class="p-module">Module T2 &middot; Image Characteristics &amp; Drawing-Level Analysis</div><div class="p-q">Visual Token Attributes &amp; Document Extraction Labels</div>'
 
@@ -1316,14 +1256,6 @@ function pageT2(){
         + '<button type="button" class="btn '+(isMain?'pri':'')+'" data-t2-main="true">★ Set as Main Figure</button>'
         + '<div style="width:1px; height:24px; background:var(--border);"></div>'
         + '<div style="display:flex; align-items:center; gap:6px;"><span class="m3-label" style="margin-bottom:0;">Assign To:</span><select class="m3-num" data-t2-arch="true" style="padding:6px 10px; min-height:0; width:140px;">'+archOptions+'</select></div>'
-        + '<button type="button" class="btn" id="btn-add-arch" style="padding:6px 10px; font-size:12px;" title="Declare another distinct architecture in this patent">+ Add architecture</button>'
-      + '</div>'
-      // Live count of distinct architectures in this patent. When >1, the
-      // G1/M1/M2/M3 pages repeat once per architecture (see the page loop).
-      + '<div class="flag '+(nArch>1?'info':'')+'" style="margin-top:10px;">'
-        + '<span class="f-lbl">Distinct Architectures</span>'
-        + nArch + ' in this patent'
-        + (nArch>1 ? ' — you\'ll fill G1/M1/M2/M3 once per architecture.' : ' — assign figures above (or "+ Add architecture") if this patent shows more than one.')
       + '</div></div>';
 
     h += (function(){
@@ -1354,13 +1286,7 @@ function pageT2(){
        + sec('Background Rendering') + grid('n',T2_BG_STY.map(function(s){return ocFig('bgSty',s,s);})) + grid('n',T2_BG_COL.map(function(c){return ocFig('bgCol',c,c);}))
        + '</div>';
 
-    // Structural Elements is SINGLE-select by default (SigLIP over-tags parts on a
-    // single layout figure; the human should normally pick exactly one token). The
-    // per-figure partsMulti flag opts into legacy multi-select for genuine edge cases.
-    var partsMulti = figGet(fNum, 'partsMulti', false);
-    h += '<div class="m3-card" style="margin-bottom:8px; padding:12px;"><div class="m3-head" style="display:flex; justify-content:space-between; align-items:center;">C. Present Structural Elements (Visual Tokens)'
-       + '<button type="button" class="btn ' + (partsMulti ? 'danger' : '') + '" id="btn-parts-multi-toggle" style="padding:4px 10px; font-size:11px;">' + (partsMulti ? 'Back to single' : 'Allow multiple (edge case)') + '</button></div>'
-       + '<div class="m3-sub" style="margin-bottom:6px;">' + (partsMulti ? 'MULTI-SELECT (edge case) — pick all structural tokens that apply.' : 'SINGLE-SELECT — pick exactly one structural token. Click it again to clear.') + '</div>'
+    h += '<div class="m3-card" style="margin-bottom:8px; padding:12px;"><div class="m3-head">C. Present Structural Elements (Visual Tokens)</div>'
        + grid('n',(T2_PARTS_DEFAULT.concat(PART_TOKENS||[]).concat(S.t2customParts||[]).filter(function(v,i,a){return a.indexOf(v)===i;})).map(function(p){return ocArrFig('parts',p,p);}))
        + '<div style="margin-top:10px; display:flex; gap:8px;"><input type="text" class="m3-num" id="t2-new-part" placeholder="+ Add Custom Token" style="flex:1; padding:8px 12px; min-height:0;"><button type="button" class="btn" id="btn-add-part" style="padding:8px 16px;">Add Tag</button></div>'
        + '</div>';
@@ -1391,22 +1317,6 @@ function pageT2(){
        + '</datalist>'
        + '<button type="button" class="btn" id="btn-add-edge-tag" style="padding:6px 12px;">+ Tag</button>'
        + '</div>'
-       // Parity with Structural Elements: surface every session edge-case token
-       // (EDGE_TOKENS) as one-click chips so the reviewer never has to retype a tag
-       // they created earlier. Applied tags are highlighted; clicking a chip appends
-       // it to this figure's edgeTags (no-op if already applied). The text input
-       // above still CREATES new tokens (btn-add-edge-tag pushes into EDGE_TOKENS).
-       + (EDGE_TOKENS.length > 0
-          ? '<div style="margin-top:8px;">'
-            + '<div class="m3-sub" style="margin-bottom:4px;">Edge-case tokens (click to apply):</div>'
-            + '<div style="display:flex;flex-wrap:wrap;gap:4px;">'
-            + EDGE_TOKENS.map(function(t){
-                var applied = figGet(fNum,"edgeTags",[]).indexOf(t) > -1;
-                return '<span class="crumb' + (applied ? ' hi' : '') + '" style="cursor:pointer;" data-add-edge-tag="'+escHtml(t)+'">'
-                       + escHtml(t) + '</span>';
-              }).join('')
-            + '</div></div>'
-          : '')
        + (figGet(fNum,"edgeTags",[]).length > 0
           ? '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;">'
             + figGet(fNum,"edgeTags",[]).map(function(t){
@@ -1501,7 +1411,7 @@ function pageDone(){ return '<div class="p-module">Complete Morphological Profil
 
 // --- RENDER CONTROL PIPELINE ---
 function renderStep(){ document.getElementById('stepper').innerHTML = STEPS.map(function(s,i){ return (i>0?'<div class="s-bar'+(i<=S.step?' done':'')+'"></div>':'')+'<div class="s-wrap"><div class="s-dot '+(i<S.step?'done':i===S.step?'active':'')+'">'+(i<S.step?'\u2713':(i+1))+'</div><div class="s-lbl '+(i<S.step?'done':i===S.step?'active':'')+'">'+s.lbl+'</div></div>'; }).join(''); }
-function renderBC(){ var h=''; var _nABC=getArchCount(); if(_nABC>1 && ['gate','m1','m2','m3'].indexOf(curSID())>-1) h+='<span class="crumb hi">Arch '+(S.curArch+1)+'/'+_nABC+'</span>'; if(S.t1Scope) h+='<span class="crumb hi">'+S.t1Scope.split(' ')[0]+'</span>'; if(S.topType) h+='<span class="crumb hi">'+S.topType+'</span>'; if(S.wingConf) h+='<span class="crumb">'+S.wingConf+(S.wingConf=='W'?'\u00d7'+S.wCount:'')+'</span>'; if(S.empType) h+='<span class="crumb">'+S.empType+'</span>'; if(curSID()=='m3') h+='<span class="crumb">M3 Core Array: '+m3TotalCount()+' units</span>'; document.getElementById('bc').innerHTML=h; }
+function renderBC(){ var h=''; if(S.t1Scope) h+='<span class="crumb hi">'+S.t1Scope.split(' ')[0]+'</span>'; if(S.topType) h+='<span class="crumb hi">'+S.topType+'</span>'; if(S.wingConf) h+='<span class="crumb">'+S.wingConf+(S.wingConf=='W'?'\u00d7'+S.wCount:'')+'</span>'; if(S.empType) h+='<span class="crumb">'+S.empType+'</span>'; if(curSID()=='m3') h+='<span class="crumb">M3 Core Array: '+m3TotalCount()+' units</span>'; document.getElementById('bc').innerHTML=h; }
 
 function renderPreserveScroll() {
   // The page scrolls on the WINDOW (the .panel div has no overflow/fixed height,
@@ -1532,18 +1442,6 @@ function render(){
     acName || T1_META.title || 'Unnamed';
   var sid=curSID(), p=document.getElementById('panel'), content='';
   if(sid=='t1') content=pageT1(); else if(sid=='t2') content=pageT2(); else if(sid=='gate') content=pageGate(); else if(sid=='m1') content=pageM1(); else if(sid=='m2') content=pageM2(); else if(sid=='m3') content=pageM3(); else if(sid=='done'){ p.innerHTML=pageDone(); return; }
-  // Multi-architecture banner on the morphology pages (G1/M1/M2/M3): tells the
-  // reviewer which architecture they're filling when the patent has more than one.
-  if (['gate','m1','m2','m3'].indexOf(sid) > -1) {
-    var _nA = getArchCount();
-    if (_nA > 1) {
-      content = '<div class="flag info" style="margin-bottom:12px; border-left:4px solid var(--accent);">'
-        + '<span class="f-lbl">Architecture ' + (S.curArch + 1) + ' of ' + _nA + '</span>'
-        + 'These G1/M1/M2/M3 answers apply to architecture ' + (S.curArch + 1) + '. '
-        + (S.curArch < _nA - 1 ? 'After M3 you\'ll move to the next architecture.' : 'This is the last architecture — after M3 you\'ll reach the summary.')
-        + '</div>' + content;
-    }
-  }
   var blockers = nextBlockers();
   var blockerHint = blockers.length
     ? '<span style="font-size:11px;color:var(--warn);text-align:right;max-width:420px;">\u26a0 To continue: ' + escHtml(blockers.join('  \u00b7  ')) + '</span>'
@@ -1551,62 +1449,29 @@ function render(){
   p.innerHTML=content+'<div class="nav">'+(S.step>0?'<button type="button" class="btn" id="btn-back">\u2190 Back</button>':'<div></div>')+'<div class="bgrp" style="display:flex;align-items:center;gap:10px;">'+blockerHint+'<button type="button" class="btn pri" id="btn-next"'+(!canGo()?' disabled':'')+'>Next Step \u2192</button></div></div>';
 }
 
-// The G1/M1/M2/M3 morphology object for whatever architecture is CURRENTLY
-// loaded into the flat S.* keys. Factored out of buildExport so it can be
-// called once per architecture (after swapping that arch's profile into S).
-function buildMorphologyObj() {
-  return {
-    topologyClass: S.topType, wingConf: S.wingConf, wCount: S.wCount,
-    wings: [1,2,3,4].map(function(i){ return i<=S.wCount ? {role:S['wRole'+i]||'Main', tilt:S['wTilt'+i], posV:S['wPosV'+i], posL:S['wPosL'+i], plan:S['wPlan'+i]==='Oth'?S['wPlanOth'+i]:S['wPlan'+i]} : null }).filter(Boolean),
-    empType: S.empType, empKin: S.empKin, empNotes: S.empNotes,
-    fusShape: S.fusShape, fusKin: S.fusKin, fusNotes: S.fusNotes, gearArch: S.gearArch, gearNotes: S.gearNotes, wingNotes: S.wingNotes,
-    footLen: S.footLen, footWid: S.footWid, footHgt: S.footHgt, footAmbiguous: S.footAmbiguous, latSym: S.latSym, longSym: S.longSym,
-    propulsionCards: m3Blueprints().map(function(bp){
-      return { component: bp.key, count: m3Count(bp.key), chord: m3Get(bp.key,'chord'), orient: m3Get(bp.key,'orient'), bmech: m3Get(bp.key,'bmech'), rmech: m3Get(bp.key,'rmech'), propKin: (S.topType === 'TP' ? 'Tilt' : m3Get(bp.key,'propKin')), zone: m3Get(bp.key,'zone'), zoneChord: m3Get(bp.key,'zoneChord'), zoneSpan: m3Get(bp.key,'zoneSpan'), notes: m3Get(bp.key,'notes') };
-    })
-  };
-}
-
-// Build the array of per-architecture morphology objects by swapping each
-// stored profile into S in turn, reading it, then restoring the active arch.
-// For a single-architecture patent this is just [currentMorphology].
-function buildArchitectures() {
-  saveCurArchProfile();                       // make sure the active arch is captured
-  var nArch = getArchCount();
-  var savedActive = captureAircraftSnapshot(); // remember what's currently in S
-  var out = [];
-  for (var ai = 0; ai < nArch; ai++) {
-    // Fall back to the active morphology if a profile slot was never visited
-    // (e.g. same-name-aircraft auto-jump), so we never emit a wiped architecture.
-    applyAircraftSnapshot(S.archProfiles[ai] || savedActive);
-    out.push(buildMorphologyObj());
-  }
-  applyAircraftSnapshot(savedActive);          // restore the active arch into S
-  return out;
-}
-
 function buildExport() {
-  var rec = {
+  return {
     recordId: T1_META.recordNumber, familyId: T1_META.familyId,
     aircraftName: T1_META.aircraftName || '',
     assignee: T1_META.assignee, pubYear: T1_META.pubYear, appYear: T1_META.appYear,
     isApproved: S.isApproved, disapproveReason: S.t1DisapproveReason, disapproveOther: S.t1DisapproveOther,
     isDuplicate: S.isDuplicate, duplicateOf: S.duplicateId, duplicateType: S.duplicateType,
-    archCount: getArchCount(), scope: S.t1Scope, techField: S.t1Field, innovTarget: S.t1Target,
+    archCount: S.archCount, scope: S.t1Scope, techField: S.t1Field, innovTarget: S.t1Target,
     figures: Object.keys(S.figData).reduce(function(acc, fNum){
       var fd = S.figData[fNum] || {};
       acc[fNum] = Object.assign({}, fd, { rotation_deg: fd.t2_rotation || 0 });
       return acc;
     }, {}), mainFigure: S.mainFigure,
-    // architectures[]: one morphology per architecture. The flat morphology
-    // fields below mirror architectures[0] for backward-compatibility with any
-    // consumer that still reads record.topologyClass etc. directly.
-    architectures: buildArchitectures(),
+    topologyClass: S.topType, wingConf: S.wingConf, wCount: S.wCount,
+    wings: [1,2,3,4].map(function(i){ return i<=S.wCount ? {role:S['wRole'+i]||'Main', tilt:S['wTilt'+i], posV:S['wPosV'+i], posL:S['wPosL'+i], plan:S['wPlan'+i]==='Oth'?S['wPlanOth'+i]:S['wPlan'+i]} : null }).filter(Boolean),
+    empType: S.empType, empKin: S.empKin, empNotes: S.empNotes,
+    fusShape: S.fusShape, fusKin: S.fusKin, fusNotes: S.fusNotes, gearArch: S.gearArch, gearNotes: S.gearNotes, wingNotes: S.wingNotes,
+    footLen: S.footLen, footWid: S.footWid, footHgt: S.footHgt, latSym: S.latSym, longSym: S.longSym,
+    propulsionCards: m3Blueprints().map(function(bp){
+      return { component: bp.key, count: m3Count(bp.key), chord: m3Get(bp.key,'chord'), orient: m3Get(bp.key,'orient'), bmech: m3Get(bp.key,'bmech'), rmech: m3Get(bp.key,'rmech'), propKin: (S.topType === 'TP' ? 'Tilt' : m3Get(bp.key,'propKin')), zone: m3Get(bp.key,'zone'), zoneChord: m3Get(bp.key,'zoneChord'), zoneSpan: m3Get(bp.key,'zoneSpan'), notes: m3Get(bp.key,'notes') };
+    }),
     labelToken: buildLbl(), comments: S.comments, timestamp: new Date().toISOString()
   };
-  var first = rec.architectures[0] || {};
-  Object.keys(first).forEach(function(k){ rec[k] = first[k]; });
-  return rec;
 }
 
 function ingestAI(data) {
@@ -1906,54 +1771,44 @@ function recordToRows(record, pid) {
     rows.push(reviewRow(pid, "T2", subDim, "dupOfFig", fd.dupOfFig || null, null, "human", imgPath));
   });
 
-  // ── G1/M1/M2/M3 — emitted once PER ARCHITECTURE ─────────────────────────
-  // Multi-architecture patents carry several morphologies. Each is keyed with a
-  // "_arch{N}" suffix on the Patent_ID so (Patent_ID, Field) stays unique; a
-  // single-architecture patent keeps the BARE Patent_ID (no suffix), exactly as
-  // before — so existing exports/downstream tools are unchanged for that case.
-  var archs = record.architectures && record.architectures.length ? record.architectures : [record];
-  archs.forEach(function(m, ai) {
-    var apid = archs.length > 1 ? (pid + "_arch" + (ai + 1)) : pid;
+  // ── G1 ────────────────────────────────────────────────────────────────
+  rows.push(reviewRow(pid, "G1", "Topology Type", "topType", record.topologyClass));
 
-    // ── G1 ──
-    rows.push(reviewRow(apid, "G1", "Topology Type", "topType", m.topologyClass));
+  // ── M1 ────────────────────────────────────────────────────────────────
+  rows.push(reviewRow(pid, "M1", "fusShape", "fusShape", record.fusShape));
+  rows.push(reviewRow(pid, "M1", "fusKin", "fusKin", record.fusKin));
+  rows.push(reviewRow(pid, "M1", "gearArch", "gearArch", record.gearArch));
+  rows.push(reviewRow(pid, "M1", "latSym", "latSym", record.latSym));
+  rows.push(reviewRow(pid, "M1", "M1 — Footprint Length (m)", "footLen", record.footLen));
+  rows.push(reviewRow(pid, "M1", "M1 — Footprint Width (m)", "footWid", record.footWid));
+  rows.push(reviewRow(pid, "M1", "M1 — Footprint Height (m)", "footHgt", record.footHgt));
+  rows.push(reviewRow(pid, "M1", "M1 — Footprint Ambiguous", "footAmbiguous", S.footAmbiguous));
+  rows.push(reviewRow(pid, "M1", "M1 — Longitudinal Symmetry", "longSym", record.longSym));
+  rows.push(reviewRow(pid, "M1", "wingNotes", "wingNotes", record.wingNotes));
+  rows.push(reviewRow(pid, "M1", "empNotes", "empNotes", record.empNotes));
+  rows.push(reviewRow(pid, "M1", "fusNotes", "fusNotes", record.fusNotes));
+  rows.push(reviewRow(pid, "M1", "gearNotes", "gearNotes", record.gearNotes));
 
-    // ── M1 ──
-    rows.push(reviewRow(apid, "M1", "fusShape", "fusShape", m.fusShape));
-    rows.push(reviewRow(apid, "M1", "fusKin", "fusKin", m.fusKin));
-    rows.push(reviewRow(apid, "M1", "gearArch", "gearArch", m.gearArch));
-    rows.push(reviewRow(apid, "M1", "latSym", "latSym", m.latSym));
-    rows.push(reviewRow(apid, "M1", "M1 — Footprint Length (m)", "footLen", m.footLen));
-    rows.push(reviewRow(apid, "M1", "M1 — Footprint Width (m)", "footWid", m.footWid));
-    rows.push(reviewRow(apid, "M1", "M1 — Footprint Height (m)", "footHgt", m.footHgt));
-    rows.push(reviewRow(apid, "M1", "M1 — Footprint Ambiguous", "footAmbiguous", m.footAmbiguous));
-    rows.push(reviewRow(apid, "M1", "M1 — Longitudinal Symmetry", "longSym", m.longSym));
-    rows.push(reviewRow(apid, "M1", "wingNotes", "wingNotes", m.wingNotes));
-    rows.push(reviewRow(apid, "M1", "empNotes", "empNotes", m.empNotes));
-    rows.push(reviewRow(apid, "M1", "fusNotes", "fusNotes", m.fusNotes));
-    rows.push(reviewRow(apid, "M1", "gearNotes", "gearNotes", m.gearNotes));
-
-    // ── M2 — wingConf/wCount/empType/empKin + per-wing rows ──
-    rows.push(reviewRow(apid, "M2", "wingConf", "wingConf", m.wingConf));
-    rows.push(reviewRow(apid, "M2", "wCount", "wCount", m.wCount));
-    rows.push(reviewRow(apid, "M2", "empType", "empType", m.empType));
-    rows.push(reviewRow(apid, "M2", "empKin", "empKin", m.empKin));
-    (m.wings || []).forEach(function(w, i) {
-      var wi = i + 1;
-      [["tilt","Tilt"],["posV","Vertical Position"],["posL","Longitudinal Position"],
-       ["plan","Planform"],["role","Role"]].forEach(function(pair) {
-        var field = pair[0], label = pair[1];
-        rows.push(reviewRow(apid, "M2", "Wing " + wi + " — " + label, "wing" + wi + "_" + field, w[field] != null ? w[field] : null));
-      });
+  // ── M2 — wingConf/wCount/empType/empKin + per-wing rows ─────────────────
+  rows.push(reviewRow(pid, "M2", "wingConf", "wingConf", record.wingConf));
+  rows.push(reviewRow(pid, "M2", "wCount", "wCount", record.wCount));
+  rows.push(reviewRow(pid, "M2", "empType", "empType", record.empType));
+  rows.push(reviewRow(pid, "M2", "empKin", "empKin", record.empKin));
+  (record.wings || []).forEach(function(w, i) {
+    var wi = i + 1;
+    [["tilt","Tilt"],["posV","Vertical Position"],["posL","Longitudinal Position"],
+     ["plan","Planform"],["role","Role"]].forEach(function(pair) {
+      var field = pair[0], label = pair[1];
+      rows.push(reviewRow(pid, "M2", "Wing " + wi + " — " + label, "wing" + wi + "_" + field, w[field] != null ? w[field] : null));
     });
+  });
 
-    // ── M3 — one set of rows per propulsion-card component ──
-    (m.propulsionCards || []).forEach(function(card) {
-      var subDim = "Propulsion: " + card.component;
-      ["chord","orient","bmech","rmech","count","zone","zoneChord","zoneSpan","notes"].forEach(function(field) {
-        if (card[field] === undefined) return;
-        rows.push(reviewRow(apid, "M3", subDim, card.component + "_" + field, card[field] != null ? card[field] : null));
-      });
+  // ── M3 — one set of rows per propulsion-card component ─────────────────
+  (record.propulsionCards || []).forEach(function(card) {
+    var subDim = "Propulsion: " + card.component;
+    ["chord","orient","bmech","rmech","count","zone","zoneChord","zoneSpan","notes"].forEach(function(field) {
+      if (card[field] === undefined) return;
+      rows.push(reviewRow(pid, "M3", subDim, card.component + "_" + field, card[field] != null ? card[field] : null));
     });
   });
 
@@ -2196,10 +2051,7 @@ function markBatchDirty() {
 // a previous save of the same patent so revisiting + re-saving never duplicates
 // it in the exported .xlsx. Then flag it saved and clear the dirty state.
 function commitReviewedRows(pid, record) {
-  // Drop every prior row for this patent — INCLUDING its "_arch{N}" morphology
-  // rows (match on the base id) — so re-saving a multi-architecture patent never
-  // leaves stale architecture rows behind.
-  REVIEWED_ROWS = REVIEWED_ROWS.filter(function(r){ return basePatentId(r.Patent_ID) !== pid; });
+  REVIEWED_ROWS = REVIEWED_ROWS.filter(function(r){ return r.Patent_ID !== pid; });
   REVIEWED_ROWS = REVIEWED_ROWS.concat(recordToRows(record, pid));
   if (BATCH) { BATCH.saved[pid] = true; BATCH.dirty = false; }
   updateSaveIndicator();
@@ -2215,49 +2067,6 @@ function normalizePatentIdForGoogle(pid) {
   return m ? (m[1] + m[2] + '0' + m[3] + m[4]) : pid;
 }
 
-// Multi-architecture exports suffix the Patent_ID with "_arch{N}" on the G1/M
-// rows (see recordToRows). These two helpers recover the base patent id and the
-// architecture number so the batch loader can regroup a reloaded reviewed file.
-function basePatentId(pid) { return String(pid == null ? '' : pid).replace(/_arch\d+$/, ''); }
-function archSuffixNum(pid) { var m = /_arch(\d+)$/.exec(String(pid == null ? '' : pid)); return m ? parseInt(m[1], 10) : null; }
-
-// Rows that belong to architecture `n`: the shared rows (T1/T2/META — no
-// suffix) plus only the morphology rows tagged with that architecture number.
-function rowsForArch(allRows, n) {
-  return allRows.filter(function(r){
-    var suf = archSuffixNum(r.Patent_ID);
-    return suf == null || suf === n;
-  });
-}
-
-// Ingest one patent's rows, rebuilding S.archProfiles for multi-architecture
-// patents. Single-architecture files (bare Patent_IDs, incl. all ML exports)
-// behave exactly as the old `ingestAI(rowsToAIData(rows))` line did, just with
-// archProfiles[0] populated as a side effect.
-function ingestPatentRows(rows) {
-  var idxSet = {};
-  rows.forEach(function(r){ var s = archSuffixNum(r.Patent_ID); if (s != null) idxSet[s] = true; });
-  var archIdxs = Object.keys(idxSet).map(Number).sort(function(a,b){ return a-b; });
-  if (!archIdxs.length) archIdxs = [1];   // no suffixed rows ⇒ single architecture
-
-  S.archProfiles = [];
-  archIdxs.forEach(function(n, i){
-    // Blank the morphology slate between architectures so arch n never inherits
-    // arch (n-1)'s leftover wing/propulsion fields; figData/T1 are shared and
-    // re-applied identically each pass.
-    var blank = fresh();
-    Object.keys(S).forEach(function(k){ if (k.indexOf('m3_') === 0) delete S[k]; });
-    aircraftSnapshotKeys().forEach(function(k){ S[k] = blank[k]; });
-    ingestAI(rowsToAIData(rowsForArch(rows, n)));
-    S.curArch = i;
-    S.archProfiles[i] = captureAircraftSnapshot();
-  });
-  // Show architecture 1 as the active one.
-  S.curArch = 0;
-  applyAircraftSnapshot(S.archProfiles[0]);
-  S.archCount = archIdxs.length;
-}
-
 function loadBatchPatent(idx) {
   if (!BATCH || idx < 0 || idx >= BATCH.ids.length) return;
   BATCH.idx = idx;
@@ -2267,7 +2076,7 @@ function loadBatchPatent(idx) {
   // commitReviewedRows on Export & Next), not in the original BATCH.byId
   // rows from the uploaded xlsx — read those back first so navigating away
   // and back (batch-prev/-next) doesn't show the triage as unselected.
-  var reviewedRows = REVIEWED_ROWS.filter(function(r) { return basePatentId(r.Patent_ID) === pid; });
+  var reviewedRows = REVIEWED_ROWS.filter(function(r) { return r.Patent_ID === pid; });
   var rows = reviewedRows.length ? reviewedRows : BATCH.byId[pid];
 
   S = fresh();
@@ -2304,7 +2113,7 @@ function loadBatchPatent(idx) {
   T1_META.appYear              = metaVal('app_year')      || T1_META.appYear;
   T1_META.descriptionOfDrawings = metaVal('description_of_drawings') || T1_META.descriptionOfDrawings;
 
-  ingestPatentRows(rows);
+  ingestAI(rowsToAIData(rows));
 
   var nImages = Object.keys(S.figData).length;
   THROUGHPUT.patCur = String(idx + 1);
@@ -2337,12 +2146,8 @@ document.getElementById('batch-xlsx-input').addEventListener('change', function(
 
       var ids = [], byId = {};
       rows.forEach(function(r) {
-        if (r.Patent_ID == null) return;
-        // Collapse "_arch{N}"-suffixed morphology rows from a reloaded reviewed
-        // file back under their BASE patent id, so a multi-architecture patent is
-        // one entry in the batch (not one per architecture). Single-arch / ML
-        // exports have no suffix, so basePatentId is a no-op for them.
-        var pid = basePatentId(r.Patent_ID);
+        var pid = r.Patent_ID;
+        if (pid == null) return;
         if (!byId[pid]) { byId[pid] = []; ids.push(pid); }
         byId[pid].push(r);
       });
@@ -2394,16 +2199,12 @@ document.addEventListener('keydown', function(e) {
   if (!isTyping) {
     if (e.key === ' ' || e.key === 'Enter') {
       e.preventDefault();
-      // Click the real Next button so the per-architecture loop logic in the
-      // click handler runs (don't manipulate S.step directly here, which would
-      // bypass the G1↔M3 arch loop).
       var btn = document.getElementById('btn-next');
-      if (btn && !btn.disabled) btn.click();
+      if (btn && !btn.disabled) { S.step++; render(); }
     }
     if (e.key === 'Backspace') {
       e.preventDefault();
-      var bb = document.getElementById('btn-back');
-      if (bb) bb.click();             // route through the loop-aware Back handler
+      if (S.step > 0) { S.step--; render(); }
     }
   }
 
@@ -2491,7 +2292,7 @@ document.querySelector('.wiz').addEventListener('change', function(e){
     + '[data-t1-approve],[data-dup-type],[data-fig-quality],'
     + '[data-grid-approve],[data-grid-disapprove],'
     + '[data-t2-main],[data-t2-rotate],[data-t2-arch],[data-g1-top],'
-    + '[data-m3-action],[data-inc],[data-dec],[data-add-edge-tag],#btn-m1-bypass';
+    + '[data-m3-action],[data-inc],[data-dec],#btn-m1-bypass';
   panel.addEventListener('click', function(e){
     if (BATCH && e.target.closest(DIRTY_SEL)) markBatchDirty();
   });
@@ -2507,51 +2308,19 @@ document.getElementById('panel').addEventListener('click', function(e){
 
   if(tgt.id === 'btn-m1-bypass') { S.footAmbiguous = !S.footAmbiguous; renderPreserveScroll(); return; }
   if(tgt.id === 'btn-next' && !tgt.disabled) {
-    var sidNow = curSID();
     // Same-name aircraft auto-jump: when the M1/M2/M3 were pre-filled from a
     // known aircraft on T1, clicking Next on T2 skips Gate/M1/M2/M3 and lands on
     // the Summary (Done) page — the morphology is already filled. You can still
     // Back into the skipped steps to verify/edit. Fires only once per patent.
-    // Same-name auto-jump only makes sense for a SINGLE-architecture patent
-    // (one shared morphology was copied). For a multi-architecture patent the
-    // reviewer must still fill each architecture, so fall through to the loop;
-    // the copied morphology pre-fills architecture 1.
-    if (S.aircraftAutoJump && sidNow === 't2' && getArchCount() === 1) {
+    if (S.aircraftAutoJump && curSID() === 't2') {
       var doneIdx = STEPS.map(function(s){return s.id;}).indexOf('done');
-      S.curArch = 0; loadArchProfile(0);   // ensure arch1 profile captured before jumping
       S.step = doneIdx >= 0 ? doneIdx : S.step + 1;
       S.aircraftAutoJump = false;
       renderPreserveScroll(); return;
     }
-    // Entering the morphology pages from T2: start at architecture 1.
-    if (sidNow === 't2') { S.curArch = 0; loadArchProfile(0); S.step++; renderPreserveScroll(); return; }
-    // Leaving M3: if more architectures remain, save this one, advance curArch,
-    // load it, and jump BACK to G1 to fill the next architecture. Otherwise fall
-    // through to the normal Next (→ Done).
-    if (sidNow === 'm3') {
-      saveCurArchProfile();
-      if (S.curArch < getArchCount() - 1) {
-        loadArchProfile(S.curArch + 1);
-        var gateIdx = STEPS.map(function(s){return s.id;}).indexOf('gate');
-        S.step = gateIdx;
-        renderPreserveScroll(); return;
-      }
-    }
     S.step++; renderPreserveScroll(); return;
   }
-  if(tgt.id === 'btn-back') {
-    var sidBack = curSID();
-    // Going Back from G1 while on architecture 2+ returns to M3 of the PREVIOUS
-    // architecture (not T2): save current arch, step curArch down, reload it.
-    if (sidBack === 'gate' && S.curArch > 0) {
-      saveCurArchProfile();
-      loadArchProfile(S.curArch - 1);
-      var m3Idx = STEPS.map(function(s){return s.id;}).indexOf('m3');
-      S.step = m3Idx;
-      renderPreserveScroll(); return;
-    }
-    S.step--; renderPreserveScroll(); return;
-  }
+  if(tgt.id === 'btn-back') { S.step--; renderPreserveScroll(); return; }
   
   if(tgt.id === 'btn-export-next') {
     var record = buildExport();
@@ -2650,17 +2419,6 @@ document.getElementById('panel').addEventListener('click', function(e){
     }
     return;
   }
-  var addTagChip = tgt.closest('[data-add-edge-tag]');
-  if (addTagChip) {
-    var fNumAddTag = (S.t2figNum||'1').trim();
-    var tagToAdd = addTagChip.getAttribute('data-add-edge-tag');
-    var curEdgeTags = figGet(fNumAddTag, 'edgeTags', []);
-    if (curEdgeTags.indexOf(tagToAdd) === -1) {
-      figSet(fNumAddTag, 'edgeTags', curEdgeTags.concat([tagToAdd]));
-    }
-    renderPreserveScroll();
-    return;
-  }
   var removeTagEl = tgt.closest('[data-remove-tag]');
   if (removeTagEl) {
     var fNumRmTag = (S.t2figNum||'1').trim();
@@ -2708,15 +2466,6 @@ document.getElementById('panel').addEventListener('click', function(e){
   // T2 Main Figure (approve/disapprove now lives only on the figure cards via
   // data-grid-approve / data-grid-disapprove — the duplicate buttons that used
   // to be here in "Figure Validation & Assignment" were removed).
-  // Manually declare one more architecture than is currently derived (for a
-  // distinct architecture the patent describes but no single figure isolates).
-  // Bumping S.archCount above the figure-derived max makes getArchCount() return
-  // it; the Assign-To dropdown then offers the new number.
-  if (tgt.id === 'btn-add-arch') {
-    S.archCount = getArchCount() + 1;
-    renderPreserveScroll(); return;
-  }
-
   var t2MainBtn = tgt.closest('[data-t2-main]');
   if (t2MainBtn) {
       var fNum2 = (S.t2figNum||'1').trim();
@@ -2784,15 +2533,7 @@ document.getElementById('panel').addEventListener('click', function(e){
       figSet((S.t2figNum||'1').trim(), figfield, val); renderPreserveScroll(); return;
     } else if (figarrfield) {
       var fN = (S.t2figNum||'1').trim(), fArr = figGet(fN, figarrfield, []), fIdx = fArr.indexOf(val);
-      if (figarrfield === 'parts' && !figGet(fN, 'partsMulti', false)) {
-        // SINGLE mode (default): radio-like. Click the selected token to clear,
-        // otherwise replace the selection. parts stays an ARRAY (length 0 or 1) so
-        // the export schema (recordToRows joins with "|") is unchanged.
-        fArr = (fIdx > -1) ? [] : [val];
-      } else {
-        // MULTI mode (figData[fN].partsMulti) or any other figarrfield: legacy toggle.
-        if (fIdx > -1) fArr.splice(fIdx, 1); else fArr.push(val);
-      }
+      if (fIdx > -1) fArr.splice(fIdx, 1); else fArr.push(val);
       figSet(fN, figarrfield, fArr); renderPreserveScroll(); return;
     }
   }
@@ -2826,20 +2567,6 @@ document.getElementById('panel').addEventListener('click', function(e){
     return;
   }
 
-  if (tgt.id === 'btn-parts-multi-toggle') {
-    var fNumPM = (S.t2figNum||'1').trim();
-    var nowMulti = !figGet(fNumPM, 'partsMulti', false);
-    figSet(fNumPM, 'partsMulti', nowMulti);
-    // Switching MULTI -> SINGLE while >1 token is selected: keep only the first
-    // (single mode can hold at most one; the extra edge-case picks are dropped).
-    if (!nowMulti) {
-      var partsArrPM = figGet(fNumPM, 'parts', []);
-      if (partsArrPM.length > 1) figSet(fNumPM, 'parts', [partsArrPM[0]]);
-    }
-    renderPreserveScroll();
-    return;
-  }
-
   if (tgt.id === 'btn-add-part') {
     var input = document.getElementById('t2-new-part');
     if (input && input.value.trim()) {
@@ -2850,13 +2577,7 @@ document.getElementById('panel').addEventListener('click', function(e){
       if (PART_TOKENS.indexOf(newTag) === -1) PART_TOKENS.push(newTag);
       if ((S.t2customParts || []).indexOf(newTag) === -1) { S.t2customParts = S.t2customParts || []; S.t2customParts.push(newTag); }
       var fN2 = (S.t2figNum||'1').trim(), arr2 = figGet(fN2, 'parts', []);
-      // Auto-select the freshly created token. In single mode it REPLACES the
-      // current selection (keeps parts length 1); in multi mode it is appended.
-      if (figGet(fN2, 'partsMulti', false)) {
-        if (arr2.indexOf(newTag) === -1) arr2.push(newTag);
-      } else {
-        arr2 = [newTag];
-      }
+      if (arr2.indexOf(newTag) === -1) arr2.push(newTag);
       figSet(fN2, 'parts', arr2);
       renderPreserveScroll();
     }

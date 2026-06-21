@@ -15,14 +15,19 @@ Usage:
   4. python timer.py
 """
 
+import os
 import time
 import datetime
+import subprocess
 import pyautogui
 import pyperclip
 
 TARGET_TIME_P1 = "06:10"
 TARGET_TIME_P2 = "06:30"
 TARGET_TIME_P3 = "10:00" #generous gap: Task 2 does a full re-run + network fetches
+
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "overnight_logs")
+LOG_PATH = os.path.join(LOG_DIR, "timer.log")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PROMPT 1 — 04:30: SBERT accuracy upgrade (local text levers) + phase-2 setup
@@ -97,7 +102,18 @@ PROMPT_1 = """OVERNIGHT UNATTENDED TASK 1 of 3.
     description now triggers the SLC keyword prior. Paste the passing test output.
     - If anything fails to compile or a test fails, STOP, revert that change, and
     report it — do not leave the repo in a broken state for Task 2 to build on.
-    - End with a concise diff summary: which files/functions changed and why."""
+    - End with a concise diff summary: which files/functions changed and why.
+
+    HANDOFF (mandatory — Tasks 2 and 3 are separate fresh-context agents that will
+    NOT remember this work; they coordinate with you only through a file on disk):
+    - When done, WRITE a file at the repo root:
+      /home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools/OVERNIGHT_STATUS.md
+      (create it fresh — overwrite any old one). It MUST contain, under a "## TASK 1"
+      heading: STATUS (DONE / FAILED + why), every file/function you changed, the
+      exact names of any new helpers (e.g. extract_kinematic_sentences) and new
+      keyword/flag behaviours Task 2 must know about, every assumption you made, and
+      a one-line "Task 2 should now: …" note. Keep it factual and short — it is the
+      ONLY thing the next agent will see from you."""
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PROMPT 2 — 05:20: phase-2 citation enrichment + full re-run + validation gate
@@ -114,6 +130,14 @@ local upgrades).
 ╚══════════════════════════════════════════════════════════════════════════╝
 
 Repo: /home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools
+
+STEP 0 — READ THE HANDOFF FIRST (Task 1 was a different agent; this is how you
+learn what it did): read OVERNIGHT_STATUS.md at the repo root. If it is missing or
+its "## TASK 1" section says FAILED, then Task 1 did not complete — do NOT build on
+broken state: skip Part A's reliance on Task-1 helpers, but you may STILL do Part B
+(backup) and Part C (validation) on the existing export, and record that Task 1 was
+incomplete. Use the helper/flag names listed there (e.g. extract_kinematic_sentences)
+rather than guessing.
 
 This task has THREE parts. Do them IN ORDER and STOP at the first hard failure.
 
@@ -160,7 +184,14 @@ PART C — Validation gate + report (THIS DECIDES IF THE RUN IS TRUSTWORTHY).
 
 Finish with: a one-screen summary — what changed, the validation verdict
 (PASS/FAIL with counts), where the backup is, and what the user should do next
-before labeling the full set."""
+before labeling the full set.
+
+HANDOFF (mandatory): APPEND a "## TASK 2" section to OVERNIGHT_STATUS.md at the
+repo root (do not erase the "## TASK 1" section). It MUST state: STATUS
+(DONE / FAILED + why), the VALIDATION VERDICT (PASS / FAIL with the key counts),
+the EXACT path of the new export AND the PRE_OVERNIGHT_BACKUP, whether citation
+enrichment ran, and a one-line "Task 3 should audit: <which export>" note. Task 3
+is a fresh agent that will only know what this file tells it."""
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PROMPT 3 — 06:10: VISION ground-truth audit (open images, compare to the Excel)
@@ -180,10 +211,16 @@ Repo: /home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools
 You CAN open images directly with the Read tool (it renders PNGs visually). Use
 that to compare the actual drawing against the label the pipeline assigned.
 
+STEP 0 — READ THE HANDOFF FIRST: read OVERNIGHT_STATUS.md at the repo root. Its
+"## TASK 2" section tells you which export to audit and its exact path (the new
+re-run export if validation PASSED, else the PRE_OVERNIGHT_BACKUP) and whether
+enrichment ran. If the file is missing entirely, fall back to the most recent
+ml_predict_labels_<batch>.xlsx under data/matched/ and note that the handoff was
+absent. Do NOT guess which file Task 2 produced — read it from the handoff.
+
 TASK — sample-based vision-vs-Excel cross-check:
-1. Load the NEW post-re-run export ml_predict_labels_<batch>.xlsx (the one Task 2
-   produced; if Task 2 FAILED validation, audit the PRE_OVERNIGHT_BACKUP instead
-   and say so). The figure rows carry an Image_Path column pointing at the crop.
+1. Load the export named in the handoff (see STEP 0). The figure rows carry an
+   Image_Path column pointing at the crop.
 2. Pick a SMALL, representative sample — about 10-15 figures across different
    patents and different predicted classes. Deliberately include:
    - figures the pipeline marked needs_review / flagged_ambiguous,
@@ -207,26 +244,71 @@ TASK — sample-based vision-vs-Excel cross-check:
 
 Constraints: read-only audit — do NOT modify the export or any source file in
 this task; you are reporting, not fixing. If an Image_Path is missing/broken,
-note it and move to the next figure rather than stopping."""
+note it and move to the next figure rather than stopping.
+
+HANDOFF (mandatory, and the ONLY file you may write): APPEND a "## TASK 3"
+section to OVERNIGHT_STATUS.md at the repo root — the agree/suspect/wrong tally,
+the most common error pattern, and your final go/no-go recommendation. This
+completes the single consolidated report the user reads in the morning."""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Timer logic — clipboard paste, all at once
 # ─────────────────────────────────────────────────────────────────────────────
 
+def log(msg: str):
+    line = f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}"
+    print(msg)
+    with open(LOG_PATH, "a") as f:
+        f.write(line + "\n")
+
+
+def disable_sleep_and_lock():
+    """Best-effort: stop the screen from locking/blanking/suspending overnight.
+    Without this, the OS can steal keyboard/mouse focus from VSCode while
+    pyautogui is waiting, and the paste silently lands nowhere."""
+    try:
+        subprocess.run(["xset", "s", "off"], check=False)
+        subprocess.run(["xset", "-dpms"], check=False)
+        subprocess.run(["xset", "s", "noblank"], check=False)
+        log("🔓 Disabled X11 screensaver/DPMS (xset s off, -dpms, s noblank).")
+    except FileNotFoundError:
+        log("⚠️  xset not found — could not disable screensaver/DPMS.")
+
+
+def screenshot_before_paste(label: str):
+    """Save a screenshot right before pasting so the morning log shows
+    exactly what was focused when each prompt was sent."""
+    safe_label = label.replace(" ", "_")
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = os.path.join(LOG_DIR, f"{safe_label}_{ts}.png")
+    try:
+        pyautogui.screenshot(path)
+        log(f"🖼️  Screenshot saved before {label}: {path}")
+        return
+    except Exception:
+        pass
+    try:
+        subprocess.run(["import", "-window", "root", path], check=True)
+        log(f"🖼️  Screenshot saved before {label} (via ImageMagick): {path}")
+    except Exception as e:
+        log(f"⚠️  Screenshot failed for {label}: {e}")
+
+
 def send_prompt(label: str, text: str):
     """Copy text to clipboard and paste into the focused window atomically."""
-    print(f"\n🚀 Sending {label}...")
+    log(f"🚀 Sending {label}...")
+    screenshot_before_paste(label)
     pyperclip.copy(text)
     time.sleep(0.4)                   # let clipboard settle
     pyautogui.hotkey("ctrl", "v")     # paste entire prompt at once
     time.sleep(0.6)                   # let the UI receive the paste
     pyautogui.press("enter")          # submit
-    print(f"📨 {label} sent! ({len(text)} chars)")
+    log(f"📨 {label} sent! ({len(text)} chars)")
 
 
 def wait_until(target_hhmm: str, label: str):
-    print(f"⏳ Waiting for {target_hhmm} to send {label}...")
+    log(f"⏳ Waiting for {target_hhmm} to send {label}...")
     while True:
         now = datetime.datetime.now().strftime("%H:%M")
         if now == target_hhmm:
@@ -239,32 +321,36 @@ def wait_until(target_hhmm: str, label: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("  eVTOL Patent Pipeline — Overnight Prompt Timer")
-    print("=" * 60)
-    print(f"  Prompt 1 → {TARGET_TIME_P1}  (SBERT accuracy upgrade — local text levers)")
-    print(f"  Prompt 2 → {TARGET_TIME_P2}  (Citation enrichment + full re-run + validation gate)")
-    print(f"  Prompt 3 → {TARGET_TIME_P3}  (Vision ground-truth audit — open images vs Excel)")  # 07:30
-    print()
-    print("⚠️  BEFORE LEAVING:")
-    print("    1. These prompts are fully self-contained — no image needed.")
-    print("    2. Click inside the VSCode chat input box.")
-    print("    3. Make sure the cursor is blinking there.")
-    print("    4. Do NOT touch the keyboard or mouse after that.")
-    print("=" * 60)
+    os.makedirs(LOG_DIR, exist_ok=True)
+    log("=" * 60)
+    log("  eVTOL Patent Pipeline — Overnight Prompt Timer")
+    log("=" * 60)
+    log(f"  Prompt 1 → {TARGET_TIME_P1}  (SBERT accuracy upgrade — local text levers)")
+    log(f"  Prompt 2 → {TARGET_TIME_P2}  (Citation enrichment + full re-run + validation gate)")
+    log(f"  Prompt 3 → {TARGET_TIME_P3}  (Vision ground-truth audit — open images vs Excel)")
+    log(f"  Log file → {LOG_PATH}")
+    log("")
+    log("⚠️  BEFORE LEAVING:")
+    log("    1. These prompts are fully self-contained — no image needed.")
+    log("    2. Click inside the VSCode chat input box.")
+    log("    3. Make sure the cursor is blinking there.")
+    log("    4. Do NOT touch the keyboard or mouse after that.")
+    log("=" * 60)
+
+    disable_sleep_and_lock()
 
     # ── Prompt 1 ──────────────────────────────────────────────────────────────
     wait_until(TARGET_TIME_P1, "Prompt 1")
     send_prompt("Prompt 1", PROMPT_1)
 
     # ── Wait until Prompt 2 ───────────────────────────────────────────────────
-    print(f"\n⏳ Waiting for Prompt 2 at {TARGET_TIME_P2}...")
+    log(f"⏳ Waiting for Prompt 2 at {TARGET_TIME_P2}...")
     wait_until(TARGET_TIME_P2, "Prompt 2")
     send_prompt("Prompt 2", PROMPT_2)
 
     # ── Wait until Prompt 3 ───────────────────────────────────────────────────
-    print(f"\n⏳ Waiting for Prompt 3 at {TARGET_TIME_P3}...")
+    log(f"⏳ Waiting for Prompt 3 at {TARGET_TIME_P3}...")
     wait_until(TARGET_TIME_P3, "Prompt 3")
     send_prompt("Prompt 3", PROMPT_3)
 
-    print("\n🎉 All three prompts sent. Pipeline will run overnight.")
+    log("🎉 All three prompts sent. Pipeline will run overnight.")

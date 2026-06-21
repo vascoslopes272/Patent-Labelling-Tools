@@ -487,6 +487,86 @@ def get_brief_description_google(patent_id: str, cfg: dict) -> str:
     return "\n".join(lines)
 
 
+# ─── Cited-patent text enrichment (opt-in, network) ───────────────────────────
+# Used by reviewer.py's Part-A enrichment: when a patent's own G1 architecture
+# call is still ambiguous after the local SBERT/keyword pass, a small amount of
+# title+abstract text from its closest cited patent (same family / backward
+# citation) can supply the missing tiebreak signal — citing/cited patents in
+# the same family very often restate the architecture explicitly. Kept to
+# title+abstract only (no claims/description): Google Patents' claim markup is
+# fragile to scrape reliably (no stable per-claim id), while the abstract is
+# reliably available via the page's <meta name="description"> tag, so this
+# stays small, cheap, and robust instead of best-effort HTML archaeology.
+
+_GP_META_DESC_RE = re.compile(
+    r'<meta\s+name="description"\s+content="([^"]*)"', re.IGNORECASE
+)
+_GP_TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
+
+
+def _cited_text_cache_path(cache_dir: Path, patent_id: str) -> Path:
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", patent_id)
+    return Path(cache_dir) / f"{safe}.json"
+
+
+def fetch_cited_patent_text(
+    patent_id: str,
+    cache_dir: "Path | str",
+    timeout: int = 30,
+) -> str:
+    """
+    Fetch title + abstract for one cited/family patent from Google Patents,
+    for use as extra SBERT/keyword text when the citing patent's own
+    architecture call is ambiguous.
+
+    Disk-cached at cache_dir/{patent_id}.json so a re-run never refetches the
+    same patent — the cache stores "" for a patent that failed/was empty too,
+    so repeated calls on a consistently-unreachable id don't keep retrying it
+    every run (call again after deleting its cache file to force a refetch).
+
+    NETWORK SAFETY: every request is wrapped in try/except; any failure
+    (timeout, HTTP error, parse error) is caught here and returns "" — this
+    function never raises, so a flaky fetch can never crash the caller's batch
+    run. Caller (reviewer.py) is responsible for the polite delay between
+    calls and for capping how many patents/citations get this treatment.
+
+    Returns "" on any failure or if title/abstract aren't found.
+    """
+    cache_dir = Path(cache_dir)
+    cache_path = _cited_text_cache_path(cache_dir, patent_id)
+    if cache_path.exists():
+        try:
+            import json
+            return json.loads(cache_path.read_text(encoding="utf-8")).get("text", "")
+        except Exception:
+            pass   # corrupt cache entry — fall through and refetch
+
+    text = ""
+    try:
+        html = _fetch_google_patents(patent_id, timeout=timeout)
+        title_m = _GP_TITLE_RE.search(html)
+        desc_m  = _GP_META_DESC_RE.search(html)
+        title    = re.sub(r"\s+", " ", title_m.group(1)).strip() if title_m else ""
+        abstract = re.sub(r"\s+", " ", desc_m.group(1)).strip()  if desc_m  else ""
+        # Strip the " - Google Patents" / leading patent-number suffix Google
+        # appends to <title>, so it doesn't pollute the SBERT/keyword input.
+        title = re.sub(r"\s*-\s*Google Patents\s*$", "", title)
+        title = re.sub(r"^[A-Z]{2}\d[\w]*\s*-\s*", "", title)
+        text = " ".join(t for t in (title, abstract) if t)
+    except Exception as exc:
+        print(f"  ⚠  Cited-patent fetch failed for {patent_id}: {exc}")
+        text = ""
+
+    try:
+        import json
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps({"patent_id": patent_id, "text": text}), encoding="utf-8")
+    except Exception:
+        pass   # caching is best-effort; never let a disk error break enrichment
+
+    return text
+
+
 # ─── Unified public API (mode-aware routers) ──────────────────────────────────
 
 def download_drawings(

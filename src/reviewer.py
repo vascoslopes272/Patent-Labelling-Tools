@@ -360,6 +360,96 @@ def classify_g1_keyword(text: str | None) -> "dict | None":
     return None
 
 
+# ── Kinematic / architecture sentence mining ────────────────────────────────
+# Cue words that mark a sentence as carrying architecture/kinematic signal
+# (how thrust is vectored, whether propulsors tilt, lift-vs-cruise split, etc.).
+# SBERT only sees ~384 tokens, so a long claim/description dilutes the few
+# signal-bearing sentences with boilerplate. extract_kinematic_sentences()
+# below keeps ONLY the sentences containing one of these cues, producing a
+# short, signal-dense string to feed the G1 keyword prior + the SBERT
+# G1/empKin/orient/propKin classifiers (see process_patent / LEVER 2 & 3).
+# Matched case-insensitively as whole-ish substrings with space/hyphen
+# tolerance (so "lift-and-cruise"/"lift and cruise"/"lift+cruise" all hit) —
+# same normalisation as classify_g1_keyword.
+_KINEMATIC_CUE_WORDS: list[str] = [
+    # tilt / pivot / rotate articulation
+    "tilt", "tilting", "tiltable", "tiltrotor", "tilt rotor", "tilt wing",
+    "rotatable", "rotates", "rotating", "pivot", "pivoting", "pivotable",
+    "swivel", "swiveling", "articulat",          # articulate/articulating/articulation
+    "nacelle", "nacelles",
+    # lift+cruise / dedicated-thrust split
+    "lift and cruise", "lift plus cruise", "lift+cruise", "lift cruise",
+    "dedicated cruise", "separate cruise", "independent cruise",
+    "dedicated lift", "separate hover", "hover rotor", "cruise propeller",
+    "cruise propulsor", "cruise prop", "forward thrust", "vertical lift",
+    # stopped / stowed / folding rotor
+    "stopped rotor", "stoppable rotor", "stop fold", "stop-fold",
+    "stowed", "stowable", "stow", "folding rotor", "fold", "retract",
+    # slipstream / vectoring / transition flight
+    "deflected slipstream", "blown flap", "blown wing", "slipstream",
+    "vector", "vectored", "vectoring", "thrust vector",
+    "transition", "transitions", "transitioning",
+    "hover", "hovering", "cruise flight", "forward flight",
+    # rotor topology cues
+    "coaxial", "tandem", "ducted", "shrouded", "propulsor", "propulsors",
+    "actuat",                                     # actuate/actuator/actuation
+]
+
+
+def extract_kinematic_sentences(
+    text: str | None,
+    cue_words: list[str] | None = None,
+    max_sentences: int | None = None,
+) -> str:
+    """Mine the architecture/kinematic-bearing sentences out of `text`.
+
+    Splits `text` into sentences and keeps ONLY those containing at least one
+    kinematic cue word (_KINEMATIC_CUE_WORDS by default), dropping boilerplate.
+    The result is a short, signal-dense string suitable for SBERT's ~384-token
+    window and for the keyword priors — the point is to stop diluting the
+    embedding with background prose (see LEVER 2 in process_patent).
+
+    Matching is case-insensitive with space/hyphen tolerance (so
+    "lift-and-cruise" matches the cue "lift and cruise"), mirroring
+    classify_g1_keyword's normalisation.
+
+    Args:
+        text:          raw prose (e.g. first_claim + innovation_objective).
+        cue_words:     override cue list (defaults to _KINEMATIC_CUE_WORDS).
+        max_sentences: optional cap on how many matched sentences to keep
+                       (first-N, preserving order) to bound the output length.
+
+    Returns:
+        The matched sentences joined by " " (single space), or "" when `text`
+        is empty / no sentence carries a cue. Backward-compatible: both extra
+        args are optional with safe defaults.
+    """
+    if not text or not text.strip():
+        return ""
+    import re as _re
+
+    cues = cue_words if cue_words is not None else _KINEMATIC_CUE_WORDS
+    # Pre-normalise each cue (collapse space/hyphen runs) once.
+    needles = [_re.sub(r"[\s\-]+", " ", c.lower()) for c in cues]
+
+    # Sentence split on ., !, ? and newlines. Patent claims often have no
+    # terminal punctuation between numbered clauses, so newlines and semicolons
+    # also act as boundaries — keeps each clause independently filterable.
+    sentences = _re.split(r"(?<=[.!?])\s+|[\n;]+", text)
+
+    kept: list[str] = []
+    for sent in sentences:
+        s = sent.strip()
+        if not s:
+            continue
+        hay = _re.sub(r"[\s\-]+", " ", s.lower())
+        if any(n in hay for n in needles):
+            kept.append(s)
+            if max_sentences is not None and len(kept) >= max_sentences:
+                break
+    return " ".join(kept)
+
+
 _M1_FUS_SHAPE_DEFS = {
     "Circular":    "the aircraft has a circular or cylindrical tubular fuselage",
     "Oval":        "the aircraft has an oval or elliptical fuselage cross-section",
@@ -640,6 +730,111 @@ def resolve_g1(keyword: dict | None, text: dict | None, visual: dict | None) -> 
     return _margin_flag(t) or _empty_pred()
 
 
+# ─── Citation/Google-Patents text enrichment (Part A — opt-in, network) ────
+# When the local pass (keyword + SBERT text + vision) still leaves G1 either
+# flagged_ambiguous or below the configured confidence_routing.G1 threshold,
+# the citing/cited patents in the same family very often restate the
+# architecture explicitly (same inventor/assignee describing the same
+# mechanism in a different filing) — a small fetch of cited-patent title+
+# abstract can supply exactly the tiebreak signal the citing patent's own
+# text lacked. OFF by default (enrich_citations=False in process_patent);
+# only invoked per-patent, and only when the local prediction is still weak,
+# so a normal run with the flag off makes zero network calls.
+
+# Cap on total Google Patents fetches per ambiguous patent — keeps a single
+# stubborn patent from hammering the API even if it has many citations.
+_CITATION_ENRICH_MAX_FETCHES = 2
+# Seconds to sleep between citation fetches — polite rate-limiting, same
+# spirit as cfg["extractor"]["delay_seconds"] but hardcoded here since this
+# path runs deep inside process_patent() without direct cfg access at the
+# call site that matters.
+_CITATION_ENRICH_DELAY = 1.0
+
+
+def g1_needs_enrichment(g1_pred: dict | None, g1_threshold: float = 0.45) -> bool:
+    """True when a resolved G1 prediction is still weak enough to be worth
+    spending a network fetch on: explicitly flagged ambiguous by
+    resolve_g1()/_margin_flag(), OR below the confidence_routing.G1 threshold,
+    OR simply missing (no value at all)."""
+    if not g1_pred or g1_pred.get("value") is None:
+        return True
+    if g1_pred.get("flagged_ambiguous"):
+        return True
+    conf = g1_pred.get("confidence", 0.0) or 0.0
+    return conf < g1_threshold
+
+
+def enrich_g1_with_citations(
+    g1_pred: dict,
+    excel_row: dict,
+    kinematic_text: str,
+    sbert_model,
+    cache_dir: "Path | str",
+    max_fetches: int = _CITATION_ENRICH_MAX_FETCHES,
+    delay: float = _CITATION_ENRICH_DELAY,
+) -> dict:
+    """
+    Re-resolve an ambiguous G1 prediction using a small amount of extra text
+    fetched from the patent's closest cited patents (backward_cites first,
+    then forward_cites, since a citing patent describing prior art it builds
+    on is more likely to restate the same architecture than a later patent
+    that merely cites this one in passing).
+
+    Fetches at most `max_fetches` cited patents (network, via
+    extractor.fetch_cited_patent_text — disk-cached, never raises) and appends
+    their title+abstract to `kinematic_text` before re-running the keyword
+    prior and the SBERT G1 classifier. Returns the BETTER of the original vs.
+    enriched prediction: enrichment only replaces g1_pred when it produces a
+    non-empty, non-flagged result, or a strictly higher confidence — it never
+    downgrades a confident local prediction, and any fetch failure (caught
+    inside fetch_cited_patent_text) just means the enriched text equals the
+    original, so the call is a safe no-op on network trouble.
+
+    `cache_dir` should be a writable directory (e.g. cfg["paths"]["data"] /
+    "citation_text_cache") — see fetch_cited_patent_text() for the on-disk
+    cache format.
+    """
+    from src.extractor import fetch_cited_patent_text
+    import time as _time
+
+    cite_ids = list(excel_row.get("backward_cites") or []) + list(excel_row.get("forward_cites") or [])
+    cite_ids = cite_ids[:max_fetches]
+    if not cite_ids:
+        return g1_pred
+
+    fetched_text: list[str] = []
+    for i, cid in enumerate(cite_ids):
+        text = fetch_cited_patent_text(cid, cache_dir)
+        if text:
+            fetched_text.append(text)
+        if i < len(cite_ids) - 1:
+            _time.sleep(delay)
+
+    if not fetched_text:
+        return g1_pred   # every fetch failed/empty — local prediction stands unchanged
+
+    enriched_text = kinematic_text + " " + " ".join(fetched_text)
+
+    enriched_keyword = classify_g1_keyword(enriched_text)
+    enriched_sbert    = classify_g1_text(enriched_text, sbert_model)
+    enriched_pred     = enriched_keyword or enriched_sbert
+    if not enriched_pred or enriched_pred.get("value") is None:
+        return g1_pred
+
+    orig_conf = (g1_pred or {}).get("confidence", 0.0) or 0.0
+    enr_conf  = enriched_pred.get("confidence", 0.0) or 0.0
+    orig_flagged = bool((g1_pred or {}).get("flagged_ambiguous"))
+
+    # Tag provenance so a human reviewer (and Part C's audit) can tell this
+    # value came from a network-enriched re-resolution, not the local pass.
+    enriched_pred = dict(enriched_pred)
+    enriched_pred["source"] = f"{enriched_pred.get('source', 'sbert')}+citation"
+
+    if orig_flagged or enr_conf > orig_conf:
+        return enriched_pred
+    return g1_pred
+
+
 def _siglip_underconfident(pred: dict | None) -> bool:
     """True when a SigLIP prediction set is worth a VLM second opinion — i.e.
     it's empty, or any field's confidence is below VLM_TRIGGER_CONFIDENCE."""
@@ -785,6 +980,7 @@ def process_patent(
     review_flags: dict[str, dict[str, str]] | None = None,
     match_results_cache: dict[str, dict[str, dict]] | None = None,
     vlm_bundle: tuple | None = None,
+    enrich_citations: bool = False,
 ) -> dict:
     """
     Full Stage 01 pipeline for one patent.
@@ -817,6 +1013,14 @@ def process_patent(
                     opinion on M1/M2/M3 for any figure where SigLIP is
                     under-confident (see VLM_TRIGGER_CONFIDENCE). All inference is
                     local. Default None → SigLIP+SBERT only.
+    enrich_citations : OFF by default (no network calls). When True, a patent
+                    whose G1 prediction is still ambiguous after the local pass
+                    (flagged_ambiguous, or below confidence_routing.G1) gets a
+                    small Google-Patents fetch of its closest cited patents'
+                    title+abstract as extra tiebreak text — see
+                    enrich_g1_with_citations(). Disk-cached, rate-limited,
+                    capped, and never raises (falls back to the local
+                    prediction on any network error).
 
     Returns
     -------
@@ -921,18 +1125,47 @@ def process_patent(
     # per-figure loop below so its confidence is available as a real
     # cross-modal signal for classify_g1_hint()'s nlp_confidence gate,
     # instead of the hardcoded 0.0 ("always run") that bypassed the gate
-    # entirely. Only needs classify_text (title/abstract/first_claim/desc_text),
-    # already available at this point. classify_text is reused unchanged
-    # further below for T1/M1/M2/M3 text classification.
+    # entirely. Only needs classify_text (title/abstract/first_claim/
+    # innovation_objective/desc_text), already available at this point.
+    # classify_text is reused unchanged further below for T1/M1/M2 text
+    # classification (the structural/visual fields).
+    #
+    # LEVER 1: innovation_objective (Summary/Advantages of Invention, loaded by
+    # extractor.load_patseer_excel) is now joined in — it states what the
+    # invention actually *does*, which is exactly the architecture/objective
+    # signal T1/G1 want, and was previously dropped on the floor.
     classify_text = " ".join(
         t for t in [
             excel_row.get("title"),
             excel_row.get("abstract"),
             excel_row.get("first_claim"),
+            excel_row.get("innovation_objective"),   # LEVER 1
             desc_text,
         ] if t
     )
-    g1_text = classify_g1_text(classify_text, sbert_model)
+
+    # LEVER 2 + 3: a SECOND, signal-dense text string built ONLY from the
+    # architecture/kinematic-bearing sentences of the substantive prose
+    # (first_claim + innovation_objective). description_of_drawings is
+    # deliberately excluded (it's per-figure visual boilerplate, not kinematic
+    # prose — see the task brief). This stops SBERT's ~384-token window from
+    # being diluted by background text when judging the fields where tilt /
+    # lift-vs-cruise / transition is the whole question. Routed (LEVER 3) to:
+    #   • classify_g1_keyword  — so the keyword priors fire on claim/objective
+    #                            text, not just title+abstract;
+    #   • SBERT G1 + the KINEMATIC fields (empKin, orient, propKin).
+    # The structural/visual fields keep the full classify_text blob below.
+    # Falls back to classify_text when no kinematic sentence is found, so a
+    # patent that simply doesn't phrase things kinematically isn't left blank.
+    _kin_source = " ".join(
+        t for t in [
+            excel_row.get("first_claim"),
+            excel_row.get("innovation_objective"),
+        ] if t
+    )
+    kinematic_text = extract_kinematic_sentences(_kin_source) or classify_text
+
+    g1_text = classify_g1_text(kinematic_text, sbert_model)
     g1_text_confidence = g1_text["confidence"] if g1_text else 0.0
 
     # ── Per-figure: T2 + G1 + M1 + M2 + M3 SigLIP classification ────────────
@@ -1022,15 +1255,48 @@ def process_patent(
     # is hard to classify visually (or has no usable description line at all).
     # Merge picks whichever modality is more confident per field, field-by-field.
     # g1_text was already computed above (before the SigLIP loop) — reused here.
+    #
+    # LEVER 3 — per-field text routing. The STRUCTURAL/VISUAL fields (all of M1,
+    # plus M2 wingConf/empType/wCount and M3 chord/bmech/rmech) keep the full
+    # classify_text blob: they describe drawn geometry that the surrounding
+    # prose helps disambiguate. The KINEMATIC fields (M2 empKin, M3 orient,
+    # M3 propKin) are RE-classified against the signal-dense kinematic_text so
+    # SBERT isn't reading tilt/transition language through a wall of boilerplate.
+    # _sbert_best is the same per-field zero-shot helper classify_m*_text uses
+    # internally, so these overrides are drop-in. (kinematic_text falls back to
+    # classify_text when no kinematic sentence exists, so this never blanks a
+    # field — see where kinematic_text is built above.)
     m1_text = classify_m1_text(classify_text, sbert_model)
     m2_text = classify_m2_text(classify_text, sbert_model)
     m3_text = classify_m3_text(classify_text, sbert_model)
 
+    m2_text["empKin"]  = _sbert_best(kinematic_text, _M2_EMP_KIN_DEFS,  sbert_model)
+    m3_text["orient"]  = _sbert_best(kinematic_text, _M3_ORIENT_DEFS,   sbert_model)
+    m3_text["propKin"] = _sbert_best(kinematic_text, _M3_PROPKIN_DEFS,  sbert_model)
+
     # G1 topology: text-primary, vision-tiebreaker, with a high-precision
     # keyword prior on top (architecture/tilt is a text fact, not legible in a
     # static drawing). See resolve_g1() / classify_g1_keyword().
-    g1_keyword     = classify_g1_keyword(classify_text)
+    # LEVER 2: the keyword prior now scans kinematic_text — the mined claim +
+    # innovation_objective sentences — so a giveaway phrase buried in the claim
+    # (e.g. "lift plus cruise") fires even when it never appears in title/abstract.
+    g1_keyword     = classify_g1_keyword(kinematic_text)
     g1_prediction  = resolve_g1(g1_keyword, g1_text, g1_visual)
+
+    # ── Part A: opt-in citation/Google-Patents enrichment ─────────────────
+    # OFF unless the caller passes enrich_citations=True. Only spends a
+    # network fetch when the local pass left G1 genuinely weak — see
+    # g1_needs_enrichment() / enrich_g1_with_citations(). Any network failure
+    # is swallowed inside fetch_cited_patent_text(), so this can never crash
+    # the batch run; worst case it's a silent no-op for that patent.
+    if enrich_citations and g1_needs_enrichment(
+        g1_prediction, cfg.get("confidence_routing", {}).get("G1", 0.45)
+    ):
+        _cite_cache_dir = Path(cfg["paths"]["data"]) / "citation_text_cache"
+        g1_prediction = enrich_g1_with_citations(
+            g1_prediction, excel_row, kinematic_text, sbert_model, _cite_cache_dir,
+        )
+
     m1_predictions = merge_prediction_dicts(m1_visual, m1_text, ["fusShape", "fusKin", "gearArch", "latSym"])
     m2_predictions = merge_prediction_dicts(m2_visual, m2_text, ["wingConf", "empType", "empKin", "wCount"])
     m3_predictions = merge_prediction_dicts(m3_visual, m3_text, ["chord", "orient", "bmech", "rmech", "propKin"])
@@ -1064,6 +1330,7 @@ def run_stage01(
     limit: "int | None" = None,
     patent_ids: list[str] | None = None,
     matched_dir: "Path | None" = None,
+    enrich_citations: bool = False,
 ) -> "pd.DataFrame":
     """
     Batch Stage 01 runner. Processes all patent folders in matched/ (Stage 00b2 output)
@@ -1073,6 +1340,9 @@ def run_stage01(
     Parameters
     ----------
     limit : If set, process only the first N patents (for testing).
+    enrich_citations : OFF by default. Passed through to process_patent() —
+        see its docstring. When True, ambiguous-G1 patents get a small,
+        disk-cached, rate-limited Google-Patents fetch of cited-patent text.
 
     Returns
     -------
@@ -1121,6 +1391,7 @@ def run_stage01(
                 sbert_model          = sbert_model,
                 siglip_bundle        = siglip_bundle,
                 skip_siglip          = skip_siglip,
+                enrich_citations     = enrich_citations,
                 review_flags         = review_flags,
                 match_results_cache  = match_results_cache,
             )
