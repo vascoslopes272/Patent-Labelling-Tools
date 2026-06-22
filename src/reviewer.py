@@ -1330,7 +1330,7 @@ def run_stage01(
     limit: "int | None" = None,
     patent_ids: list[str] | None = None,
     matched_dir: "Path | None" = None,
-    enrich_citations: bool = False,
+    enrich_citations: bool = True,
 ) -> "pd.DataFrame":
     """
     Batch Stage 01 runner. Processes all patent folders in matched/ (Stage 00b2 output)
@@ -1440,6 +1440,158 @@ def run_stage01(
     df = pd.DataFrame(rows)
     print(f"\n{'='*55}")
     print(f"  Stage 01 complete: {len(df)} patents")
+    print(f"  ml_predict_labels_{batch_label}.xlsx: {len(all_excel_rows)} rows -> {source_excel_path}")
+    if "match_score" in df.columns and df["match_score"].notna().any():
+        print(f"  Avg match score  : {df['match_score'].mean():.1%}")
+        hr = df.get("human_required", pd.Series(dtype=int))
+        rr = df.get("review_required", pd.Series(dtype=bool))
+        print(f"  Human-required   : {hr.sum() if not hr.empty else 0} crops")
+        print(f"  Needs review     : {rr.sum() if not rr.empty else 0} patents")
+    print(f"{'='*55}")
+    return df
+
+
+def run_stage01_parallel(
+    cfg: dict,
+    matched_dir: Path,
+    skip_siglip: bool = False,
+    limit: "int | None" = None,
+    patent_ids: list[str] | None = None,
+    enrich_citations: bool = True,
+    gpu_ids: list[str] | None = None,
+    skip_files: set | None = None,
+) -> "pd.DataFrame":
+    """
+    Same end result as run_stage01() (writes one ml_predict_labels_<batch>.xlsx
+    and returns the same per-patent summary DataFrame), but splits the patent
+    list evenly across one subprocess PER GPU in `gpu_ids` — same pattern as
+    doclayout_matcher.process_patents_parallel()/gpu_worker.py for Stage 00b2.
+
+    Each worker is a fresh process pinned to one physical GPU via
+    CUDA_VISIBLE_DEVICES, loading its own SentenceTransformer + SigLIP
+    instance — there is no shared model/GPU state between workers, so this
+    is safe regardless of how many patents are in the batch (chunk sizes are
+    computed by ceiling division, so it works for any batch size, including
+    ones smaller than the number of GPUs).
+
+    `sbert_model`/`siglip_bundle` are NOT accepted here (unlike run_stage01)
+    because each worker must load its own instance on its own pinned device —
+    a model object loaded in the launching notebook's process can't be hidden
+    in another GPU's subprocess.
+
+    gpu_ids: explicit physical GPU indices, e.g. ["0", "1"]. If None, defaults
+    to one worker per visible GPU (or a single worker on GPU 0 if only one is
+    visible).
+    """
+    import json, os, subprocess, sys, tempfile, threading, shutil
+    import pandas as pd
+    from pathlib import Path as _Path
+
+    matched_dir = Path(matched_dir)
+
+    if patent_ids is not None:
+        pids = list(patent_ids)
+    else:
+        pids = sorted({d.name.rsplit("_", 1)[0] for d in matched_dir.iterdir() if d.is_dir()})
+    if limit:
+        pids = pids[:limit]
+
+    if gpu_ids is None:
+        import torch
+        n_gpu = torch.cuda.device_count()
+        gpu_ids = [str(i) for i in range(n_gpu)] if n_gpu >= 1 else ["0"]
+
+    n_workers = len(gpu_ids)
+    chunk = max(1, -(-len(pids) // n_workers))  # ceil division
+    splits = [pids[i:i + chunk] for i in range(0, len(pids), chunk)] or [[]]
+    while len(splits) < n_workers:
+        splits.append([])
+
+    worker_script = str(_Path(__file__).parent / "review_gpu_worker.py")
+    python_exe    = sys.executable
+    repo_root     = _Path(__file__).parent.parent
+
+    tmp_dir = _Path(tempfile.mkdtemp(prefix="review_parallel_"))
+    procs, result_paths = [], []
+
+    for i in range(n_workers):
+        if not splits[i]:
+            result_paths.append(None)
+            continue
+        args_path   = tmp_dir / f"args_{i}.json"
+        result_path = tmp_dir / f"result_{i}.json"
+        result_paths.append(result_path)
+
+        args_path.write_text(json.dumps({
+            "patent_ids":      splits[i],
+            "matched_dir":     str(matched_dir),
+            "skip_siglip":     skip_siglip,
+            "enrich_citations": enrich_citations,
+            "visual_weight":   VISUAL_WEIGHT,
+            "text_weight":     TEXT_WEIGHT,
+            "skip_files":      sorted(skip_files) if skip_files else [],
+        }))
+
+        env = os.environ.copy()
+        env["CUDA_VISIBLE_DEVICES"] = gpu_ids[i]
+
+        p = subprocess.Popen(
+            [python_exe, worker_script, str(args_path), str(result_path)],
+            cwd=str(repo_root),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        procs.append(p)
+        print(f"[GPU {gpu_ids[i]}] worker started (PID {p.pid}) — {len(splits[i])} patent(s)")
+
+    def _stream(proc, label):
+        for line in proc.stdout:
+            print(f"[GPU {label}] {line}", end="", flush=True)
+
+    threads = [threading.Thread(target=_stream, args=(procs[j], gpu_ids[j]), daemon=True)
+               for j in range(len(procs))]
+    for t in threads: t.start()
+    try:
+        for p in procs:   p.wait()
+        for t in threads: t.join()
+    except BaseException:
+        for p in procs:
+            if p.poll() is None:
+                p.terminate()
+        for p in procs:
+            try:
+                p.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                p.kill()
+        raise
+
+    rows: list[dict] = []
+    all_excel_rows: list[dict] = []
+    for rp in result_paths:
+        if rp is None:
+            continue
+        if not rp.exists():
+            print(f"⚠  Result file missing: {rp} — worker may have crashed")
+            continue
+        data = json.loads(rp.read_text())
+        rows.extend(data["summary_rows"])
+        all_excel_rows.extend(data["excel_rows"])
+
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    from src.excel_schema import export_source_excel
+    batch_label   = matched_dir.name
+    data_matched  = Path(cfg["paths"].get("data_matched", cfg["paths"]["data"]))
+    source_excel_path = data_matched / batch_label / f"ml_predict_labels_{batch_label}.xlsx"
+
+    if all_excel_rows:
+        export_source_excel(all_excel_rows, source_excel_path)
+
+    df = pd.DataFrame(rows)
+    print(f"\n{'='*55}")
+    print(f"  Stage 01 (parallel, {n_workers} GPU worker(s)) complete: {len(df)} patents")
     print(f"  ml_predict_labels_{batch_label}.xlsx: {len(all_excel_rows)} rows -> {source_excel_path}")
     if "match_score" in df.columns and df["match_score"].notna().any():
         print(f"  Avg match score  : {df['match_score'].mean():.1%}")
