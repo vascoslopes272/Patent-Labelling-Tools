@@ -980,7 +980,7 @@ def process_patent(
     review_flags: dict[str, dict[str, str]] | None = None,
     match_results_cache: dict[str, dict[str, dict]] | None = None,
     vlm_bundle: tuple | None = None,
-    enrich_citations: bool = False,
+    enrich_citations: bool = True,
 ) -> dict:
     """
     Full Stage 01 pipeline for one patent.
