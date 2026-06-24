@@ -300,8 +300,7 @@ var WING_CONFIG = [
   {id:'W', n:'Standard Wings', d:'One or more separately delineated wing panels attached to a distinguishable fuselage — pick this whenever any panel (main wing, canard, strake) can be individually counted, even if its root is aerodynamically filleted into the fuselage.'},
   {id:'BWB', n:'Blended Wing Body', d:'No separate fuselage tube — the load-bearing/cabin cross-section and the lifting surface are one continuous shape. No discrete panel to count.'},
   {id:'FW', n:'Flying Wing', d:'The entire airframe is the wing; no separate fuselage. No discrete panel to count.'},
-  {id:'LB', n:'Lifting Body', d:'Fuselage shape itself generates lift, with no/minimal separate wing panel. No discrete panel to count.'},
-  {id:'Oth', n:'Other', d:'Wing architecture that doesn\'t fit the standard categories above but still has separately countable wing panels — classify it the same way as Standard Wings (count the panels and set each one\'s position/planform).'}
+  {id:'LB', n:'Lifting Body', d:'Fuselage shape itself generates lift, with no/minimal separate wing panel. No discrete panel to count.'}
 ];
 var W_POS_V = [{id:'High', n:'High / Hub'},{id:'Mid', n:'Mid / Center'},{id:'Low', n:'Low / Down'}];
 var W_POS_L = [{id:'Fwd', n:'Forward (Nose/Canard position)'},{id:'Cent', n:'Center (CG / Mid-Fuselage)'},{id:'Aft', n:'Aft (Tail / Rear position)'}];
@@ -315,7 +314,7 @@ var CHORD = [
   {id:'Front', n:'Front (Puller / Tractor)', d:'Propeller/rotor mounted AHEAD of its support/wing, pulling the aircraft forward. "Tractor" and "puller" are the same thing — the airflow is pulled through from in front.'},
   {id:'Back',  n:'Back (Pusher)',            d:'Propeller/rotor mounted BEHIND its support/wing, pushing the aircraft forward — the airflow is pushed out the back.'}
 ];
-var BLADE_MECH = [{id:'Open', n:'Open / Free Rotor'},{id:'Ducted', n:'Ducted Fan / Shrouded'}];
+var BLADE_MECH = [{id:'Open', n:'Open / Free Rotor'},{id:'Ducted', n:'Ducted Fan / Shrouded'},{id:'Folded', n:'Folding / Stowed Blades'}];
 var RETRACT_MECH = [{id:'Exposed', n:'Non-Retractable (Exposed)'},{id:'Retractable', n:'Retractable (Folds into structure)'}];
 // Propulsor articulation kinematics — ids match vlm_extractor.py / cross_modal.py / reviewer.py
 var PROP_KIN = [{id:'Fixed', n:'Fixed (No Articulation)'},{id:'Tilt', n:'Tilt (Vectoring Unit)'},{id:'Vectored', n:'Thrust Vectored'},{id:'Cyclic', n:'Cyclic (Swashplate)'}];
@@ -337,10 +336,10 @@ var TILTED_IN_VIEW = [
 
 var FUS_SHAPE = [{id:'Circular', n:'Circular / Tubular'},{id:'Oval', n:'Oval / Elliptical'},{id:'Rectangular', n:'Rectangular / Box'},{id:'Blended', n:'Blended / Lifting Body'},{id:'PodBoom', n:'Pod and Boom'}];
 var FUS_KIN = [{id:'Fixed', n:'Fixed / Conventional'},{id:'Variable', n:'Variable Incidence / Tilting Body'}];
-var GEAR_ARCH = [{id:'Skids', n:'Skids / Fixed Skids'},{id:'FixedWheel', n:'Fixed Wheeled Gear'},{id:'RetrWheel', n:'Retractable Wheeled Gear'},{id:'PadsHull', n:'Pads / Hull'},{id:'Unknown', n:'Unknown'}];
+var GEAR_ARCH = [{id:'Skids', n:'Skids / Fixed Skids'},{id:'FixedWheel', n:'Fixed Wheeled Gear'},{id:'RetrWheel', n:'Retractable Wheeled Gear'},{id:'PadsHull', n:'Pads / Hull'}];
 
 var T2_PER = ['Top', 'Bottom/Down', 'Front', 'Back', 'Side', 'Front-Isometric', 'Rear-Isometric', 'Generic 3D'];
-var T2_AC_STY = ['Render', 'Line Drawing', 'Simple Line Drawing', 'Draft', 'Blueprint'];
+var T2_AC_STY = ['Render', 'Line Drawing', 'Draft', 'Blueprint'];
 var T2_AC_COL = ['B/W (Monochrome)', 'Grayscale', 'Full Color'];
 var T2_BG_STY = ['Solid Fill', 'Shaded/Gradient', 'Grid/Pattern'];
 var T2_BG_COL = ['White', 'Blueprint Blue', 'Dark', 'Grayscale'];
@@ -687,7 +686,7 @@ function nextBlockers(){
      if (isOtherArch()) return b;   // Novel/Other: M2 is free-text commentary, nothing required
      if (isWinged()) {
         if (!S.wingConf) { b.push('Wing configuration'); }
-        else if (S.wingConf == 'W' || S.wingConf == 'Oth') {
+        else if (S.wingConf == 'W') {
           for (var i = 1; i <= S.wCount; i++) {
             if (!S['wTilt' + i] || !S['wPosV' + i] || !S['wPosL' + i] || !S['wPlan' + i]) { b.push('Wing ' + i + ' position/planform'); }
             else if (i > 1 && !S['wRole' + i]) { b.push('Wing ' + i + ' role'); }
@@ -710,7 +709,7 @@ function buildLbl() {
   if(S.t1Scope) p.push(S.t1Scope.replace(/\s+/g, ''));
   if(S.topType) p.push(S.topType);
   if(isWinged() && S.wingConf) p.push(S.wingConf + (S.wingConf=='W'?'\u00d7'+S.wCount:''));
-  if (isWinged() && (S.wingConf == 'W' || S.wingConf == 'Oth')) {
+  if (isWinged() && S.wingConf == 'W') {
     for (var i = 1; i <= S.wCount; i++) {
       if (S['wPosV' + i] || S['wPosL' + i] || S['wPlan' + i]) {
         var wParts = [S['wTilt' + i]==='Tilt'?'T':'F', S['wPosV' + i], S['wPosL' + i], S['wPlan' + i] === 'Oth' ? 'Oth' : S['wPlan' + i]];
@@ -726,7 +725,7 @@ function buildLbl() {
   
   var activeBlueprints = m3Blueprints();
   activeBlueprints.forEach(function(bp){
-    var cnt = m3CardCount(bp.key);
+    var cnt = m3Count(bp.key);
     if(cnt > 0) p.push(bp.key.toUpperCase()+'x'+cnt);
   });
   return p.join('_');
@@ -793,24 +792,6 @@ function m3Get(key, suffix, fallback) {
   return S[field];
 }
 function m3Count(key) { return parseInt(m3Get(key, 'count', 0), 10) || 0; }
-// Multi-propeller-type support: a single wing/zone can carry several DISTINCT
-// propeller types (e.g. some fixed, some tilting). m3_<key>_ntypes holds how
-// many distinct types the reviewer declared (default 1 = the legacy single-set
-// behaviour). When >1, each type's full attribute set is stored under a
-// namespaced sub-key "<key>__t<n>" so m3Field/m3Get/m3Count/inc-dec all work on
-// it unchanged. The card's total propulsor count is the sum across its types.
-var M3_MAX_TYPES = 4;
-function m3NTypes(key) { var n = parseInt(m3Get(key, 'ntypes', 1), 10) || 1; return Math.min(M3_MAX_TYPES, Math.max(1, n)); }
-function m3TypeKey(key, t) { return key + '__t' + t; }
-// Per-card total count: legacy single-type cards read the card key directly;
-// multi-type cards sum the per-type counts.
-function m3CardCount(key) {
-  var n = m3NTypes(key);
-  if (n <= 1) return m3Count(key);
-  var sum = 0;
-  for (var t = 1; t <= n; t++) sum += m3Count(m3TypeKey(key, t));
-  return sum;
-}
 function m3Sym(key) {
   var bp = m3Blueprints().find(function(item){ return item.key === key; });
   var fallback = bp ? bp.defaultSym !== false : true;
@@ -862,7 +843,7 @@ function m3ZoneOptions(bp) {
 function m3ZoneChordOptions() { return [{id:'LE', n:'Leading Edge'},{id:'TE', n:'Trailing Edge'},{id:'Above', n:'Above Surface'},{id:'Below', n:'Below Surface'}]; }
 function m3ZoneSpanOptions() { return [{id:'Inboard', n:'Inboard (Near Fuselage)'},{id:'MidSpan', n:'Mid-Span'},{id:'Outboard', n:'Outboard (Near Tip)'},{id:'Wingtip', n:'Wingtip'}]; }
 
-function m3TotalCount() { return m3Blueprints().reduce(function(sum, bp){ return sum + m3CardCount(bp.key); }, 0); }
+function m3TotalCount() { return m3Blueprints().reduce(function(sum, bp){ return sum + m3Count(bp.key); }, 0); }
 function m3DistributedFlag() {
   var total = m3TotalCount();
   if (S.topType === 'MR') return {cls:'info', text:'Multi-Rotor (Native DEP — not wing-integrated)'};
@@ -873,103 +854,58 @@ function m3DistributedFlag() {
   return {cls:'skip', text:'Distributed_Propulsion = Conventional (≤2 units)'};
 }
 
-// Per-type propulsor attribute block (chord / thrust kinematics / blade
-// behavior / retraction / articulation + its own count). `tkey` is either the
-// bare card key (legacy single-type) or a "<key>__t<n>" sub-key (multi-type).
-// `showCount` is false for the legacy path (the count lives in the card header)
-// and true per type when multiple types are declared.
-function m3TypeAttrs(bp, tkey, showCount) {
-  var h = '';
-  if (showCount) {
-    var tcount = m3Count(tkey);
-    h += '<div class="m2-tools" style="margin-top:6px;"><div class="m2-row"><div class="m2-kv" style="margin:0 8px 0 0;">Count of this type</div>'
-      + '<div class="m2-count-wrap"><button class="m3-btn ibtn" type="button" data-m3-action="dec" data-comp="' + tkey + '">−</button>'
-      + '<input class="m2-count" type="number" min="0" step="1" inputmode="numeric" data-field="' + m3Field(tkey,'count') + '" value="' + tcount + '">'
-      + '<button class="m3-btn ibtn" type="button" data-m3-action="inc" data-comp="' + tkey + '">+</button></div></div></div>';
-  }
-
-  h += '<div class="m2-kv">Rotor Chordwise Position</div>' + grid('', CHORD.map(function(o){ return oc(m3Field(tkey,'chord'), o.id, o.n, o.d); }));
-
-  if (S.topType === 'TW' && bp.key.indexOf('wing') > -1) {
-    // Tilt-wing: the propulsor is bolted to the wing, so its ARTICULATION is
-    // locked (propKin, below). Its thrust DIRECTION still sweeps as the wing
-    // rotates, so orient stays a free choice — Mixed is offered as an option.
-    h += '<div class="m2-kv">Thrust Kinematics</div>'
-       + '<div class="m3-sub" style="margin-bottom:4px;">Tilt-wing: the whole wing rotates, so the wing-mounted thrust vectors with it — pick <b>Mixed</b> for the airframe-relative sweep, or <b>Horizontal</b> if you mean relative to the wing chord.</div>'
-       + grid('', m3OrientationOptions().map(function(o){ return oc(m3Field(tkey,'orient'), o.id, o.n); }));
-  } else {
-    h += '<div class="m2-kv">Thrust Kinematics</div>' + grid('', m3OrientationOptions().map(function(o){ return oc(m3Field(tkey,'orient'), o.id, o.n); }));
-  }
-
-  h += '<div class="m2-kv">Aerodynamic Blade Behavior</div>' + grid('', BLADE_MECH.map(function(o){ return oc(m3Field(tkey,'bmech'), o.id, o.n); }));
-  h += '<div class="m2-kv">Retraction Kinematics</div>' + grid('', RETRACT_MECH.map(function(o){ return oc(m3Field(tkey,'rmech'), o.id, o.n); }));
-
-  // Propulsor Articulation (propKin) — locked per the architecture physics
-  // matrix (propKinLock): TP→Tilt, TW/DS/SLC/SRW→Fixed, CVT free. The locked
-  // value is shown selected+disabled, forced again in buildExport, and the
-  // unified physics-lock banner explains why. NOTE: when several propeller
-  // types are declared the lock is intentionally NOT applied per type — that's
-  // the whole point of declaring multiple types (e.g. fixed + tilting on the
-  // same wing), so articulation stays a free per-type choice.
-  var pkLock = propKinLock(S.topType);
-  var propKinLocked = !!pkLock;
-  if (propKinLocked) h += physicsLock(S.topType, propKinLockReason(S.topType) + '.');
-  h += '<div class="m2-kv">Propulsor Articulation' + (propKinLocked ? ' (Locked)' : '') + '</div>' + grid('', PROP_KIN.map(function(o){
-    var sel = propKinLocked ? (o.id === pkLock) : (m3Get(tkey,'propKin',null) === o.id);
-    return '<div class="opt' + (sel ? ' sel' : '') + (propKinLocked ? ' dis' : '') + '" data-field="' + m3Field(tkey,'propKin') + '" data-val="' + encodeURIComponent(o.id) + '" title="' + o.n + '"><div class="o-name">' + o.n + '</div></div>';
-  }));
-  return h;
-}
-
 function m3Card(bp) {
-  var count = m3CardCount(bp.key), sym = m3Get(bp.key, 'sym', bp.defaultSym);
+  var count = m3Count(bp.key), sym = m3Get(bp.key, 'sym', bp.defaultSym);
+  var chord = m3Get(bp.key, 'chord', null), orient = m3Get(bp.key, 'orient', null), bmech = m3Get(bp.key, 'bmech', null), rmech = m3Get(bp.key, 'rmech', null);
+  var zone = m3Get(bp.key, 'zone', null), zoneChord = m3Get(bp.key, 'zoneChord', null), zoneSpan = m3Get(bp.key, 'zoneSpan', null);
   var notes = m3Get(bp.key, 'notes', '');
   var isRotorcraft = (S.topType === 'RC' || S.topType === 'MR');
-  var nTypes = m3NTypes(bp.key);
 
   var h = '<div class="m3-card"><div class="m3-head">' + bp.title + '</div><div class="m3-sub">' + bp.subtitle + '</div><div class="m2-tools"><div class="m2-row">';
 
   if (isRotorcraft) {
      if(S.topType === 'RC') h += '<div class="flag info" style="margin-top:0;">Single/Coaxial Main Hub Prescribed</div>';
-     else h += '<div class="m2-count-wrap"><button class="m3-btn ibtn" type="button" data-m3-action="dec" data-comp="' + bp.key + '">−</button><input class="m2-count" type="number" min="0" step="1" inputmode="numeric" data-field="' + m3Field(bp.key,'count') + '" value="' + m3Count(bp.key) + '"><button class="m3-btn ibtn" type="button" data-m3-action="inc" data-comp="' + bp.key + '">+</button></div>';
-  } else if (nTypes <= 1) {
-     // Legacy single-type: count lives in the header, stored under the bare key.
-     h += '<div class="m2-count-wrap"><button class="m3-btn ibtn" type="button" data-m3-action="dec" data-comp="' + bp.key + '">−</button><input class="m2-count" type="number" min="0" step="1" inputmode="numeric" data-field="' + m3Field(bp.key,'count') + '" value="' + m3Count(bp.key) + '"><button class="m3-btn ibtn" type="button" data-m3-action="inc" data-comp="' + bp.key + '">+</button></div><label class="m2-check"><input type="checkbox" data-field="' + m3Field(bp.key,'sym') + '" ' + (sym ? 'checked' : '') + '> Laterally Symmetric Pairs</label>';
+     else h += '<div class="m2-count-wrap"><button class="m3-btn ibtn" type="button" data-m3-action="dec" data-comp="' + bp.key + '">−</button><input class="m2-count" type="number" min="0" step="1" inputmode="numeric" data-field="' + m3Field(bp.key,'count') + '" value="' + count + '"><button class="m3-btn ibtn" type="button" data-m3-action="inc" data-comp="' + bp.key + '">+</button></div>';
   } else {
-     // Multi-type: per-type counts live inside each type block below, so the
-     // header shows the computed total instead of an editable count.
-     h += '<label class="m2-check"><input type="checkbox" data-field="' + m3Field(bp.key,'sym') + '" ' + (sym ? 'checked' : '') + '> Laterally Symmetric Pairs</label>'
-        + '<div class="flag info" style="margin:0 0 0 12px; padding:6px 10px;">Total across types: <b>' + count + '</b></div>';
+     h += '<div class="m2-count-wrap"><button class="m3-btn ibtn" type="button" data-m3-action="dec" data-comp="' + bp.key + '">−</button><input class="m2-count" type="number" min="0" step="1" inputmode="numeric" data-field="' + m3Field(bp.key,'count') + '" value="' + count + '"><button class="m3-btn ibtn" type="button" data-m3-action="inc" data-comp="' + bp.key + '">+</button></div><label class="m2-check"><input type="checkbox" data-field="' + m3Field(bp.key,'sym') + '" ' + (sym ? 'checked' : '') + '> Laterally Symmetric Pairs</label>';
   }
   h += '</div></div>';
-
-  // "How many distinct propeller types?" — only for non-rotorcraft cards (RC/MR
-  // hubs are physically single-type). Lets a wing/zone carry e.g. fixed + tilting
-  // propellers as separate attribute sets.
-  if (!isRotorcraft) {
-    h += '<div class="m2-tools" style="margin-top:6px;"><div class="m2-row"><div class="m2-kv" style="margin:0 8px 0 0;">Distinct propeller types here</div>'
-      + '<div class="m2-count-wrap"><button class="m3-btn ibtn" type="button" data-m3-action="dec" data-comp="' + bp.key + '" data-ntypes="1">−</button>'
-      + '<input class="m2-count" type="number" min="1" max="' + M3_MAX_TYPES + '" step="1" inputmode="numeric" data-field="' + m3Field(bp.key,'ntypes') + '" value="' + nTypes + '">'
-      + '<button class="m3-btn ibtn" type="button" data-m3-action="inc" data-comp="' + bp.key + '" data-ntypes="1">+</button></div>'
-      + '<div class="m3-sub" style="margin:0 0 0 10px;">Set &gt;1 when the same wing/zone mixes different propellers (e.g. some fixed, some tilting).</div></div></div>';
-  }
 
   if (count > 0 || S.topType === 'RC') {
     if (S.topType == 'DS') h += physicsLock('DS', 'wing thrusters must sit along the leading edge to blow the deflection flaps; the propellers themselves stay fixed.');
     if (isRotorcraft) {
       h += physicsLock(S.topType, 'thrust kinematics and spatial localization are taxonomy-fixed for a rotorborne hub — only the blade / rotor type is recorded here (articulation is ' + (propKinLock(S.topType) || 'n/a') + ').');
       h += '<div class="m2-kv">Visual Blade/Rotor Classification</div>' + grid('', BLADE_MECH.map(function(o){ return oc(m3Field(bp.key,'bmech'), o.id, o.n); }));
-    } else if (nTypes <= 1) {
-      // Legacy single-type: attributes stored under the bare key, count in header.
-      h += m3TypeAttrs(bp, bp.key, false);
     } else {
-      // Multi-type: one labelled attribute block per declared type.
-      for (var ti = 1; ti <= nTypes; ti++) {
-        h += '<div class="m3-card" style="margin-top:10px; padding:12px; background:var(--bg2);"><div class="m3-head">Propeller Type ' + ti + '</div>'
-           + m3TypeAttrs(bp, m3TypeKey(bp.key, ti), true) + '</div>';
+      h += '<div class="m2-kv">Rotor Chordwise Position</div>' + grid('', CHORD.map(function(o){ return oc(m3Field(bp.key,'chord'), o.id, o.n, o.d); }));
+      
+      if (S.topType === 'TW' && bp.key.indexOf('wing') > -1) {
+        // Tilt-wing: the propulsor is bolted to the wing, so its ARTICULATION is
+        // locked (propKin, below). Its thrust DIRECTION still sweeps as the wing
+        // rotates, so orient stays a free choice — Mixed is offered as an option.
+        h += '<div class="m2-kv">Thrust Kinematics</div>'
+           + '<div class="m3-sub" style="margin-bottom:4px;">Tilt-wing: the whole wing rotates, so the wing-mounted thrust vectors with it — pick <b>Mixed</b> for the airframe-relative sweep, or <b>Horizontal</b> if you mean relative to the wing chord.</div>'
+           + grid('', m3OrientationOptions().map(function(o){ return oc(m3Field(bp.key,'orient'), o.id, o.n); }));
+      } else {
+        h += '<div class="m2-kv">Thrust Kinematics</div>' + grid('', m3OrientationOptions().map(function(o){ return oc(m3Field(bp.key,'orient'), o.id, o.n); }));
       }
-    }
 
+      h += '<div class="m2-kv">Aerodynamic Blade Behavior</div>' + grid('', BLADE_MECH.map(function(o){ return oc(m3Field(bp.key,'bmech'), o.id, o.n); }));
+      h += '<div class="m2-kv">Retraction Kinematics</div>' + grid('', RETRACT_MECH.map(function(o){ return oc(m3Field(bp.key,'rmech'), o.id, o.n); }));
+
+      // Propulsor Articulation (propKin) — locked per the architecture physics
+      // matrix (propKinLock): TP→Tilt, TW/DS/SLC/SRW→Fixed, CVT free. The locked
+      // value is shown selected+disabled, forced again in buildExport, and the
+      // unified physics-lock banner explains why.
+      var pkLock = propKinLock(S.topType);
+      var propKinLocked = !!pkLock;
+      if (propKinLocked) h += physicsLock(S.topType, propKinLockReason(S.topType) + '.');
+      h += '<div class="m2-kv">Propulsor Articulation' + (propKinLocked ? ' (Locked)' : '') + '</div>' + grid('', PROP_KIN.map(function(o){
+        var sel = propKinLocked ? (o.id === pkLock) : (m3Get(bp.key,'propKin',null) === o.id);
+        return '<div class="opt' + (sel ? ' sel' : '') + (propKinLocked ? ' dis' : '') + '" data-field="' + m3Field(bp.key,'propKin') + '" data-val="' + encodeURIComponent(o.id) + '" title="' + o.n + '"><div class="o-name">' + o.n + '</div></div>';
+      }));
+    }
+    
     if (bp.zoneMode) {
         if (bp.key.indexOf('wing') > -1) {
             h += '<div class="m2-kv">Wing Chordwise Position</div><div class="m2-zone">' + m3ZoneChordOptions().map(function(o){ return oc(m3Field(bp.key,'zoneChord'), o.id, o.n); }).join('') + '</div>';
@@ -987,21 +923,15 @@ function m3Card(bp) {
 }
 
 function m3Ready(){
-  if (S.topType === 'RC') return !!m3Get('core_layout', 'bmech');
+  if (S.topType === 'RC') return !!m3Get('core_layout', 'bmech'); 
   var cards = m3Blueprints(), anyCount = false;
   for (var i = 0; i < cards.length; i++) {
-    var bp = cards[i], count = m3CardCount(bp.key);
+    var bp = cards[i], count = m3Count(bp.key);
     if (count > 0) anyCount = true;
     if (count > 0) {
       // (Symmetric components no longer require an even count — any count is valid.)
       if (S.topType !== 'RC') {
-        // Each declared propeller type must have its core attributes set. For
-        // legacy single-type cards the type-key IS the bare card key.
-        var nT = m3NTypes(bp.key);
-        for (var t = 1; t <= nT; t++) {
-          var tk = nT <= 1 ? bp.key : m3TypeKey(bp.key, t);
-          if (!m3Get(tk, 'chord') || !m3Get(tk, 'orient') || !m3Get(tk, 'bmech') || !m3Get(tk, 'rmech')) return false;
-        }
+        if (!m3Get(bp.key, 'chord') || !m3Get(bp.key, 'orient') || !m3Get(bp.key, 'bmech') || !m3Get(bp.key, 'rmech')) return false;
       }
       if (bp.zoneMode) {
         if (bp.key.indexOf('wing') > -1) {
@@ -1671,7 +1601,7 @@ function pageM1(){
 function pageM2(){ if (isOtherArch()) return otherCommentaryPage('M2', 'Lifting Surfaces &amp; Stabilizers', 'wingNotes', _OTHER_M2_GUIDE);
   var h='<div class="p-module">Module M2 &middot; Aerodynamic Features</div><div class="p-q">Lifting Surfaces &amp; Stabilizers</div>';
   if(isWinged()){ h+=sec('Wing Architecture')+grid('',WING_CONFIG.map(function(c){return oc('wingConf',c.id,c.n,c.d);}));
-  if(S.wingConf=='W' || S.wingConf=='Oth'){
+  if(S.wingConf=='W'){ 
       h+=sec('Lifting Lines Grid')+ic('wCount',S.wCount,0,4,'Distinct Wing Panels');
       h+='<div class="m3-sub" style="margin-top:4px;">Count only lifting/wing panels here (main wing, canard, tandem wing, strake…). Empennage surfaces — horizontal/longitudinal stabilizers, tailplanes and fins — are <b>not</b> wings; classify those in the Empennage section below.</div>';
       h+='<div class="m3-field" style="margin-top:10px; margin-bottom:15px;"><div class="m3-label">Lifting Surfaces Edge-Case Notes</div><textarea class="comments" style="min-height:56px;" data-field="wingNotes" placeholder="Log wing ambiguities here...">' + escHtml(S.wingNotes) + '</textarea></div>';
@@ -1708,7 +1638,7 @@ function pageM2(){ if (isOtherArch()) return otherCommentaryPage('M2', 'Lifting 
               }
           } 
       } 
-  }else if(['BWB', 'FW', 'LB'].indexOf(S.wingConf) > -1){ h+=flg('info','Individual Wing Variables Bypassed','Integrated hull frameworks configure lifting surfaces directly.'); }
+  }else if(['BWB', 'FW', 'LB'].indexOf(S.wingConf) > -1){ h+=flg('info','Individual Wing Variables Bypassed','Integrated hull frameworks configure lifting surfaces directly.'); } 
   }else{ h+=sec('Wing Architecture')+physicsLock(S.topType,'wingless architecture — no fixed lifting surfaces to classify; lift is purely rotor-borne.'); }
   // Wingless architectures get the SAME directional-stabilizer set as Winged so a
   // multirotor with horizontal/vertical tail fins can be classified properly —
@@ -1832,29 +1762,7 @@ function buildMorphologyObj() {
     fusShape: S.fusShape, fusKin: S.fusKin, fusNotes: S.fusNotes, gearArch: S.gearArch, gearNotes: S.gearNotes, wingNotes: S.wingNotes,
     footLen: S.footLen, footWid: S.footWid, footHgt: S.footHgt, footAmbiguous: S.footAmbiguous, latSym: S.latSym, longSym: S.longSym,
     propulsionCards: m3Blueprints().map(function(bp){
-      var nT = m3NTypes(bp.key);
-      // Shared, card-level fields (the same for every propeller type on the card).
-      var card = { component: bp.key, ntypes: nT, sym: m3Sym(bp.key), zone: m3Get(bp.key,'zone'), zoneChord: m3Get(bp.key,'zoneChord'), zoneSpan: m3Get(bp.key,'zoneSpan'), notes: m3Get(bp.key,'notes') };
-      if (nT <= 1) {
-        // Legacy single-type: flat per-attribute fields under the bare key, so
-        // older readers and the existing export rows keep working unchanged.
-        card.count  = m3Count(bp.key);
-        card.chord  = m3Get(bp.key,'chord');
-        card.orient = m3Get(bp.key,'orient');
-        card.bmech  = m3Get(bp.key,'bmech');
-        card.rmech  = m3Get(bp.key,'rmech');
-        card.propKin = (propKinLock(S.topType) || m3Get(bp.key,'propKin'));
-      } else {
-        // Multi-type: per-type attribute sets. Articulation (propKin) is NOT
-        // physics-locked here — mixing fixed + tilting is the whole point.
-        card.count = m3CardCount(bp.key);   // total across types (for downstream counts)
-        card.types = [];
-        for (var t = 1; t <= nT; t++) {
-          var tk = m3TypeKey(bp.key, t);
-          card.types.push({ idx: t, count: m3Count(tk), chord: m3Get(tk,'chord'), orient: m3Get(tk,'orient'), bmech: m3Get(tk,'bmech'), rmech: m3Get(tk,'rmech'), propKin: m3Get(tk,'propKin') });
-        }
-      }
-      return card;
+      return { component: bp.key, count: m3Count(bp.key), sym: m3Sym(bp.key), chord: m3Get(bp.key,'chord'), orient: m3Get(bp.key,'orient'), bmech: m3Get(bp.key,'bmech'), rmech: m3Get(bp.key,'rmech'), propKin: (propKinLock(S.topType) || m3Get(bp.key,'propKin')), zone: m3Get(bp.key,'zone'), zoneChord: m3Get(bp.key,'zoneChord'), zoneSpan: m3Get(bp.key,'zoneSpan'), notes: m3Get(bp.key,'notes') };
     })
   };
 }
@@ -2056,41 +1964,22 @@ function ingestAI(data) {
     data.propulsionCards.forEach(function(card) {
       var key = card.component;
       if (!key) return;
-      // Card-level (shared) fields — count is the total; zone/notes/sym are shared.
-      ['count','zone','zoneChord','zoneSpan','notes'].forEach(function(f) {
+      ['count','chord','orient','bmech','rmech','propKin','zone','zoneChord','zoneSpan','notes'].forEach(function(f) {
         if (card[f] != null) { S['m3_' + key + '_' + f] = card[f]; }
       });
       // Symmetric-pairs flag is a boolean — coerce so "true"/"false" strings
       // from a round-tripped xlsx don't read as truthy non-empty strings.
       if (card.sym != null) { S['m3_' + key + '_sym'] = xlBool(card.sym); }
-
-      var _pk = propKinLock(S.topType);
-      var nT = parseInt(card.ntypes, 10) || (Array.isArray(card.types) ? card.types.length : 1);
-      if (Array.isArray(card.types) && card.types.length) {
-        // Multi-type: write each type's attributes under the "<key>__t<n>" sub-key.
-        // propKin is NOT physics-locked here (mixed fixed/tilting is the point).
-        S['m3_' + key + '_ntypes'] = Math.min(M3_MAX_TYPES, Math.max(1, nT));
-        card.types.forEach(function(ty) {
-          var tk = key + '__t' + ty.idx;
-          ['count','chord','orient','bmech','rmech','propKin'].forEach(function(f) {
-            if (ty[f] != null) { S['m3_' + tk + '_' + f] = ty[f]; }
-          });
-          if (['SLC','SRW'].indexOf(S.topType) > -1 && S['m3_' + tk + '_orient'] === 'Mixed') { S['m3_' + tk + '_orient'] = null; }
-        });
-      } else {
-        // Legacy single-type: flat per-attribute fields under the bare key.
-        S['m3_' + key + '_ntypes'] = 1;
-        ['chord','orient','bmech','rmech','propKin'].forEach(function(f) {
-          if (card[f] != null) { S['m3_' + key + '_' + f] = card[f]; }
-        });
-        // SLC/SRW: strip Mixed (tilting/vectoring) if a stored/AI value sneaks in —
-        // independent fixed lift+cruise / stopped-rotor never vectors.
-        if (['SLC','SRW'].indexOf(S.topType) > -1 && S['m3_' + key + '_orient'] === 'Mixed') { S['m3_' + key + '_orient'] = null; }
-        // propKin lock per the physics matrix — force the architecture's fixed value
-        // over any stored/AI value (TP→Tilt, TW/DS/SLC/SRW/MR→Fixed, RC→Cyclic). TW
-        // wing orient is intentionally NOT forced anymore so a saved Mixed survives.
-        if (_pk) { S['m3_' + key + '_propKin'] = _pk; }
+      // SLC/SRW: strip Mixed (tilting/vectoring) if a stored/AI value sneaks in —
+      // independent fixed lift+cruise / stopped-rotor never vectors.
+      if (['SLC','SRW'].indexOf(S.topType) > -1) {
+        if (S['m3_' + key + '_orient'] === 'Mixed') { S['m3_' + key + '_orient'] = null; }
       }
+      // propKin lock per the physics matrix — force the architecture's fixed value
+      // over any stored/AI value (TP→Tilt, TW/DS/SLC/SRW/MR→Fixed, RC→Cyclic). TW
+      // wing orient is intentionally NOT forced anymore so a saved Mixed survives.
+      var _pk = propKinLock(S.topType);
+      if (_pk) { S['m3_' + key + '_propKin'] = _pk; }
     });
   }
   // Confidence summary in status bar
@@ -2377,29 +2266,10 @@ function recordToRows(record, pid) {
       // but omitted from this emit list, so they were lost on save (propKin only
       // re-derivable for TP via the physics lock; sym not at all). The reader
       // (rowsToAIData byComponent + ingestAI) already handles both once emitted.
-      // Card-level (shared) fields. `count` is the card total; `ntypes` says how
-      // many distinct propeller types this card holds.
-      ["count","sym","zone","zoneChord","zoneSpan","notes","ntypes"].forEach(function(field) {
+      ["chord","orient","bmech","rmech","count","propKin","sym","zone","zoneChord","zoneSpan","notes"].forEach(function(field) {
         if (card[field] === undefined) return;
         rows.push(reviewRow(apid, "M3", subDim, card.component + "_" + field, card[field] != null ? card[field] : null));
       });
-      if (card.types && card.types.length) {
-        // Multi-type: one labelled sub-dimension per propeller type, fields
-        // suffixed t<n>_<field> so rowsToAIData can regroup them.
-        card.types.forEach(function(ty) {
-          var tDim = subDim + " — Type " + ty.idx;
-          ["count","chord","orient","bmech","rmech","propKin"].forEach(function(field) {
-            if (ty[field] === undefined) return;
-            rows.push(reviewRow(apid, "M3", tDim, card.component + "_t" + ty.idx + "_" + field, ty[field] != null ? ty[field] : null));
-          });
-        });
-      } else {
-        // Legacy single-type: flat per-attribute fields under the bare component.
-        ["chord","orient","bmech","rmech","propKin"].forEach(function(field) {
-          if (card[field] === undefined) return;
-          rows.push(reviewRow(apid, "M3", subDim, card.component + "_" + field, card[field] != null ? card[field] : null));
-        });
-      }
     });
   });
 
@@ -2546,43 +2416,21 @@ function rowsToAIData(rows) {
 
   // M3 — rows grouped by Sub_Dimension "Propulsion: <component>", Field
   // "<component>_<field>" (see src/excel_schema.py build_patent_rows()).
-  // Multi-type cards add per-type sub-dimensions "Propulsion: <component> — Type N"
-  // with fields "<component>_t<N>_<field>"; we strip the "— Type N" suffix so all
-  // types regroup under the base component, and collect them into a `types` array.
   var byComponent = {};
   rows.forEach(function(r) {
     if (r.Section !== 'M3') return;
     var sub = String(r.Sub_Dimension || '');
     if (sub.indexOf('Propulsion: ') !== 0) return;
-    var component = sub.slice('Propulsion: '.length).replace(/\s+—\s+Type\s+\d+\s*$/, '');
+    var component = sub.slice('Propulsion: '.length);
     var prefix = component + '_';
     var field  = String(r.Field || '');
     var suffix = field.indexOf(prefix) === 0 ? field.slice(prefix.length) : field;
     if (!byComponent[component]) byComponent[component] = { component: component };
-    var val = (r.Value !== undefined && r.Value !== '' && r.Value != null) ? r.Value : undefined;
-    if (val === undefined) return;
-    // Per-type field? suffix looks like "t<N>_<field>".
-    var tm = /^t(\d+)_(.+)$/.exec(suffix);
-    if (tm) {
-      var ti = parseInt(tm[1], 10), tfield = tm[2];
-      var card = byComponent[component];
-      if (!card.types) card.types = {};
-      if (!card.types[ti]) card.types[ti] = { idx: ti };
-      card.types[ti][tfield] = val;
-    } else {
-      byComponent[component][suffix] = val;
+    if (r.Value !== undefined && r.Value !== '' && r.Value != null) {
+      byComponent[component][suffix] = r.Value;
     }
   });
-  var propulsionCards = Object.keys(byComponent).map(function(k) {
-    var card = byComponent[k];
-    // Normalise the types map -> ordered array (ingestAI expects an array).
-    if (card.types) {
-      card.types = Object.keys(card.types)
-        .sort(function(a,b){ return a - b; })
-        .map(function(ti){ return card.types[ti]; });
-    }
-    return card;
-  });
+  var propulsionCards = Object.keys(byComponent).map(function(k) { return byComponent[k]; });
 
   // M2 per-wing detail — rows with Field "wing<i>_<wTilt|wPosV|wPosL|wPlan|wRole>"
   // (excel_schema.py _WING_MANUAL). These were never reconstructed, so the wing
@@ -3349,16 +3197,9 @@ document.getElementById('panel').addEventListener('click', function(e){
 
   var m3Btn = tgt.closest('.m3-btn');
   if(m3Btn){
-    var comp = m3Btn.getAttribute('data-comp'), action = m3Btn.getAttribute('data-m3-action');
-    // "Distinct propeller types" stepper (data-ntypes): clamp to [1, MAX].
-    if (m3Btn.hasAttribute('data-ntypes')) {
-      var nField = m3Field(comp,'ntypes'), nCur = m3NTypes(comp);
-      if(action === 'inc') nCur += 1; if(action === 'dec') nCur -= 1;
-      S[nField] = Math.min(M3_MAX_TYPES, Math.max(1, nCur)); renderPreserveScroll(); return;
-    }
     // Counts step by 1 for every component now — symmetric pairs are no longer
     // forced to even values (a reviewer may legitimately enter any count).
-    var countField = m3Field(comp,'count'), cur = m3Count(comp);
+    var comp = m3Btn.getAttribute('data-comp'), action = m3Btn.getAttribute('data-m3-action'), countField = m3Field(comp,'count'), cur = m3Count(comp);
     if(action === 'inc') cur += 1; if(action === 'dec') cur = Math.max(0, cur - 1);
     S[countField] = cur; renderPreserveScroll(); return;
   }

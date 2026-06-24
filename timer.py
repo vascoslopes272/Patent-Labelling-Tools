@@ -1,18 +1,13 @@
 """
-timer.py
-Sends two prompts to VSCode Claude at scheduled times using clipboard paste.
-CLIPBOARD METHOD — the entire prompt is pasted atomically with Ctrl+V.
-Never uses typewrite(), which breaks on newlines, special chars, and long strings.
-
-Schedule:
-  Prompt 1 → 04:30
-  Prompt 2 → 05:20  (50 min later)
+timer_ui_changes.py
+Schedules SIX UNATTENDED prompts (A through F) to build a brand-new repository structure
+inside /home/vasco/Vasco Workspace/Tese_Vasco_Lnx, implement data integrity auditing tools,
+populate dataset overview notebooks, execute UI layout overrides, and generate an end-to-end summary.
 
 Usage:
   1. pip install pyautogui pyperclip
-  2. Have the image for Prompt 1 already pasted/attached in the VSCode chat.
-  3. Click inside the VSCode chat input so the cursor is blinking there.
-  4. python timer.py
+  2. Click inside the VSCode chat window panel input line so the cursor is blinking there.
+  3. python timer_ui_changes.py
 """
 
 import os
@@ -22,238 +17,208 @@ import subprocess
 import pyautogui
 import pyperclip
 
-TARGET_TIME_P1 = "06:10"
-TARGET_TIME_P2 = "06:30"
-TARGET_TIME_P3 = "10:00" #generous gap: Task 2 does a full re-run + network fetches
+# ── Set these to whenever you want each prompt to fire (24h HH:MM) ────────────
+TARGET_TIME_A = "00:30"  # Repo creation & structure setup
+TARGET_TIME_B = "02:00"  # src/audit_utils.py creation                   (+1h30)
+TARGET_TIME_C = "03:30"  # notebooks/00a1_dataset_overview.ipynb gen     (+1h30)
+TARGET_TIME_D = "05:00"  # T2 interface behavior updates (Single+chips)  (+1h30)
+TARGET_TIME_E = "06:30"  # UI Layout modifications (4-column matrix)     (+1h30)
+TARGET_TIME_F = "08:00"  # Final review & change summary report gen      (+1h30)
 
 LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "overnight_logs")
-LOG_PATH = os.path.join(LOG_DIR, "timer.log")
+LOG_PATH = os.path.join(LOG_DIR, "timer_ui.log")
+
+# Shared unattended-safety header pasted at the top of all prompts.
+_HEADER = """╔══════════════════════════════════════════════╗
+║ SCHEDULED / UNATTENDED. The user may be away. Do NOT call AskUserQuestion / ║
+║ EnterPlanMode or wait for approval — it hangs the run. Decide, act, verify,  ║
+║ finish, leave one short report. If you truly cannot proceed safely, STOP   ║
+║ and say why. Make reasonable choices and WRITE DOWN any assumption.        ║
+╚══════════════════════════════════════════════╝"""
+
+_NEW_REPO_NAME = "Patent-Analysis-New-Pipeline"
+_BASE_DIR = "/home/vasco/Vasco Workspace/Tese_Vasco_Lnx"
+_REPO = f"{_BASE_DIR}/{_NEW_REPO_NAME}"
+_FILE = "notebooks/UI_for_taxonomy_caracterization_10.0.html"
+
+_DONT_REGRESS = """DO NOT REGRESS the MULTI-ARCHITECTURE work already in this file style. Keep ALL of it
+intact if migrating logic: getArchCount(), saveCurArchProfile()/loadArchProfile(), the archProfiles[]/
+curArch state, the T2 "Assign To" architecture dropdown + "+ Add architecture"
+button + "Distinct Architectures" banner, the "Architecture N of M" banner injected
+in render() for steps gate/m1/m2/m3, the per-architecture export ("_arch{N}" suffix
+in recordToRows), and ingestPatentRows()/basePatentId()/archSuffixNum()."""
+
+_VERIFY = """VERIFY BEFORE FINISHING (do not skip):
+ - Extract the largest <script> block and run `node --check` on it — it MUST pass.
+ - Confirm braces {}, parens (), and brackets [] are balanced across the whole file
+   (equal open/close counts).
+This is a STATIC HTML edit: do not run the notebook, models, or any batch."""
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PROMPT 1 — 04:30: SBERT accuracy upgrade (local text levers) + phase-2 setup
+# PROMPT A — REPOSITORY STRUCTURAL SCAFFOLDING
 # ─────────────────────────────────────────────────────────────────────────────
+PROMPT_A = f"""UNATTENDED TASK A — REPOSITORY SETUP AND INITIALIZATION.
 
-PROMPT_1 = """OVERNIGHT UNATTENDED TASK 1 of 3.
+{_HEADER}
 
-    ╔══════════════════════════════════════════════════════════════════════════╗
-    ║ NO HUMAN IS PRESENT. The user is asleep and WILL NOT answer anything until ║
-    ║ morning. Therefore, for this entire task you MUST:                          ║
-    ║  • NEVER ask a question. NEVER call AskUserQuestion / EnterPlanMode or any  ║
-    ║    tool that waits for a human reply — it will hang the whole night run.    ║
-    ║  • NEVER wait for confirmation or approval. Decide, act, and continue.      ║
-    ║  • When something is ambiguous, pick the safest reasonable option, WRITE    ║
-    ║    DOWN the assumption in your final report, and keep going.                ║
-    ║  • If you truly cannot proceed safely, STOP and clearly report why in your  ║
-    ║    final message — do not idle waiting for input.                           ║
-    ║  • Run to completion autonomously, then leave ONE clear summary for the     ║
-    ║    morning.                                                                 ║
-    ╚══════════════════════════════════════════════════════════════════════════╝
+I am building a brand-new analysis repository for my thesis data inside `{_BASE_DIR}`. 
 
-    CONTEXT (this is a continuation of work you already did earlier in this project):
-    - Repo: /home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools
-    - Stage-01 pipeline classifies eVTOL patents with SigLIP (vision) + PatentSBERTa
-    (text). The text classifier in src/reviewer.py builds `classify_text` inside
-    process_patent() from: title + abstract + first_claim + description_of_drawings.
-    - src/extractor.py's load_patseer_excel() ALSO loads `innovation_objective`
-    (Summary/Advantages of Invention) per patent, but it is currently NOT fed to
-    SBERT. It also loads backward_cites / forward_cites and has a working Google
-    Patents fetcher (_fetch_google_patents).
-    - Earlier you added G1 keyword priors (_G1_KEYWORD_RULES / classify_g1_keyword),
-    a text-primary G1 resolver (resolve_g1), and margin-flagging (_margin_flag,
-    _sbert_best now returns a `margin`). DO NOT regress any of that.
+Please initialize a clean repository structure for me by creating the following folders and empty files if they do not exist:
+- `{_REPO}/data/raw/`
+- `{_REPO}/data/processed/`
+- `{_REPO}/notebooks/`
+- `{_REPO}/src/`
+- `{_REPO}/config/`
+- Empty placeholder file: `{_REPO}/notebooks/00a1_dataset_overview.ipynb`
+- Empty placeholder file: `{_REPO}/src/audit_utils.py`
 
-    GOAL: raise SBERT / keyword-prior accuracy on the architecture & kinematic fields
-    using LOCAL text only (no network in this task — networking is Task 2). Implement
-    all three levers below in src/ (Python only — do NOT touch the HTML wizard or any
-    notebook; do NOT change config.yaml):
+Once folders are ready, initialize a clean Git repository here (`git init`). Copy the base web application wizard file from your active layout into this new workspace path at `{_REPO}/{_FILE}`. Make sure the setup is completely modular so that files inside `notebooks/` can easily import utility functions from the `src/` directory.
 
-    LEVER 1 — Feed innovation_objective into SBERT.
-        In process_patent() add excel_row.get("innovation_objective") to the
-        `classify_text` join (after first_claim). One change, low risk.
-
-    LEVER 2 — Kinematic-sentence mining (the high-value one).
-        Add a helper (e.g. extract_kinematic_sentences(text)) that pulls only the
-        sentences containing architecture/kinematic cue words — tilt, tilting,
-        rotatable, pivot, pivoting, nacelle, lift and cruise, lift+cruise, stopped
-        rotor, stowed, deflected slipstream, vectored, transition, hover, cruise
-        propeller, coaxial, tandem, etc. Build a SECOND, signal-dense text string
-        from first_claim + description (NOT description_of_drawings) restricted to
-        those sentences, and feed it to: (a) classify_g1_keyword (so keyword priors
-        can fire on claim/description text, not just title+abstract), and (b) the
-        SBERT G1 / empKin / M3-orient / M3-propKin classifiers. Keep the existing
-        blob for the genuinely-visual fields. The point is to stop diluting SBERT's
-        384-token window with boilerplate — feed it the kinematic sentences only.
-
-    LEVER 3 — Per-field text routing.
-        Don't embed one blob for everything. Route the kinematic-sentence text to
-        G1 + the kinematic fields (empKin, orient, propKin); keep title+abstract+
-        first_claim for the structural/visual text fields. Make this explicit and
-        commented so it's tunable.
-
-    HARD CONSTRAINTS (unattended safety):
-    - Python files only. Do NOT edit UI_for_taxonomy_caracterization_10.0.html or any
-    .ipynb or config.yaml.
-    - Keep all public function signatures backward-compatible (new args must be
-    optional with safe defaults) so existing callers don't break.
-    - After coding, you MUST: `python3 -m py_compile` every file you touched, AND
-    write small inline unit tests proving (1) innovation_objective now reaches
-    classify_text, (2) extract_kinematic_sentences returns only cue-word sentences
-    and drops boilerplate, (3) a "lift plus cruise" sentence buried in a long
-    description now triggers the SLC keyword prior. Paste the passing test output.
-    - If anything fails to compile or a test fails, STOP, revert that change, and
-    report it — do not leave the repo in a broken state for Task 2 to build on.
-    - End with a concise diff summary: which files/functions changed and why.
-
-    HANDOFF (mandatory — Tasks 2 and 3 are separate fresh-context agents that will
-    NOT remember this work; they coordinate with you only through a file on disk):
-    - When done, WRITE a file at the repo root:
-      /home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools/OVERNIGHT_STATUS.md
-      (create it fresh — overwrite any old one). It MUST contain, under a "## TASK 1"
-      heading: STATUS (DONE / FAILED + why), every file/function you changed, the
-      exact names of any new helpers (e.g. extract_kinematic_sentences) and new
-      keyword/flag behaviours Task 2 must know about, every assumption you made, and
-      a one-line "Task 2 should now: …" note. Keep it factual and short — it is the
-      ONLY thing the next agent will see from you."""
+HANDOFF: Leave a brief confirmation note at `{_REPO}/INITIALIZATION_STATUS.md` confirming the workspace is scaffolded and ready for Task B."""
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PROMPT 2 — 05:20: phase-2 citation enrichment + full re-run + validation gate
+# PROMPT B — DATA INTEGRITY AUDITING CORE ENGINE
 # ─────────────────────────────────────────────────────────────────────────────
+PROMPT_B = f"""UNATTENDED TASK B — DATA INTEGRITY ENGINE IMPLEMENTATION.
 
-PROMPT_2 = """OVERNIGHT UNATTENDED TASK 2 of 3 — continues directly from Task 1 (the SBERT
-local upgrades).
+{_HEADER}
 
-╔══════════════════════════════════════════════════════════════════════════╗
-║ NO HUMAN IS PRESENT (user asleep). Do NOT ask questions, do NOT call        ║
-║ AskUserQuestion/EnterPlanMode, do NOT wait for approval — any of these will ║
-║ hang the run. Decide, act, finish, and leave one summary. If you cannot     ║
-║ proceed safely, STOP and report why; never idle waiting for input.         ║
-╚══════════════════════════════════════════════════════════════════════════╝
+Please write a robust Python utility script inside `{_REPO}/src/audit_utils.py` to handle data integrity auditing for my patent classification pipeline. 
 
-Repo: /home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools
+Context:
+- The data originates from files like `ml_predict_labels_Batch_05.xlsx` which tracks parameters across different verification phases (T1, T2, M1, M2, M3).
+- In the T2 phase, we monitor specific figures and their relative physical storage file paths.
 
-STEP 0 — READ THE HANDOFF FIRST (Task 1 was a different agent; this is how you
-learn what it did): read OVERNIGHT_STATUS.md at the repo root. If it is missing or
-its "## TASK 1" section says FAILED, then Task 1 did not complete — do NOT build on
-broken state: skip Part A's reliance on Task-1 helpers, but you may STILL do Part B
-(backup) and Part C (validation) on the existing export, and record that Task 1 was
-incomplete. Use the helper/flag names listed there (e.g. extract_kinematic_sentences)
-rather than guessing.
+Requirements for the functions:
+1. `build_dataset_audit(df, storage_base_path)`:
+   - Scan the input pandas DataFrame. For rows corresponding to the T2 phase, check if the designated image path physically exists on disk (matching your 11TB storage system mount).
+   - Catch and isolate any rows where `Needs_Review` evaluates to True, or where fields are marked as 'human_required'.
+   - Group these anomalies cleanly by `Patent_ID` along with a descriptive, customized string reason explaining "why" it failed validation.
 
-This task has THREE parts. Do them IN ORDER and STOP at the first hard failure.
+2. `cross_reference_master(current_df, master_list_path)`:
+   - Extract unique `Patent_ID` keys from the current batch DataFrame and compare them against a master checklist CSV file tracking our complete collection target.
+   - Identify any missing patents entirely absent from the current batch data stream and flag them.
 
-PART A — Phase-2 citation/Google-Patents text enrichment (network).
-- src/extractor.py already has _fetch_google_patents() + _GP_HEADERS and loads
-  backward_cites / forward_cites per patent. Add an OPT-IN enrichment that, for a
-  patent whose architecture is still ambiguous after the local pass (G1 flagged
-  flagged_ambiguous, or G1 confidence below the config G1 threshold), fetches a
-  small amount of text from its same-family / closest cited patent and uses it as
-  an extra SBERT/keyword input to break the tie.
-- NETWORK SAFETY (mandatory): wrap every request in try/except; hard timeout
-  (<=30s, already the default); polite rate-limit (sleep between requests);
-  cap total fetches (e.g. <=2 per ambiguous patent); on ANY network error,
-  log and fall back to the local-only prediction — never crash the run. Cache
-  fetched text to disk so a re-run doesn't refetch. Make enrichment OFF by
-  default via a flag, ON for this run.
+Ensure both functions return fully structured, clean pandas DataFrames. Wrap everything in descriptive error handling logs.
 
-PART B — Full Stage-01 re-run (with a mandatory backup first).
-- BEFORE running anything, back up the current export:
-  copy data/matched/<batch>/ml_predict_labels_<batch>.xlsx to
-  ml_predict_labels_<batch>.PRE_OVERNIGHT_BACKUP.xlsx (do NOT overwrite an
-  existing backup — if one exists, add a timestamp). This is non-negotiable: the
-  current export must remain recoverable.
-- Then run run_stage01 on the batch with the Task-1 upgrades + Part-A enrichment.
-
-PART C — Validation gate + report (THIS DECIDES IF THE RUN IS TRUSTWORTHY).
-- Write a standalone audit (scripts/overnight_audit.py is fine) that reads the
-  NEW export and reports, per the failure classes the user actually hits:
-  (1) Vocabulary/schema drift — every Value in the xlsx must be a legal option in
-      the HTML taxonomy (cross-check against UI_for_taxonomy_caracterization_10.0.html
-      and the cross_modal/reviewer enums). List any illegal values.
-  (2) Confident-wrong risk — count G1 predictions that are confident (above the
-      config threshold) yet came ONLY from vision with text disagreeing; list them.
-  (3) Flag coverage — how many ambiguous G1/kinematic guesses got flagged
-      (needs_review) vs slipped through.
-  (4) Completeness — patents/figures missing required fields.
-- Compare NEW vs the PRE_OVERNIGHT_BACKUP: how many G1 / empKin / propKin values
-  CHANGED, and spot-check that the changes move toward the keyword/text evidence
-  (e.g. lift+cruise patents now SLC not TP).
-- DECISION RULE: if Part C finds schema-drift (illegal values) or a regression
-  vs backup (more confident-wrong than before), DO NOT present the new export as
-  good — clearly flag it as FAILED VALIDATION and tell the user to keep using the
-  backup until reviewed. If it passes, say so plainly with the numbers.
-
-Finish with: a one-screen summary — what changed, the validation verdict
-(PASS/FAIL with counts), where the backup is, and what the user should do next
-before labeling the full set.
-
-HANDOFF (mandatory): APPEND a "## TASK 2" section to OVERNIGHT_STATUS.md at the
-repo root (do not erase the "## TASK 1" section). It MUST state: STATUS
-(DONE / FAILED + why), the VALIDATION VERDICT (PASS / FAIL with the key counts),
-the EXACT path of the new export AND the PRE_OVERNIGHT_BACKUP, whether citation
-enrichment ran, and a one-line "Task 3 should audit: <which export>" note. Task 3
-is a fresh agent that will only know what this file tells it."""
+HANDOFF: Verify the Python syntax using `python -m py_compile src/audit_utils.py` and log results to your status file."""
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PROMPT 3 — 06:10: VISION ground-truth audit (open images, compare to the Excel)
+# PROMPT C — AUTOMATED NOTEBOOK INGESTION PIPELINE
 # ─────────────────────────────────────────────────────────────────────────────
+PROMPT_C = f"""UNATTENDED TASK C — REPO DATA OVERVIEW NOTEBOOK GENERATION.
 
-PROMPT_3 = """OVERNIGHT UNATTENDED TASK 3 of 3 — the visual ground-truth audit. This runs
-after Task 2 finished the re-run. The user will only ever review a FEW patents by
-hand, so YOU are the one who actually looks at the drawings tonight.
+{_HEADER}
 
-╔══════════════════════════════════════════════════════════════════════════╗
-║ NO HUMAN IS PRESENT (user asleep). Do NOT ask questions, do NOT call        ║
-║ AskUserQuestion/EnterPlanMode, do NOT wait for approval — it will hang the  ║
-║ run. Decide, act, finish, leave one report. If blocked, STOP and say why.   ║
-╚══════════════════════════════════════════════════════════════════════════╝
+Please populate the notebook file `{_REPO}/notebooks/00a1_dataset_overview.ipynb` with a clean, professional structure by writing a script or generating the standard underlying JSON notebook structure directly.
 
-Repo: /home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools
-You CAN open images directly with the Read tool (it renders PNGs visually). Use
-that to compare the actual drawing against the label the pipeline assigned.
+The notebook must execute the following structured blocks:
+1. **Environment Setup**: Initialize the execution space and append the root parent directory to `sys.path` so it can cleanly import `build_dataset_audit` and `cross_reference_master` from `src.audit_utils` without pathing failures.
+2. **Data Loading Configuration**: Provide an explicit configuration block to read our long-format spreadsheet data (like `ml_predict_labels_Batch_05.xlsx`). Include clear top-level placeholder variables for the dataset path, the master list path, and the storage mount mount points.
+3. **Audit Execution**: Call the freshly written audit utilities to display a comprehensive list of missing patents, missing figures, and pipeline anomalies grouped systematically per phase and per batch, displaying the reason 'why' they were isolated.
+4. **Distribution Analytics**: Include a quick summary visualization or value count section showcasing high-level distributions of critical categorical parameters like "Topology Type" or structural markers.
 
-STEP 0 — READ THE HANDOFF FIRST: read OVERNIGHT_STATUS.md at the repo root. Its
-"## TASK 2" section tells you which export to audit and its exact path (the new
-re-run export if validation PASSED, else the PRE_OVERNIGHT_BACKUP) and whether
-enrichment ran. If the file is missing entirely, fall back to the most recent
-ml_predict_labels_<batch>.xlsx under data/matched/ and note that the handoff was
-absent. Do NOT guess which file Task 2 produced — read it from the handoff.
+Ensure all cell arrays are validly formatted JSON. Write out the finished notebook directly to disk."""
 
-TASK — sample-based vision-vs-Excel cross-check:
-1. Load the export named in the handoff (see STEP 0). The figure rows carry an
-   Image_Path column pointing at the crop.
-2. Pick a SMALL, representative sample — about 10-15 figures across different
-   patents and different predicted classes. Deliberately include:
-   - figures the pipeline marked needs_review / flagged_ambiguous,
-   - a few high-confidence G1=TP and G1=SLC predictions (the tilt-vs-lift+cruise
-     confusion the user cares most about),
-   - a couple of duplicate-flagged images.
-   Do NOT try to audit the whole batch — reading images is context-heavy; ~15 is
-   the right size. State which figures you picked and why.
-3. For EACH sampled figure: open the image with Read, look at it, and judge
-   whether the pipeline's T2 labels (perspective, rendering style) and the
-   patent's G1/M-field architecture labels are PLAUSIBLE given what you can see.
-   You are checking for obvious contradictions (e.g. a clear top-view labeled
-   "Front"; a fixed lift+cruise drawing confidently labeled tiltrotor; a
-   shaded render labeled "Blueprint").
-4. Produce a table: figure id | predicted label(s) | what you see | AGREE /
-   SUSPECT / WRONG | short reason. Tally the agree/suspect/wrong counts.
-5. Conclude with: the single most common error pattern you observed, whether the
-   Task-1/Task-2 upgrades visibly helped the tilt-vs-lift+cruise cases, and a
-   concrete recommendation — is the export trustworthy enough for the user to
-   start labeling from, or should specific fields be re-checked first?
+# ─────────────────────────────────────────────────────────────────────────────
+# PROMPT D — T2 INTERFACE BEHAVIOR FIXES & DATA CLEANING SUPPORT
+# ─────────────────────────────────────────────────────────────────────────────
+PROMPT_D = f"""UNATTENDED TASK D — T2 BEHAVIOR FIXES AND DATA CLEANING.
 
-Constraints: read-only audit — do NOT modify the export or any source file in
-this task; you are reporting, not fixing. If an Image_Path is missing/broken,
-note it and move to the next figure rather than stopping.
+{_HEADER}
 
-HANDOFF (mandatory, and the ONLY file you may write): APPEND a "## TASK 3"
-section to OVERNIGHT_STATUS.md at the repo root — the agree/suspect/wrong tally,
-the most common error pattern, and your final go/no-go recommendation. This
-completes the single consolidated report the user reads in the morning."""
+Repo Target: `{_REPO}`
+File to edit: `{_REPO}/{_FILE}`
+
+{_DONT_REGRESS}
+
+CONTEXT:
+We are shifting to an architectural analysis using frozen DINOv2 embeddings. Background styles, over-assigned multi-tokens, and poorly sanitized image types inject visual style/viewpoint noise that can derail clustering algorithms. These additions directly isolate design signals.
+
+CHANGE 1 — Make "Present Structural Elements (Visual Tokens)" SINGLE-select with a Multi-Toggle.
+ - WHERE: pageT2(), inside the card titled "C. Present Structural Elements (Visual Tokens)". Tokens are managed via `ocArrFig('parts', p, p)`.
+ - DO: Implement a layout variable `figData[fNum].partsMulti` (default = false).
+     * Single Mode (Default): Clicking an unselected visual token sets `figData[fNum].parts = [clickedToken]`. Clicking it again empties the array to `[]`.
+     * Multi Mode: Preserves original multi-select behavior.
+     * Export Protection: Keep `parts` structurally formatted as an array to prevent breaking downstream `.xlsx` schemas or parsing via `recordToRows`.
+ - UI ADDITION: Inject a small button ("Allow Multiple Tokens" ↔ "Enforce Single Token") at the top of Card C that flags `partsMulti`, updating via `renderPreserveScroll()`. If switching to Single when >1 tokens are active, truncate the array to element `[0]`.
+
+CHANGE 2 — Figure Notes (EDGE_TOKENS) Rendered as Clickable Chips.
+ - WHERE: pageT2(), inside the "Figure Notes" section containing `#t2-edge-tag-input` and `#edge-token-options`.
+ - DO: Dynamically render all unique elements inside `EDGE_TOKENS` as clickable visual chips below the input bar. Clicking an idle chip directly updates `figGet(fNum, 'edgeTags')`, pushing it into the array and triggering a UI re-render. Keep the manual input box and standard deletion tags intact.
+
+CHANGE 3 — DATA CLEANING CRITERIA: Add explicit "Bad Patent / Reject" Flag.
+ - WHY: Low-quality drawings, generic text-only pages, or uninformative detail sheets must be easily tagged and removed from the pipeline.
+ - WHERE: Add to T1 or T2 triage options where global metadata states are maintained.
+ - DO: Add a standard boolean flag `isRejected` alongside a clear custom drop-down menu specifying the reason (e.g., "Bad Patent Illustration / Non-Aircraft Design / Text Only / Damaged File"). Ensure these export seamlessly as dedicated columns in your metadata schema.
+
+{_VERIFY}
+
+HANDOFF: Write a verification markdown report at `{_REPO}/UI_CHANGES_STATUS.md` detailing changes and state: "UI Task B (layout) can proceed." Stage and commit these updates."""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PROMPT E — HIGH-DENSITY INTERFACE DESIGN
+# ─────────────────────────────────────────────────────────────────────────────
+PROMPT_E = f"""UNATTENDED TASK E — HIGH-DENSITY INTERFACE ENGINEERING.
+
+{_HEADER}
+
+Repo Target: `{_REPO}`
+File to edit: `{_REPO}/{_FILE}`
+
+STEP 0 — READ THE HANDOFF FIRST: Read `{_REPO}/UI_CHANGES_STATUS.md` inside the repository to verify prior features persist perfectly.
+
+{_DONT_REGRESS}
+Preserve the single-select parts, Figure-Notes chips, and Reject flags implemented during Task D.
+
+CHANGE 4 — High-Density 4-Column Layout for T2 (Drastically reduces scrolling footprint).
+ - ARRANGEMENT CRITERIA:
+     * Column 1: Active Main Figure Image (Large, high-resolution rendering canvas).
+     * Column 2: Compact Figure Thumbnails Grid panel via `figGrid()`.
+     * Column 3: Triage Elements Group 1 ("A. Projection Coordinates", "B. Image Rendering Style", Triage Info).
+     * Column 4: Triage Elements Group 2 ("C. Present Structural Elements", "D. Image Quality", "Figure Notes" chips, Architecture Custom Allocation Block).
+ - WHERE: pageT2() builds .t2-split with .t2-left and .t2-right; their CSS is near the top of the file.
+ - DO: Restructure `.t2-split` into a multi-column flex/grid container with explicit CSS layout injection. Ensure each individual column is configured with independent vertical overflow scroll properties (`overflow-y: auto`), isolating long card expansions from shifting neighboring column positions. Include media-query fallback strategies for screen scaling protection.
+
+CHANGE 5 — Sticky Main Figure Viewer for Morphology Classification (G1/M1/M2/M3).
+ - DO: Extract the structural token or canonical main image designation via `S.mainFigure` and its reference path `FIG_IMAGE_PATH[S.mainFigure]`. Render a fixed, compact, floating image rail panel in a corner or side rail layout that remains pinned while the architectural forms scroll. 
+ - FAILSAFE SAFETY: If `S.mainFigure` is missing or unassigned, query the patent configuration array and cleanly render the first approved, non-zero figure file. If no illustrations exist, elegantly suppress the block to prevent missing-image icon artifacts.
+ - WHERE: render() already injects an "Architecture N of M" banner for steps ['gate','m1','m2','m3'] — add the image panel in that same area, preserving the banner completely.
+
+{_VERIFY}
+
+HANDOFF: Append structural layout changes to `{_REPO}/UI_CHANGES_STATUS.md` and commit layout modifications to the repository tree."""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PROMPT F — STRUCTURAL COUPLING PERSISTENCE & SYSTEM CHANGE RESUME
+# ─────────────────────────────────────────────────────────────────────────────
+PROMPT_F = f"""UNATTENDED TASK F — SYSTEM INTERACTION AUDIT & CHANGE SUMMARY.
+
+{_HEADER}
+
+Repo Target: `{_REPO}`
+
+CRITICAL COMPREHENSION MANDATE:
+Keep this core configuration architecture context in mind for our upcoming implementation stages: We have an operational scheduling engine (`timer_ui_changes.py`) orchestrating automated updates directly to our review wizard framework (`{_FILE}`). 
+
+When we modify this pipeline or parse from source tables (`ml_predict_labels_Batch_05.xlsx`), we must ensure that any dataset flags generated by our new dataset overview notebook (like identifying missing records, missing figures, low-confidence evaluation entries, or 'human_required' fields) can easily be fed into or explicitly highlighted by the UI layout modifications scheduled in this script. Confirm you explicitly understand this pipeline connection.
+
+FINAL DELIVERABLE — SUMMARY REPORT GENERATION:
+Compile a clean, comprehensive, summary report detailing exactly every file modified or generated during this unattended overnight run. 
+
+Write this complete operational summary directly to a file at the new repository root named:
+`{_REPO}/PIPELINE_MODIFICATION_SUMMARY.md`
+
+Organize the document using the following exact template:
+- **Repository Setup Status**: Confirm configuration location and Git logging verification.
+- **File Ingestion Table**: Grid displaying absolute paths, primary roles, and pass/fail execution checks.
+- **Pipeline Inter-Connectivity Mapping**: Explaining how data anomaly flags raised inside `src/audit_utils.py` tie directly into visual highlights on your 4-column UI matrix layout.
+
+No questions; execute, write the markdown summary, and terminate cleanly."""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Timer logic — clipboard paste, all at once
+# Timer logic — clipboard paste (identical mechanism to timer.py)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def log(msg: str):
@@ -264,93 +229,105 @@ def log(msg: str):
 
 
 def disable_sleep_and_lock():
-    """Best-effort: stop the screen from locking/blanking/suspending overnight.
-    Without this, the OS can steal keyboard/mouse focus from VSCode while
-    pyautogui is waiting, and the paste silently lands nowhere."""
     try:
         subprocess.run(["xset", "s", "off"], check=False)
         subprocess.run(["xset", "-dpms"], check=False)
         subprocess.run(["xset", "s", "noblank"], check=False)
-        log("🔓 Disabled X11 screensaver/DPMS (xset s off, -dpms, s noblank).")
+        log("Disabled X11 screensaver/DPMS (best-effort).")
     except FileNotFoundError:
-        log("⚠️  xset not found — could not disable screensaver/DPMS.")
+        log("WARNING: xset not found — could not disable screensaver/DPMS.")
 
 
-def screenshot_before_paste(label: str):
-    """Save a screenshot right before pasting so the morning log shows
-    exactly what was focused when each prompt was sent."""
-    safe_label = label.replace(" ", "_")
-    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = os.path.join(LOG_DIR, f"{safe_label}_{ts}.png")
+def preflight():
+    problems = []
+    if not os.environ.get("DISPLAY"):
+        problems.append("DISPLAY is not set — pyautogui cannot send keystrokes.")
+    if os.environ.get("WAYLAND_DISPLAY"):
+        problems.append("Running under Wayland — pyautogui/xdotool keystrokes usually do NOT work.")
     try:
-        pyautogui.screenshot(path)
-        log(f"🖼️  Screenshot saved before {label}: {path}")
-        return
-    except Exception:
-        pass
-    try:
-        subprocess.run(["import", "-window", "root", path], check=True)
-        log(f"🖼️  Screenshot saved before {label} (via ImageMagick): {path}")
+        token = f"__timer_selftest_{int(time.time())}__"
+        pyperclip.copy(token)
+        time.sleep(0.2)
+        if pyperclip.paste() != token:
+            problems.append("Clipboard round-trip failed — install xclip or xsel.")
     except Exception as e:
-        log(f"⚠️  Screenshot failed for {label}: {e}")
+        problems.append(f"Clipboard error: {e}")
+    return problems
+
+
+def _next_occurrence(hhmm: str) -> datetime.datetime:
+    now = datetime.datetime.now()
+    hh, mm = [int(x) for x in hhmm.split(":")]
+    target = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    if target <= now:
+        target += datetime.timedelta(days=1)
+    return target
 
 
 def send_prompt(label: str, text: str):
-    """Copy text to clipboard and paste into the focused window atomically."""
-    log(f"🚀 Sending {label}...")
-    screenshot_before_paste(label)
+    log(f"Sending {label}...")
     pyperclip.copy(text)
-    time.sleep(0.4)                   # let clipboard settle
-    pyautogui.hotkey("ctrl", "v")     # paste entire prompt at once
-    time.sleep(0.6)                   # let the UI receive the paste
-    pyautogui.press("enter")          # submit
-    log(f"📨 {label} sent! ({len(text)} chars)")
+    time.sleep(0.5)
+    pyautogui.hotkey("ctrl", "v")
+    time.sleep(0.8)
+    pyautogui.press("enter")
+    log(f"{label} sent! ({len(text)} chars)")
 
 
-def wait_until(target_hhmm: str, label: str):
-    log(f"⏳ Waiting for {target_hhmm} to send {label}...")
-    while True:
-        now = datetime.datetime.now().strftime("%H:%M")
-        if now == target_hhmm:
-            return
-        time.sleep(10)   # check every 10 seconds
+def wait_until(target_dt: datetime.datetime, label: str):
+    log(f"Waiting until {target_dt.strftime('%Y-%m-%d %H:%M')} to send {label} "
+        f"({(target_dt - datetime.datetime.now()).total_seconds()/60:.0f} min away)...")
+    while datetime.datetime.now() < target_dt:
+        remaining = (target_dt - datetime.datetime.now()).total_seconds()
+        time.sleep(min(15, max(1, remaining)))
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Main
-# ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     os.makedirs(LOG_DIR, exist_ok=True)
     log("=" * 60)
-    log("  eVTOL Patent Pipeline — Overnight Prompt Timer")
+    log("  Thesis Architecture Pipeline — Complete Repo & UI Automation")
+    
+    dt_a = _next_occurrence(TARGET_TIME_A)
+    dt_b = _next_occurrence(TARGET_TIME_B)
+    dt_c = _next_occurrence(TARGET_TIME_C)
+    dt_d = _next_occurrence(TARGET_TIME_D)
+    dt_e = _next_occurrence(TARGET_TIME_E)
+    dt_f = _next_occurrence(TARGET_TIME_F)
+        
+    log(f"  Prompt A → {dt_a.strftime('%Y-%m-%d %H:%M')}  [Repo Infrastructure & Directory Scaffolding]")
+    log(f"  Prompt B → {dt_b.strftime('%Y-%m-%d %H:%M')}  [Data Integrity Audit Engine Scripts]")
+    log(f"  Prompt C → {dt_c.strftime('%Y-%m-%d %H:%M')}  [Automated Analytical Dataset Notebooks]")
+    log(f"  Prompt d → {dt_d.strftime('%Y-%m-%d %H:%M')}  [T2 UI Behavior Updates & Reject Triage]")
+    log(f"  Prompt E → {dt_e.strftime('%Y-%m-%d %H:%M')}  [High-Density 4-Column Responsive Layout]")
+    log(f"  Prompt F → {dt_f.strftime('%Y-%m-%d %H:%M')}  [Pipeline Coupling Review & Change Summary]")
     log("=" * 60)
-    log(f"  Prompt 1 → {TARGET_TIME_P1}  (SBERT accuracy upgrade — local text levers)")
-    log(f"  Prompt 2 → {TARGET_TIME_P2}  (Citation enrichment + full re-run + validation gate)")
-    log(f"  Prompt 3 → {TARGET_TIME_P3}  (Vision ground-truth audit — open images vs Excel)")
-    log(f"  Log file → {LOG_PATH}")
-    log("")
-    log("⚠️  BEFORE LEAVING:")
-    log("    1. These prompts are fully self-contained — no image needed.")
-    log("    2. Click inside the VSCode chat input box.")
-    log("    3. Make sure the cursor is blinking there.")
-    log("    4. Do NOT touch the keyboard or mouse after that.")
-    log("=" * 60)
+
+    problems = preflight()
+    if problems:
+        log("PRE-FLIGHT ERROR — Fix execution environment parameters:")
+        for p in problems:
+            log("   - " + p)
+        raise SystemExit(1)
 
     disable_sleep_and_lock()
+    log("\nREADY: Click inside the target Claude chat window input box to begin monitoring.\n")
 
-    # ── Prompt 1 ──────────────────────────────────────────────────────────────
-    wait_until(TARGET_TIME_P1, "Prompt 1")
-    send_prompt("Prompt 1", PROMPT_1)
+    wait_until(dt_a, "Prompt A")
+    send_prompt("Prompt A", PROMPT_A)
 
-    # ── Wait until Prompt 2 ───────────────────────────────────────────────────
-    log(f"⏳ Waiting for Prompt 2 at {TARGET_TIME_P2}...")
-    wait_until(TARGET_TIME_P2, "Prompt 2")
-    send_prompt("Prompt 2", PROMPT_2)
+    wait_until(dt_b, "Prompt B")
+    send_prompt("Prompt B", PROMPT_B)
 
-    # ── Wait until Prompt 3 ───────────────────────────────────────────────────
-    log(f"⏳ Waiting for Prompt 3 at {TARGET_TIME_P3}...")
-    wait_until(TARGET_TIME_P3, "Prompt 3")
-    send_prompt("Prompt 3", PROMPT_3)
+    wait_until(dt_c, "Prompt C")
+    send_prompt("Prompt C", PROMPT_C)
 
-    log("🎉 All three prompts sent. Pipeline will run overnight.")
+    wait_until(dt_d, "Prompt D")
+    send_prompt("Prompt D", PROMPT_D)
+
+    wait_until(dt_e, "Prompt E")
+    send_prompt("Prompt E", PROMPT_E)
+
+    wait_until(dt_f, "Prompt F")
+    send_prompt("Prompt F", PROMPT_F)
+
+    log("All structural pipeline components initialized and scheduled successfully.")

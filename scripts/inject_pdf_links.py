@@ -26,11 +26,21 @@ If patseer_xlsx is omitted, it's read from config.yaml (paths.patseer_excel).
 
 import shutil
 import sys
+import warnings
 from datetime import datetime
 from pathlib import Path
 
 import openpyxl
 import pandas as pd
+
+# Cosmetic: our new metadata rows have all-NA Confidence/Image_Path/Needs_Review
+# columns, which trips a pandas concat deprecation warning. The behaviour is
+# exactly what we want (keep df's columns), so silence just this one.
+warnings.filterwarnings(
+    "ignore",
+    message="The behavior of DataFrame concatenation with empty or all-NA entries",
+    category=FutureWarning,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -84,7 +94,14 @@ def inject(export_path: Path, links: dict[str, str]) -> None:
             "Image_Path": None, "Needs_Review": None,
         })
 
-    out = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
+    # Align the new rows to the existing columns before concat so pandas doesn't
+    # warn about all-NA columns (Confidence/Image_Path/Needs_Review are None here)
+    # and the result dtypes stay anchored to df. No-op when nothing matched.
+    if new_rows:
+        new_df = pd.DataFrame(new_rows).reindex(columns=df.columns)
+        out = pd.concat([df, new_df], ignore_index=True)
+    else:
+        out = df
 
     # Backup before writing (timestamped, never clobber an existing backup).
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")

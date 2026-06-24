@@ -1572,10 +1572,17 @@ def run_stage01_parallel(
     for rp in result_paths:
         if rp is None:
             continue
-        if not rp.exists():
-            print(f"⚠  Result file missing: {rp} — worker may have crashed")
+        if not rp.exists() or rp.stat().st_size == 0:
+            print(f"⚠  Result file missing/empty: {rp} — that worker crashed "
+                  f"before writing results (its patents are NOT in this run's "
+                  f"output — check the [GPU ...] traceback above, e.g. a CUDA "
+                  f"OOM, and re-run once fixed).")
             continue
-        data = json.loads(rp.read_text())
+        try:
+            data = json.loads(rp.read_text())
+        except json.JSONDecodeError:
+            print(f"⚠  Result file corrupt: {rp} — that worker crashed mid-write; skipping it.")
+            continue
         rows.extend(data["summary_rows"])
         all_excel_rows.extend(data["excel_rows"])
 
