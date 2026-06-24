@@ -733,19 +733,27 @@ function buildLbl() {
 }
 
 function m3Field(key, suffix) { return 'm3_' + key + '_' + suffix; }
+// TP physics lock: tilt propulsors articulate by definition, so force
+// propKin = Tilt across every possible M3 component (the component set is
+// dynamic, so cover all known keys). Mirrored by the render-time lock in
+// m3Card() and the export-time force in buildExport().
+function lockPropKinTilt() {
+  ['core_layout','hull_array','fuselage','emp','wing1','wing2','wing3','wing4'].forEach(function(k){
+    S[m3Field(k,'propKin')] = 'Tilt';
+  });
+}
+
 // ── Architecture physics locks (M3 Propulsor Articulation) ──────────────────
 // Single source of truth for the approved physics matrix: which architectures
 // FIX how the propulsor articulates vs leave it free. Used by the M3 render
 // (m3Card), the lock-application points (ingestAI / topType click) and the
 // export (buildMorphologyObj) so the three never drift.
+//   TP → Tilt (the propulsors are what tilt)
 //   RC → Cyclic (helicopter main rotor swashplate)
 //   TW/DS/SLC/SRW/MR → Fixed (nothing articulates independently)
-//   TP, CVT (and anything else) → null = reviewer is free
-// TP is intentionally NOT locked to Tilt: real tilt-propeller aircraft commonly
-// carry a mix of tilting cruise props and fixed lift rotors, so articulation is
-// recorded per propulsor (and per propeller type) rather than forced. The wing
-// itself still stays fixed on TP — that lock lives in the M2 wing-tilt block.
+//   CVT (and anything else) → null = reviewer is free (so "both tilt ⇒ CVT" holds)
 function propKinLock(topType){
+  if (topType === 'TP') return 'Tilt';
   if (topType === 'RC') return 'Cyclic';
   if (['TW','DS','SLC','SRW','MR'].indexOf(topType) > -1) return 'Fixed';
   return null;
@@ -759,6 +767,7 @@ function applyPropKinLock(){
 }
 function propKinLockReason(topType){
   return ({
+    TP:'the propulsors themselves tilt to vector thrust',
     TW:'the rotors are fixed to the wing — the wing tilts, the rotors do not tilt on their own (if they did, it would be CVT)',
     DS:'fixed propellers; the flaps deflect the slipstream, so the props do not articulate',
     SLC:'separate fixed lift and fixed cruise units — nothing tilts',
@@ -896,10 +905,9 @@ function m3TypeAttrs(bp, tkey, showCount) {
   h += '<div class="m2-kv">Retraction Kinematics</div>' + grid('', RETRACT_MECH.map(function(o){ return oc(m3Field(tkey,'rmech'), o.id, o.n); }));
 
   // Propulsor Articulation (propKin) — locked per the architecture physics
-  // matrix (propKinLock): TW/DS/SLC/SRW/MR→Fixed, RC→Cyclic; TP & CVT free
-  // (TP aircraft can mix tilting and fixed propulsors). The locked value is
-  // shown selected+disabled, forced again in buildExport, and the unified
-  // physics-lock banner explains why. NOTE: when several propeller
+  // matrix (propKinLock): TP→Tilt, TW/DS/SLC/SRW→Fixed, CVT free. The locked
+  // value is shown selected+disabled, forced again in buildExport, and the
+  // unified physics-lock banner explains why. NOTE: when several propeller
   // types are declared the lock is intentionally NOT applied per type — that's
   // the whole point of declaring multiple types (e.g. fixed + tilting on the
   // same wing), so articulation stays a free per-type choice.
@@ -946,11 +954,7 @@ function m3Card(bp) {
       + '<div class="m3-sub" style="margin:0 0 0 10px;">Set &gt;1 when the same wing/zone mixes different propellers (e.g. some fixed, some tilting).</div></div></div>';
   }
 
-  // Show the attribute section when there's a count, when RC (single hub), OR
-  // whenever multiple propeller types are declared — in multi-type mode each
-  // type carries its OWN count stepper inside its block, so the blocks must be
-  // visible BEFORE any count is entered (otherwise there's nowhere to set them).
-  if (count > 0 || S.topType === 'RC' || (!isRotorcraft && nTypes > 1)) {
+  if (count > 0 || S.topType === 'RC') {
     if (S.topType == 'DS') h += physicsLock('DS', 'wing thrusters must sit along the leading edge to blow the deflection flaps; the propellers themselves stay fixed.');
     if (isRotorcraft) {
       h += physicsLock(S.topType, 'thrust kinematics and spatial localization are taxonomy-fixed for a rotorborne hub — only the blade / rotor type is recorded here (articulation is ' + (propKinLock(S.topType) || 'n/a') + ').');
@@ -1930,7 +1934,7 @@ function ingestAI(data) {
     } else if (S.topType === 'RC' || S.topType === 'MR') {
       for (var i = 1; i <= 4; i++) { S['wTilt' + i] = null; }
     }
-    applyPropKinLock();   // propKin lock per the physics matrix (TW/DS/SLC/SRW/MR→Fixed, RC→Cyclic; TP & CVT free)
+    applyPropKinLock();   // propKin lock per the physics matrix (TP→Tilt, TW/DS/SLC/SRW/MR→Fixed, RC→Cyclic, CVT free)
   }
   // M1
   if (data.M1) {
@@ -2083,8 +2087,8 @@ function ingestAI(data) {
         // independent fixed lift+cruise / stopped-rotor never vectors.
         if (['SLC','SRW'].indexOf(S.topType) > -1 && S['m3_' + key + '_orient'] === 'Mixed') { S['m3_' + key + '_orient'] = null; }
         // propKin lock per the physics matrix — force the architecture's fixed value
-        // over any stored/AI value (TW/DS/SLC/SRW/MR→Fixed, RC→Cyclic; TP & CVT free).
-        // TW wing orient is intentionally NOT forced anymore so a saved Mixed survives.
+        // over any stored/AI value (TP→Tilt, TW/DS/SLC/SRW/MR→Fixed, RC→Cyclic). TW
+        // wing orient is intentionally NOT forced anymore so a saved Mixed survives.
         if (_pk) { S['m3_' + key + '_propKin'] = _pk; }
       }
     });
@@ -3348,19 +3352,9 @@ document.getElementById('panel').addEventListener('click', function(e){
     var comp = m3Btn.getAttribute('data-comp'), action = m3Btn.getAttribute('data-m3-action');
     // "Distinct propeller types" stepper (data-ntypes): clamp to [1, MAX].
     if (m3Btn.hasAttribute('data-ntypes')) {
-      var nField = m3Field(comp,'ntypes'), nPrev = m3NTypes(comp), nCur = nPrev;
+      var nField = m3Field(comp,'ntypes'), nCur = m3NTypes(comp);
       if(action === 'inc') nCur += 1; if(action === 'dec') nCur -= 1;
-      nCur = Math.min(M3_MAX_TYPES, Math.max(1, nCur));
-      // Going 1 -> multi: migrate the single-type attributes (held under the bare
-      // key) into Type 1's sub-key so the count/selections already entered aren't
-      // lost when the per-type blocks appear.
-      if (nPrev <= 1 && nCur > 1) {
-        ['count','chord','orient','bmech','rmech','propKin'].forEach(function(f){
-          var bare = m3Field(comp, f), t1 = m3Field(comp + '__t1', f);
-          if (S[t1] == null && S[bare] != null) S[t1] = S[bare];
-        });
-      }
-      S[nField] = nCur; renderPreserveScroll(); return;
+      S[nField] = Math.min(M3_MAX_TYPES, Math.max(1, nCur)); renderPreserveScroll(); return;
     }
     // Counts step by 1 for every component now — symmetric pairs are no longer
     // forced to even values (a reviewer may legitimately enter any count).
