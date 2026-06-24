@@ -18,6 +18,56 @@
   --r:6px;--rl:10px;
 }
 body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;padding:2rem 1rem;font-size:14px;}
+/* ── Left navigation rail ─────────────────────────────────────────────────────
+   A fixed left sidebar holding the batch toolbar AND the step tracker, so the
+   top of the page is reserved for content. Page content is pushed right via the
+   body padding. Collapses back to a normal stacked top layout on narrow screens. */
+#side-rail{
+  position:fixed; left:0; top:0; bottom:0; width:248px; z-index:200;
+  display:flex; flex-direction:column; gap:14px;
+  background:var(--surface); border-right:1px solid var(--border);
+  box-shadow:1px 0 4px rgba(0,0,0,.04);
+  padding:18px 14px; overflow-y:auto;
+}
+.rail-brand{ font-size:12px; font-family:var(--mono); font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--accent-text); line-height:1.4; }
+.rail-label{ font-size:10px; font-family:var(--mono); font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--text3); margin-bottom:2px; }
+/* Title / subtitle / patent-counter shrink to fit the rail. */
+#side-rail .wiz-h{ font-size:15px; line-height:1.25; margin:0; }
+#side-rail .wiz-sub{ font-size:11px; line-height:1.4; margin:0; }
+#side-rail #throughput{ margin:0; }
+body{ padding-left:280px; }
+
+/* Toolbar, now a clean vertical stack inside the rail. */
+#batch-load-bar.side-toolbar{
+  display:flex; flex-direction:column; align-items:stretch; gap:8px;
+  margin:0; padding:12px; border:1px solid var(--accent-bdr); border-radius:var(--rl);
+  background:var(--accent-bg);
+}
+#batch-load-bar.side-toolbar #batch-nav{ display:flex; flex-direction:column; align-items:stretch; gap:8px; margin-left:0 !important; }
+#batch-load-bar.side-toolbar .btn{ width:100%; margin-left:0 !important; justify-content:center; }
+#batch-load-bar.side-toolbar #batch-nav-label,
+#batch-load-bar.side-toolbar #batch-load-status,
+#batch-load-bar.side-toolbar #batch-save-status{ white-space:normal; text-align:center; }
+/* Make the rail buttons read clearly as clickable: solid surface, hover lift. */
+#side-rail .btn{ background:var(--surface); border:1px solid var(--border2); border-radius:8px; padding:8px 10px !important; font-size:12px; font-weight:500; box-shadow:0 1px 2px rgba(0,0,0,.04); }
+#side-rail .btn:hover{ background:var(--bg); border-color:var(--accent); color:var(--accent-text); transform:translateY(-1px); box-shadow:0 3px 6px rgba(0,0,0,.07); }
+
+/* Vertical, clickable step tracker in the rail. */
+#side-rail .stepper{ flex-direction:column; align-items:stretch; overflow:visible; gap:2px; margin:0; padding:0; }
+#side-rail .s-bar{ display:none; }
+#side-rail .s-wrap{ flex-direction:row; align-items:center; gap:10px; min-width:0; flex:none; padding:7px 9px; border-radius:8px; cursor:pointer; transition:background .15s; }
+#side-rail .s-wrap:hover{ background:var(--bg2); }
+#side-rail .s-wrap.active-step{ background:var(--accent-bg); }
+#side-rail .s-lbl{ max-width:none; text-align:left; font-size:12px; white-space:nowrap; }
+
+@media (max-width:900px){
+  #side-rail{ position:static; width:auto; flex-direction:column; border-right:none; box-shadow:none; padding:0 0 12px; }
+  body{ padding-left:1rem; }
+  #side-rail .stepper{ flex-direction:row; align-items:flex-start; overflow-x:auto; }
+  #side-rail .s-bar{ display:block; }
+  #side-rail .s-wrap{ flex-direction:column; flex:1; }
+  #side-rail .s-lbl{ text-align:center; white-space:normal; }
+}
 .wiz{max-width:820px;margin:0 auto;}
 /* User-cyclable wizard width (▷ #btn-width-toggle): Compact = original 820px,
    Wide = roomier for the 4-column T2 layout, Full = nearly the whole window. */
@@ -198,9 +248,9 @@ details.m3-readonly[open] summary::after { content: '\2212'; }
 </style>
 </head>
 <body>
-<div class="wiz">
-  <div class="wiz-eyebrow">eVTOL Taxonomy Builder v12.0</div>
-  <div id="batch-load-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:.5rem;padding:10px 14px;background:var(--accent-bg);border:1px solid var(--accent-bdr);border-radius:var(--r);flex-wrap:wrap;">
+<aside id="side-rail">
+  <div class="rail-brand">eVTOL Taxonomy<br>Builder v12.0</div>
+  <div id="batch-load-bar" class="side-toolbar" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--accent-bg);border:1px solid var(--accent-bdr);border-radius:var(--r);flex-wrap:wrap;">
     <span style="font-size:11px;font-family:var(--mono);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--accent-text);">Load Batch</span>
     <input type="file" id="batch-xlsx-input" accept=".xlsx" style="font-size:12px;color:var(--text2);">
     <span id="batch-load-status" style="font-size:12px;font-family:var(--mono);color:var(--text3);"></span>
@@ -218,7 +268,10 @@ details.m3-readonly[open] summary::after { content: '\2212'; }
   <div class="wiz-h">Full Morphological Tree Classifier</div>
   <div class="wiz-sub">Audit Patches: Dictionary Data Architecture, Throughput Decoupling, JSON Export, and Keyboard Navigation.</div>
   <div id="throughput" class="progress-tracker"></div>
+  <div class="rail-label">Workflow — click to jump</div>
   <div class="stepper" id="stepper"></div>
+</aside>
+<div class="wiz">
   <div class="bc" id="bc"></div>
   <div id="aircraft-header" style="
     position:sticky;top:0;z-index:50;
@@ -335,6 +388,42 @@ var TILTED_IN_VIEW = [
   {id:'Rotors', n:'Rotors / Propulsors tilted'}
 ];
 
+// Patent-level "what the images APPEAR to be" — used only when the reviewer flags
+// that the drawings don't faithfully reflect the aircraft's true semantics (e.g.
+// a tilt-rotor that the figures make look like combined-thrust). ids match the
+// topType codes used elsewhere so the apparent value is directly comparable to
+// the architecture actually assigned in G1/M1/M2/M3.
+// Where a boom-mounted propulsor's BOOM structurally attaches to the airframe.
+// Card-level (one value for the whole "Boom-Mounted Propulsors" card).
+var BOOM_ATTACH = [
+  {id:'Wings',    n:'To the Wings'},
+  {id:'Fuselage', n:'To the Fuselage'},
+  {id:'Both',     n:'Wings + Fuselage'},
+  {id:'Empennage',n:'To the Empennage / Tail'},
+  {id:'Other',    n:'Other'}
+];
+// Where the booms sit RELATIVE to their attachment point (e.g. along the wing
+// span, or fore/aft along the fuselage). Card-level, paired with BOOM_ATTACH.
+var BOOM_POS = [
+  {id:'Fore',     n:'Fore / Forward'},
+  {id:'Mid',      n:'Mid / Center'},
+  {id:'Aft',      n:'Aft / Rear'},
+  {id:'Inboard',  n:'Inboard (near root/fuselage)'},
+  {id:'Outboard', n:'Outboard / Wingtip'},
+  {id:'Spanning', n:'Spanning (runs along the attachment)'},
+  {id:'Other',    n:'Other'}
+];
+
+var APPARENT_ARCH = [
+  {id:'TW',    n:'Tilt Wing'},
+  {id:'TP',    n:'Tilt Rotor'},
+  {id:'CVT',   n:'Combined Thrust'},
+  {id:'SLC',   n:'Lift + Cruise'},
+  {id:'RC',    n:'Rotorcraft'},
+  {id:'MR',    n:'Multirotor'},
+  {id:'Other', n:'Other'}
+];
+
 var FUS_SHAPE = [{id:'Circular', n:'Circular / Tubular'},{id:'Oval', n:'Oval / Elliptical'},{id:'Rectangular', n:'Rectangular / Box'},{id:'Blended', n:'Blended / Lifting Body'},{id:'PodBoom', n:'Pod and Boom'}];
 var FUS_KIN = [{id:'Fixed', n:'Fixed / Conventional'},{id:'Variable', n:'Variable Incidence / Tilting Body'}];
 var GEAR_ARCH = [{id:'Skids', n:'Skids / Fixed Skids'},{id:'FixedWheel', n:'Fixed Wheeled Gear'},{id:'RetrWheel', n:'Retractable Wheeled Gear'},{id:'PadsHull', n:'Pads / Hull'},{id:'Unknown', n:'Unknown'}];
@@ -381,6 +470,11 @@ function fresh(){
     empType:null, empKin:null, empNotes:'', latSym:true, longSym:false,
     footLen:null, footWid:null, footHgt:null, footAmbiguous:true, fusShape:null, fusKin:null, fusNotes:'', gearArch:null, gearNotes:'', wingNotes:'', win:null,
     comments:'',
+    // Patent-level (global) image-semantics review (set on T2, col 4):
+    //  imgNotReflect      — drawings don't faithfully reflect the aircraft semantics
+    //  imgApparentArch    — what they APPEAR to be (only meaningful when the flag is on)
+    //  patentImageComments— global notes about the patent's imagery as a whole
+    imgNotReflect:false, imgApparentArch:null, patentImageComments:'',
     t2figNum:'1', mainFigure: null, aircraftAutoJump: false,
     // Audit B-01 Fix: Centralized Figure Dictionary
     figData: {}, t2customParts:[],
@@ -826,6 +920,9 @@ function m3Blueprints() {
     if (S.empType && S.empType != 'Tailless') {
       fallbackCards.push({key:'emp', title:'Empennage [' + labelFor(EMP_TYPE, S.empType) + ']', subtitle:'Tail stabilizer structural thrusters.', defaultSym:S.latSym});
     }
+    // Boom-mounted propulsors (booms carrying lift/cruise units, attached to the
+    // airframe). isBoom drives the card-level "Boom Attachment" selector.
+    fallbackCards.push({key:'boom', title:'Boom-Mounted Propulsors', subtitle:'Propulsors carried on booms/outriggers — record where the booms attach.', defaultSym:S.latSym, isBoom:true});
     return fallbackCards;
   }
   var cards = [];
@@ -833,6 +930,9 @@ function m3Blueprints() {
     cards.push({key:'wing' + i, title:'Wing ' + i + ' [' + m3WingLabel(i) + ']', subtitle:'Independent thruster allocations across this wing.', defaultSym:true, zoneMode:true});
   }
   cards.push({key:'fuselage', title:'Fuselage Body', subtitle:'Central structure, cabin spine, or structural outriggers.', defaultSym:false, zoneMode:true});
+  // Boom-mounted propulsors — same propulsor attributes as a wing/fuselage card,
+  // plus a card-level "Boom Attachment" selector (to the wings, fuselage, etc.).
+  cards.push({key:'boom', title:'Boom-Mounted Propulsors', subtitle:'Propulsors carried on booms/outriggers — record where the booms attach.', defaultSym:true, isBoom:true});
   if (S.empType && S.empType != 'Tailless') {
     cards.push({key:'emp', title:'Empennage / Tail [' + labelFor(EMP_TYPE, S.empType) + ']', subtitle:'Stabilizer control thrusters.', defaultSym:false, zoneMode:true});
   }
@@ -851,7 +951,7 @@ function m3ZoneOptions(bp) {
   return [{id:'Nose', n:'Nose/Forward'},{id:'Aft', n:'Aft/Pusher'},{id:'Side', n:'Side Outriggers'},{id:'Dorsal', n:'Dorsal/Top'},{id:'Ventral', n:'Ventral/Bottom'}];
 }
 function m3ZoneChordOptions() { return [{id:'LE', n:'Leading Edge'},{id:'TE', n:'Trailing Edge'},{id:'Above', n:'Above Surface'},{id:'Below', n:'Below Surface'}]; }
-function m3ZoneSpanOptions() { return [{id:'Inboard', n:'Inboard (Near Fuselage)'},{id:'MidSpan', n:'Mid-Span'},{id:'Outboard', n:'Outboard (Near Tip)'},{id:'Wingtip', n:'Wingtip'}]; }
+function m3ZoneSpanOptions() { return [{id:'Inboard', n:'Inboard (Near Fuselage)'},{id:'MidSpan', n:'Mid-Span'},{id:'Outboard', n:'Outboard (Near Tip)'},{id:'Wingtip', n:'Wingtip'},{id:'FullSpan', n:'Across the extension of the wing'}]; }
 
 function m3TotalCount() { return m3Blueprints().reduce(function(sum, bp){ return sum + m3CardCount(bp.key); }, 0); }
 function m3DistributedFlag() {
@@ -910,6 +1010,23 @@ function m3TypeAttrs(bp, tkey, showCount) {
     var sel = propKinLocked ? (o.id === pkLock) : (m3Get(tkey,'propKin',null) === o.id);
     return '<div class="opt' + (sel ? ' sel' : '') + (propKinLocked ? ' dis' : '') + '" data-field="' + m3Field(tkey,'propKin') + '" data-val="' + encodeURIComponent(o.id) + '" title="' + o.n + '"><div class="o-name">' + o.n + '</div></div>';
   }));
+
+  // Mounting-zone position — now PER propeller type (each type block carries its
+  // own), stored under tkey. For wing cards: chordwise + spanwise; for other
+  // zone cards: the airframe mounting-zone set.
+  if (bp.zoneMode) {
+    if (bp.key.indexOf('wing') > -1) {
+      h += '<div class="m2-kv">Wing Chordwise Position</div><div class="m2-zone">' + m3ZoneChordOptions().map(function(o){ return oc(m3Field(tkey,'zoneChord'), o.id, o.n); }).join('') + '</div>';
+      h += '<div class="m2-kv">Wing Spanwise Position</div><div class="m2-zone">' + m3ZoneSpanOptions().map(function(o){ return oc(m3Field(tkey,'zoneSpan'), o.id, o.n); }).join('') + '</div>';
+    } else {
+      h += '<div class="m2-kv">Airframe Mounting Zones</div><div class="m2-zone">' + m3ZoneOptions(bp).map(function(o){ return oc(m3Field(tkey,'zone'), o.id, o.n); }).join('') + '</div>';
+    }
+  }
+  // Boom cards: attachment + position are PER propeller type, stored under tkey.
+  if (bp.isBoom) {
+    h += '<div class="m2-kv">Boom Attachment (where the booms connect)</div><div class="m2-zone">' + BOOM_ATTACH.map(function(o){ return oc(m3Field(tkey,'boomAttach'), o.id, o.n); }).join('') + '</div>';
+    h += '<div class="m2-kv">Boom Position (relative to the attachment)</div><div class="m2-zone">' + BOOM_POS.map(function(o){ return oc(m3Field(tkey,'boomPos'), o.id, o.n); }).join('') + '</div>';
+  }
   return h;
 }
 
@@ -966,13 +1083,11 @@ function m3Card(bp) {
       }
     }
 
-    if (bp.zoneMode) {
-        if (bp.key.indexOf('wing') > -1) {
-            h += '<div class="m2-kv">Wing Chordwise Position</div><div class="m2-zone">' + m3ZoneChordOptions().map(function(o){ return oc(m3Field(bp.key,'zoneChord'), o.id, o.n); }).join('') + '</div>';
-            h += '<div class="m2-kv">Wing Spanwise Position</div><div class="m2-zone">' + m3ZoneSpanOptions().map(function(o){ return oc(m3Field(bp.key,'zoneSpan'), o.id, o.n); }).join('') + '</div>';
-        } else {
-            h += '<div class="m2-kv">Airframe Mounting Zones</div><div class="m2-zone">' + m3ZoneOptions(bp).map(function(o){ return oc(m3Field(bp.key,'zone'), o.id, o.n); }).join('') + '</div>';
-        }
+    // Rotorcraft (RC/MR) doesn't go through m3TypeAttrs, so its mounting zone is
+    // rendered here at the card level. For every OTHER architecture the zone now
+    // lives INSIDE each propeller-type block (see m3TypeAttrs), so it's omitted here.
+    if (bp.zoneMode && isRotorcraft) {
+        h += '<div class="m2-kv">Airframe Mounting Zones</div><div class="m2-zone">' + m3ZoneOptions(bp).map(function(o){ return oc(m3Field(bp.key,'zone'), o.id, o.n); }).join('') + '</div>';
     }
   }
 
@@ -990,22 +1105,27 @@ function m3Ready(){
     if (count > 0) anyCount = true;
     if (count > 0) {
       // (Symmetric components no longer require an even count — any count is valid.)
+      var isRC = (S.topType === 'RC' || S.topType === 'MR');
       if (S.topType !== 'RC') {
-        // Each declared propeller type must have its core attributes set. For
-        // legacy single-type cards the type-key IS the bare card key.
+        // Each declared propeller type must have its core attributes set, AND
+        // (now) its own mounting-zone position. For legacy single-type cards the
+        // type-key IS the bare card key. RC/MR skip the per-type loop — their
+        // zone is validated at the card level below.
         var nT = m3NTypes(bp.key);
         for (var t = 1; t <= nT; t++) {
           var tk = nT <= 1 ? bp.key : m3TypeKey(bp.key, t);
           if (!m3Get(tk, 'chord') || !m3Get(tk, 'orient') || !m3Get(tk, 'bmech') || !m3Get(tk, 'rmech')) return false;
+          if (bp.zoneMode && !isRC) {
+            if (bp.key.indexOf('wing') > -1) {
+              if (!m3Get(tk, 'zoneChord') || !m3Get(tk, 'zoneSpan')) return false;
+            } else {
+              if (!m3Get(tk, 'zone')) return false;
+            }
+          }
         }
       }
-      if (bp.zoneMode) {
-        if (bp.key.indexOf('wing') > -1) {
-            if (!m3Get(bp.key, 'zoneChord') || !m3Get(bp.key, 'zoneSpan')) return false;
-        } else {
-            if (!m3Get(bp.key, 'zone')) return false;
-        }
-      }
+      // Rotorcraft (RC/MR): zone stays at the card level.
+      if (bp.zoneMode && isRC && !m3Get(bp.key, 'zone')) return false;
     }
   }
   return anyCount;
@@ -1178,8 +1298,11 @@ function figGridCard(fNum) {
 
 function figGrid() {
   var nums = t2AllFigNums();
-  return '<div class="m3-card" style="margin-bottom:8px;"><div class="m3-head" style="margin-bottom:8px;">Figure Grid '
-    + '<span style="font-weight:400;font-size:12px;color:var(--text3);">(' + Object.keys(S.figData).length + ' labeled / ' + nums.length + ' total)</span></div>'
+  return '<div class="m3-card" style="margin-bottom:8px;"><div class="m3-head" style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;"><span>Figure Grid '
+    + '<span style="font-weight:400;font-size:12px;color:var(--text3);">(' + Object.keys(S.figData).length + ' labeled / ' + nums.length + ' total)</span></span>'
+    // Bulk action: disapprove EVERY figure at once, so the reviewer only has to
+    // click ✓ on the few images they want to keep (approve-only workflow).
+    + '<button type="button" id="btn-grid-disapprove-all" class="btn" style="padding:3px 10px;font-size:11px;color:var(--danger);border-color:var(--danger);" title="Mark every figure as disapproved — then click ✓ on the ones you want to approve">✗ Disapprove all</button></div>'
     + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;">'
     + nums.map(figGridCard).join('')
     + '<button type="button" id="btn-add-figure" class="m3-card" style="padding:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:12px;border:1px dashed var(--border2);background:var(--bg);">+ Add Figure</button>'
@@ -1338,6 +1461,28 @@ function pageT1(){
     + (S.isDuplicate ? '<input type="text" class="m3-num" style="min-height:0; padding:4px 8px; font-size:12px; width:140px;" data-field="duplicateId" placeholder="Original Patent ID" value="' + escHtml(S.duplicateId) + '">' : '') + '</div></div>'
     + (S.isDuplicate ? (
       '<div class="m3-field" style="margin-top:12px; padding-top:12px; border-top:1px dashed var(--border2);">'
+      // Base ("mother") patent: a button to jump straight to it for comparison,
+      // plus a validity check — by convention the duplicate must reference a
+      // patent that ALREADY appeared earlier in the batch.
+      + (function(){
+          var info = dupMotherInfo();
+          if (!info) return '';
+          var h2 = '<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">'
+            + '<span class="m3-label" style="margin:0;">Duplicate of</span>'
+            + '<span style="font-family:var(--mono); font-weight:600; font-size:13px;">' + escHtml(info.motherId) + '</span>';
+          if (info.inBatch) {
+            h2 += '<button type="button" class="btn pri" id="btn-goto-mother" data-goto-idx="' + info.motherIdx + '" style="padding:4px 12px; font-size:12px;" title="Open the base patent ' + escHtml(info.motherId) + ' (patent ' + (info.motherIdx+1) + ' in this batch)">↪ Go to ' + escHtml(info.motherId) + '</button>';
+          }
+          h2 += '</div>';
+          if (info.inBatch && !info.appearedEarlier) {
+            h2 += '<div class="flag warn" style="margin-top:0;"><span class="f-lbl">⚠ Order check</span>'
+               + escHtml(info.motherId) + ' appears <b>later</b> in this batch (patent ' + (info.motherIdx+1) + '). By convention the first occurrence is the original — so <b>this</b> patent is likely the original, not the duplicate. Verify before keeping the flag.</div>';
+          } else if (!info.inBatch) {
+            h2 += '<div class="flag warn" style="margin-top:0;"><span class="f-lbl">⚠ Not in batch</span>'
+               + escHtml(info.motherId) + ' isn’t in this batch, so it can’t be confirmed as the earlier original here.</div>';
+          }
+          return h2;
+        })()
       + '<div class="m3-label">Duplicate Type</div>'
       + '<div class="g1-subgrid">' + DUP_TYPES.map(dupTypeCard).join('') + '</div>'
       + '<div class="flag info" style="margin-top:10px;"><span class="f-lbl">💡 Cross-Reference Hint</span>When SBERT populates an aircraft model name, use it to cross-reference the main architecture images. Matching model names + identical main system images = confident duplicate or component overlap.</div>'
@@ -1495,6 +1640,13 @@ function pageT2(){
         + '<div class="m3-sub">Flag when this exact drawing is the same image used in another patent (e.g. continuations/same-aircraft filings reusing the same main figure).</div>'
         + (dupOfPatent
           ? '<div class="flag warn" style="margin-top:8px;"><span class="f-lbl">🔁 Flagged Duplicate</span>Same image as <b>' + escHtml(dupOfPatent) + '</b>' + (dupOfFig ? (' FIG. ' + escHtml(dupOfFig)) : '') + '.</div>'
+            // On-demand re-copy: pull the original figure's labels onto THIS figure
+            // now. Useful when the original was labeled AFTER this one was flagged
+            // (the flag-time copy would otherwise be stale). Only shown when a
+            // specific source FIG. is known.
+            + (dupOfFig
+              ? '<button type="button" class="btn pri" id="btn-fig-dup-sync" style="margin-top:8px; padding:6px 12px; font-size:12px;" title="Copy all image labels from FIG. ' + escHtml(dupOfFig) + ' onto this figure">⟲ Copy labels from FIG. ' + escHtml(dupOfFig) + '</button>'
+              : '')
           : '<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px;">'
             + '<input type="text" class="m3-num" id="t2-dup-patent-input" style="width:200px;" placeholder="Original Patent ID" value="' + escHtml(prefillPatent) + '">'
             + '<input type="text" class="m3-num" id="t2-dup-fig-input" style="width:90px;" placeholder="FIG. #" value="' + escHtml(dupOfFig) + '">'
@@ -1607,6 +1759,29 @@ function pageT2(){
           : "")
        + "</div>";
 
+    // ── Patent-level (GLOBAL) image-semantics review ──────────────────────────
+    // These two cards are NOT per-figure — they describe the patent's imagery as
+    // a whole (S.* keys, exported as META rows). Kept visually distinct (accent
+    // border) so it's clear they apply to the whole patent, not the active figure.
+    h += '<div class="m3-card" style="margin-bottom:8px; padding:12px; border-color:var(--warn-bdr);">'
+       + '<div class="m3-head">Image Semantics (whole patent)</div>'
+       + '<div class="m3-sub" style="margin-bottom:8px;">Some patents’ drawings don’t faithfully reflect the real aircraft — e.g. a tilt-rotor whose figures only make it look like combined-thrust. Flag that here for the whole patent.</div>'
+       + '<div style="display:flex;align-items:center;gap:8px;">'
+       + '<input type="checkbox" id="t2-img-not-reflect"' + (S.imgNotReflect ? ' checked' : '')
+       + ' data-field="imgNotReflect" style="width:14px;height:14px;">'
+       + '<label for="t2-img-not-reflect" style="font-size:13px;cursor:pointer;font-weight:500;color:var(--warn);">⚠ Images don’t reflect the aircraft semantics</label></div>';
+    if (S.imgNotReflect) {
+      h += '<div class="m2-kv" style="margin-top:10px;">What do the images APPEAR to be?</div>'
+         + grid('n', APPARENT_ARCH.map(function(o){ return oc('imgApparentArch', o.id, o.n); }));
+    }
+    h += '</div>';
+
+    h += '<div class="m3-card" style="margin-bottom:8px; padding:12px;">'
+       + '<div class="m3-head">Patent Image Notes (whole patent)</div>'
+       + '<div class="m3-sub" style="margin-bottom:6px;">Global notes about this patent’s imagery (not tied to one figure).</div>'
+       + '<textarea class="m3-num" data-field="patentImageComments" placeholder="Overall observations about the patent’s drawings..." style="width:100%;min-height:60px;padding:8px;resize:vertical;font-size:13px;">'
+       + escHtml(S.patentImageComments || '') + '</textarea></div>';
+
     // DINOv2 image-selection reminder (guidance only — no data captured). Sits at
     // the end of the per-figure column as the "last comment" the reviewer reads.
     h += '<div class="flag info" style="margin-bottom:8px;"><span class="f-lbl">💡 Picking images for DINOv2</span>'
@@ -1679,7 +1854,7 @@ function pageM2(){ if (isOtherArch()) return otherCommentaryPage('M2', 'Lifting 
               if(i === 1) {
                   h+='<div class="m3-sub" style="color:var(--accent); font-weight:500;">Wing 1 is the Main/Primary Lifting Surface (largest area). If wings are equal in size (e.g., Tandem), designate the forward-most wing as Wing 1.</div>';
               } else {
-                  var roleOpts = [{id:'Canard', n:'Canard (Forward of Main)'}, {id:'Tandem', n:'Tandem (Equal Size / Distributed)'}, {id:'Aft', n:'Aft Stabilizer (Tailplane)'}, {id:'Stacked', n:'Stacked (Biplane / Vertical Separation at same CG)'}];
+                  var roleOpts = [{id:'Canard', n:'Canard (Forward of Main)'}, {id:'Tandem', n:'Tandem (Equal Size / Distributed)'}, {id:'Aft', n:'Aft Stabilizer (Tailplane)'}, {id:'Stacked', n:'Stacked (Biplane / Vertical Separation at same CG)'}, {id:'Other', n:'Other'}];
                   h+='<div class="m2-kv" style="margin-top:8px;">Relative Aerodynamic Role</div>' + grid('n', roleOpts.map(function(p){return oc(wingField('wRole',i),p.id,p.n);}));
               }
 
@@ -1735,10 +1910,21 @@ function pageM2(){ if (isOtherArch()) return otherCommentaryPage('M2', 'Lifting 
 function pageM3(){ if (isOtherArch()) return otherCommentaryPage('M3', 'Propulsion', 'empNotes', _OTHER_M3_GUIDE);
   var flag=m3DistributedFlag(), h='<div class="p-module">Module M3 &middot; Propulsive Subsystems</div><div class="p-q">Thruster Allocation &amp; Localization Matrix</div><div class="m2-meta"><div class="flag '+flag.cls+'"><span class="f-lbl">Classification Token</span>'+flag.text+'</div><div class="flag info"><span class="f-lbl">Total Propulsive Core Count</span>'+m3TotalCount()+' units mapped.</div></div><div class="m2-shell">'; m3Blueprints().forEach(function(bp){ h+=m3Card(bp); }); return h+'</div>'+commentsSection(); }
 
-function pageDone(){ return '<div class="p-module">Complete Morphological Profile</div><div class="p-q">Taxonomy Profile Consolidated Summary</div><div class="sg"><div class="sb full"><div class="sl">Generated Label</div><div class="code">'+buildLbl()+'</div></div></div><div class="nav"><button type="button" class="btn" id="btn-back">\u2110 Re-verify Fields</button><button type="button" class="btn pri" id="btn-export-next">\u21ba Export JSON &amp; Next Patent</button></div>'; }
+function pageDone(){
+  // Button label reflects what the click ACTUALLY does: in batch mode it saves
+  // this patent's review into the in-memory batch (the .xlsx is written by the
+  // "Export batch" button or automatically on the last patent) and advances \u2014 no
+  // per-patent file is downloaded. Only in ad-hoc single-patent mode (no batch
+  // loaded) does it download a per-patent JSON, so keep that wording then.
+  var isLast = BATCH && BATCH.idx >= BATCH.ids.length - 1;
+  var nextLabel = BATCH
+    ? (isLast ? '\u2713 Save &amp; Finish Batch (export xlsx)' : '\u2713 Save &amp; Next Patent')
+    : '\u21ba Export JSON &amp; Next Patent';
+  return '<div class="p-module">Complete Morphological Profile</div><div class="p-q">Taxonomy Profile Consolidated Summary</div><div class="sg"><div class="sb full"><div class="sl">Generated Label</div><div class="code">'+buildLbl()+'</div></div></div><div class="nav"><button type="button" class="btn" id="btn-back">\u2110 Re-verify Fields</button><button type="button" class="btn pri" id="btn-export-next">'+nextLabel+'</button></div>';
+}
 
 // --- RENDER CONTROL PIPELINE ---
-function renderStep(){ document.getElementById('stepper').innerHTML = STEPS.map(function(s,i){ return (i>0?'<div class="s-bar'+(i<=S.step?' done':'')+'"></div>':'')+'<div class="s-wrap"><div class="s-dot '+(i<S.step?'done':i===S.step?'active':'')+'">'+(i<S.step?'\u2713':(i+1))+'</div><div class="s-lbl '+(i<S.step?'done':i===S.step?'active':'')+'">'+s.lbl+'</div></div>'; }).join(''); }
+function renderStep(){ document.getElementById('stepper').innerHTML = STEPS.map(function(s,i){ var st=(i<S.step?'done':i===S.step?'active':''); return (i>0?'<div class="s-bar'+(i<=S.step?' done':'')+'"></div>':'')+'<div class="s-wrap'+(i===S.step?' active-step':'')+'" data-step-idx="'+i+'" title="Go to '+s.lbl+'"><div class="s-dot '+st+'">'+(i<S.step?'\u2713':(i+1))+'</div><div class="s-lbl '+st+'">'+s.lbl+'</div></div>'; }).join(''); }
 function renderBC(){ var h=''; var _nABC=getArchCount(); if(_nABC>1 && ['gate','m1','m2','m3'].indexOf(curSID())>-1) h+='<span class="crumb hi">Arch '+(S.curArch+1)+'/'+_nABC+'</span>'; if(S.t1Scope) h+='<span class="crumb hi">'+S.t1Scope.split(' ')[0]+'</span>'; if(S.topType) h+='<span class="crumb hi">'+S.topType+'</span>'; if(S.wingConf) h+='<span class="crumb">'+S.wingConf+(S.wingConf=='W'?'\u00d7'+S.wCount:'')+'</span>'; if(S.empType) h+='<span class="crumb">'+S.empType+'</span>'; if(curSID()=='m3') h+='<span class="crumb">M3 Core Array: '+m3TotalCount()+' units</span>'; document.getElementById('bc').innerHTML=h; }
 
 function renderPreserveScroll() {
@@ -1830,7 +2016,7 @@ function buildMorphologyObj() {
     propulsionCards: m3Blueprints().map(function(bp){
       var nT = m3NTypes(bp.key);
       // Shared, card-level fields (the same for every propeller type on the card).
-      var card = { component: bp.key, ntypes: nT, sym: m3Sym(bp.key), zone: m3Get(bp.key,'zone'), zoneChord: m3Get(bp.key,'zoneChord'), zoneSpan: m3Get(bp.key,'zoneSpan'), notes: m3Get(bp.key,'notes') };
+      var card = { component: bp.key, ntypes: nT, sym: m3Sym(bp.key), zone: m3Get(bp.key,'zone'), zoneChord: m3Get(bp.key,'zoneChord'), zoneSpan: m3Get(bp.key,'zoneSpan'), boomAttach: m3Get(bp.key,'boomAttach'), boomPos: m3Get(bp.key,'boomPos'), notes: m3Get(bp.key,'notes') };
       if (nT <= 1) {
         // Legacy single-type: flat per-attribute fields under the bare key, so
         // older readers and the existing export rows keep working unchanged.
@@ -1847,7 +2033,8 @@ function buildMorphologyObj() {
         card.types = [];
         for (var t = 1; t <= nT; t++) {
           var tk = m3TypeKey(bp.key, t);
-          card.types.push({ idx: t, count: m3Count(tk), chord: m3Get(tk,'chord'), orient: m3Get(tk,'orient'), bmech: m3Get(tk,'bmech'), rmech: m3Get(tk,'rmech'), propKin: m3Get(tk,'propKin') });
+          // Mounting-zone position is now per type, so it travels inside each type.
+          card.types.push({ idx: t, count: m3Count(tk), chord: m3Get(tk,'chord'), orient: m3Get(tk,'orient'), bmech: m3Get(tk,'bmech'), rmech: m3Get(tk,'rmech'), propKin: m3Get(tk,'propKin'), zone: m3Get(tk,'zone'), zoneChord: m3Get(tk,'zoneChord'), zoneSpan: m3Get(tk,'zoneSpan'), boomAttach: m3Get(tk,'boomAttach'), boomPos: m3Get(tk,'boomPos') });
         }
       }
       return card;
@@ -1890,7 +2077,10 @@ function buildExport() {
     // fields below mirror architectures[0] for backward-compatibility with any
     // consumer that still reads record.topologyClass etc. directly.
     architectures: buildArchitectures(),
-    labelToken: buildLbl(), comments: S.comments, timestamp: new Date().toISOString()
+    labelToken: buildLbl(), comments: S.comments,
+    // Patent-level image-semantics review (T2 col 4, global).
+    imgNotReflect: !!S.imgNotReflect, imgApparentArch: S.imgApparentArch || '', patentImageComments: S.patentImageComments || '',
+    timestamp: new Date().toISOString()
   };
   var first = rec.architectures[0] || {};
   Object.keys(first).forEach(function(k){ rec[k] = first[k]; });
@@ -2053,7 +2243,7 @@ function ingestAI(data) {
       var key = card.component;
       if (!key) return;
       // Card-level (shared) fields — count is the total; zone/notes/sym are shared.
-      ['count','zone','zoneChord','zoneSpan','notes'].forEach(function(f) {
+      ['count','zone','zoneChord','zoneSpan','boomAttach','boomPos','notes'].forEach(function(f) {
         if (card[f] != null) { S['m3_' + key + '_' + f] = card[f]; }
       });
       // Symmetric-pairs flag is a boolean — coerce so "true"/"false" strings
@@ -2068,7 +2258,7 @@ function ingestAI(data) {
         S['m3_' + key + '_ntypes'] = Math.min(M3_MAX_TYPES, Math.max(1, nT));
         card.types.forEach(function(ty) {
           var tk = key + '__t' + ty.idx;
-          ['count','chord','orient','bmech','rmech','propKin'].forEach(function(f) {
+          ['count','chord','orient','bmech','rmech','propKin','zone','zoneChord','zoneSpan','boomAttach','boomPos'].forEach(function(f) {
             if (ty[f] != null) { S['m3_' + tk + '_' + f] = ty[f]; }
           });
           if (['SLC','SRW'].indexOf(S.topType) > -1 && S['m3_' + tk + '_orient'] === 'Mixed') { S['m3_' + tk + '_orient'] = null; }
@@ -2287,6 +2477,9 @@ function recordToRows(record, pid) {
   rows.push(reviewRow(pid, "META", "Review Metadata", "disapproveOther", record.disapproveOther));
   rows.push(reviewRow(pid, "META", "Review Metadata", "mainFigure", record.mainFigure));
   rows.push(reviewRow(pid, "META", "Review Metadata", "comments", record.comments));
+  rows.push(reviewRow(pid, "META", "Review Metadata", "imgNotReflect", record.imgNotReflect));
+  rows.push(reviewRow(pid, "META", "Review Metadata", "imgApparentArch", record.imgApparentArch));
+  rows.push(reviewRow(pid, "META", "Review Metadata", "patentImageComments", record.patentImageComments));
   rows.push(reviewRow(pid, "META", "Review Metadata", "labelToken", record.labelToken));
   rows.push(reviewRow(pid, "META", "Review Metadata", "timestamp", record.timestamp));
 
@@ -2375,7 +2568,7 @@ function recordToRows(record, pid) {
       // (rowsToAIData byComponent + ingestAI) already handles both once emitted.
       // Card-level (shared) fields. `count` is the card total; `ntypes` says how
       // many distinct propeller types this card holds.
-      ["count","sym","zone","zoneChord","zoneSpan","notes","ntypes"].forEach(function(field) {
+      ["count","sym","zone","zoneChord","zoneSpan","boomAttach","boomPos","notes","ntypes"].forEach(function(field) {
         if (card[field] === undefined) return;
         rows.push(reviewRow(apid, "M3", subDim, card.component + "_" + field, card[field] != null ? card[field] : null));
       });
@@ -2384,7 +2577,7 @@ function recordToRows(record, pid) {
         // suffixed t<n>_<field> so rowsToAIData can regroup them.
         card.types.forEach(function(ty) {
           var tDim = subDim + " — Type " + ty.idx;
-          ["count","chord","orient","bmech","rmech","propKin"].forEach(function(field) {
+          ["count","chord","orient","bmech","rmech","propKin","zone","zoneChord","zoneSpan","boomAttach","boomPos"].forEach(function(field) {
             if (ty[field] === undefined) return;
             rows.push(reviewRow(apid, "M3", tDim, card.component + "_t" + ty.idx + "_" + field, ty[field] != null ? ty[field] : null));
           });
@@ -2677,6 +2870,33 @@ function commitReviewedRows(pid, record) {
   updateSaveIndicator();
 }
 
+// Auto-save the patent currently on screen into the reviewed buffer, so paging
+// away with Prev/Next never loses edits (the reviewer asked for always-save).
+// Only commits when there are actual unsaved edits (BATCH.dirty) — patents merely
+// paged past untouched are left as-is so we don't persist raw ML predictions as
+// if they were human-reviewed. Must run BEFORE BATCH.idx changes.
+function autoSaveCurrentPatent() {
+  if (!BATCH || !BATCH.dirty) return;
+  commitReviewedRows(BATCH.ids[BATCH.idx], buildExport());
+}
+
+// Relationship between the current patent and the "mother" patent it's flagged a
+// duplicate of (S.duplicateId). By convention the FIRST occurrence in the batch
+// is the original, so a valid duplicate must reference a patent that ALREADY
+// appeared (a lower batch index). Returns null when there's no batch or no id.
+function dupMotherInfo() {
+  var raw = (S.duplicateId || '').trim();
+  if (!BATCH || !raw) return null;
+  var motherId  = basePatentId(raw);
+  var motherIdx = BATCH.ids.indexOf(motherId);
+  return {
+    motherId: motherId,
+    motherIdx: motherIdx,
+    inBatch: motherIdx > -1,
+    appearedEarlier: motherIdx > -1 && motherIdx < BATCH.idx
+  };
+}
+
 // Mirrors extractor.py's _normalize_for_google(): PatSeer stores US A-series
 // publications with a 6-digit sequence number, but Google Patents requires
 // 7 digits (zero-padded) — without this, /patent/<pid>/en 404s for every US
@@ -2789,6 +3009,10 @@ function loadBatchPatent(idx) {
   // fresh() defaults when a patent hasn't been reviewed yet.
   var _mainFig = metaVal('mainFigure'); if (_mainFig) S.mainFigure = _mainFig;
   var _patComments = metaVal('comments'); if (_patComments) S.comments = _patComments;
+  // Patent-level image-semantics review (T2 col 4) — restore from META rows.
+  S.imgNotReflect = String(metaVal('imgNotReflect')).toLowerCase() === 'true';
+  var _imgArch = metaVal('imgApparentArch'); if (_imgArch) S.imgApparentArch = _imgArch;
+  var _imgNotes = metaVal('patentImageComments'); if (_imgNotes) S.patentImageComments = _imgNotes;
 
   var nImages = Object.keys(S.figData).length;
   THROUGHPUT.patCur = String(idx + 1);
@@ -2857,13 +3081,40 @@ document.getElementById('batch-xlsx-input').addEventListener('change', function(
 });
 document.getElementById('batch-prev').addEventListener('click', function() {
   if (BATCH) {
+    autoSaveCurrentPatent();   // persist current edits before paging away
     loadBatchPatent(BATCH.idx - 1);
     openOrUpdatePatentWindow(T1_META.pdfLink, 'epo');
   }
 });
 document.getElementById('batch-export').addEventListener('click', exportReviewedBatch);
+
+// "Go to" the base/mother patent a duplicate references — saves current edits
+// then navigates the batch to that patent so the two can be compared.
+document.addEventListener('click', function(e){
+  var g = e.target.closest && e.target.closest('#btn-goto-mother');
+  if (!g || !BATCH) return;
+  var idx = parseInt(g.getAttribute('data-goto-idx'), 10);
+  if (isNaN(idx)) return;
+  autoSaveCurrentPatent();
+  loadBatchPatent(idx);
+  openOrUpdatePatentWindow(T1_META.pdfLink, 'epo');
+});
+
+// Clickable step rail — jump straight to any step (the per-architecture loop is
+// driven by Back/Next; a manual jump just sets the linear step and cancels any
+// pending same-name auto-jump). Lets the reviewer hop between T1/T2/G1/M1/M2/M3.
+document.getElementById('stepper').addEventListener('click', function(e){
+  var w = e.target.closest('[data-step-idx]');
+  if (!w) return;
+  var idx = parseInt(w.getAttribute('data-step-idx'), 10);
+  if (isNaN(idx) || idx === S.step) return;
+  S.aircraftAutoJump = false;
+  S.step = idx;
+  renderPreserveScroll();
+});
 document.getElementById('batch-next').addEventListener('click', function() {
   if (BATCH) {
+    autoSaveCurrentPatent();   // persist current edits before paging away
     loadBatchPatent(BATCH.idx + 1);
     openOrUpdatePatentWindow(T1_META.pdfLink, 'epo');
   }
@@ -3168,6 +3419,14 @@ document.getElementById('panel').addEventListener('click', function(e){
     if (nextD === 'disapproved' && S.mainFigure === fNumD) S.mainFigure = null;
     renderPreserveScroll(); return;
   }
+  // Bulk "Disapprove all" — set every figure to disapproved in one click, so the
+  // reviewer then only clicks ✓ on the images they want to keep.
+  if (tgt.closest('#btn-grid-disapprove-all')) {
+    t2AllFigNums().forEach(function(fn){ figSet(fn, 'status', 'disapproved'); });
+    S.mainFigure = null;   // the main figure can't be a disapproved one
+    if (BATCH) markBatchDirty();
+    renderPreserveScroll(); return;
+  }
   var gridTextBtn = tgt.closest('[data-grid-text-toggle]');
   if (gridTextBtn) {
     var fNumT = gridTextBtn.getAttribute('data-grid-text-toggle');
@@ -3247,13 +3506,25 @@ document.getElementById('panel').addEventListener('click', function(e){
     var val = decodeURIComponent(opt.getAttribute('data-val'));
     
     if(field){
+      var prevWingConf = S[field];
       S[field] = val;
-      // Audit B-05 Fix: Clear wing orphan fields on wingConf change
-      if(field === 'wingConf'){ 
-          S.wKin = null; S.wCount = (['BWB', 'FW', 'LB'].indexOf(val) > -1) ? 0 : 1; 
-          ['wTilt','wPosV','wPosL','wPlan','wRole','wPlanOth'].forEach(function(base){
-            [1,2,3,4].forEach(function(i){ S[base+i] = (base==='wPlanOth')?'':null; });
-          });
+      // Audit B-05 Fix: clear wing orphan fields on wingConf change — BUT only
+      // when switching to a genuinely different config. 'W' (Standard Wings) and
+      // 'Oth' (Other) use the SAME countable-panel inputs, so switching between
+      // them (or re-clicking the same value) must PRESERVE the wing details the
+      // reviewer already entered, instead of wiping them.
+      if(field === 'wingConf'){
+          var panelled = ['W','Oth'];
+          var bothPanelled = panelled.indexOf(prevWingConf) > -1 && panelled.indexOf(val) > -1;
+          if (val !== prevWingConf && !bothPanelled) {
+              S.wKin = null; S.wCount = (['BWB', 'FW', 'LB'].indexOf(val) > -1) ? 0 : 1;
+              ['wTilt','wPosV','wPosL','wPlan','wRole','wPlanOth'].forEach(function(base){
+                [1,2,3,4].forEach(function(i){ S[base+i] = (base==='wPlanOth')?'':null; });
+              });
+          } else if (panelled.indexOf(val) > -1 && (!S.wCount || S.wCount < 1)) {
+              // Entering a panelled config with no count yet — seed one panel.
+              S.wCount = 1;
+          }
       }
       renderPreserveScroll(); return;
     } else if (arrfield) {
@@ -3302,6 +3573,23 @@ document.getElementById('panel').addEventListener('click', function(e){
     var fNumDupClear = (S.t2figNum||'1').trim();
     figSet(fNumDupClear, 'dupOfPatent', '');
     figSet(fNumDupClear, 'dupOfFig', '');
+    renderPreserveScroll();
+    return;
+  }
+  // On-demand "Copy labels from FIG. X" for an already-flagged duplicate — pulls
+  // the original figure's current T2 labels onto this figure. Handles the case
+  // where the original was labeled AFTER this figure was flagged (so the
+  // flag-time copy was empty/stale).
+  if (tgt.id === 'btn-fig-dup-sync') {
+    var fNumSync = (S.t2figNum||'1').trim();
+    var srcPid = figGet(fNumSync, 'dupOfPatent', '');
+    var srcFig = figGet(fNumSync, 'dupOfFig', '');
+    var ok = (srcFig) ? applyDuplicateFigureLabels(fNumSync, srcPid, srcFig) : false;
+    if (BATCH) markBatchDirty();
+    var stS = document.getElementById('batch-load-status');
+    if (stS) stS.textContent = ok
+      ? ' Re-copied FIG. ' + srcFig + ' labels onto FIG. ' + fNumSync + '.'
+      : ' Could not copy — FIG. ' + srcFig + ' has no labels yet (label it first).';
     renderPreserveScroll();
     return;
   }
@@ -3419,6 +3707,9 @@ document.getElementById('panel').addEventListener('change', function(e){
   if (field === 't2figNum') { S.t2figNum = tgt.value.trim(); render(); return; }
 
   if (field === 'isDuplicate') { S[field] = tgt.checked; renderPreserveScroll(); return; }
+  // Patent-level "images don't reflect semantics" toggle — re-render to reveal/hide
+  // the "what does it appear to be?" architecture options.
+  if (field === 'imgNotReflect') { S.imgNotReflect = tgt.checked; if (!tgt.checked) S.imgApparentArch = null; renderPreserveScroll(); return; }
 
   if (field && field.indexOf('m3_') === 0 && tgt.type === 'number') {
     // Free counts for all components — no odd→even coercion for symmetric ones.
@@ -3474,6 +3765,7 @@ document.getElementById('panel').addEventListener('input', function(e){
     else if (f === 'gearNotes') S.gearNotes = tgt.value;
     else if (f === 'wingNotes') S.wingNotes = tgt.value;
     else if (f === 'comments') S.comments = tgt.value;
+    else if (f === 'patentImageComments') S.patentImageComments = tgt.value;
     else if (f.indexOf('wPlanOth') === 0) S[f] = tgt.value;
     else if (f.indexOf('m3_') === 0 && f.indexOf('_notes') > -1) S[f] = tgt.value;
   }
