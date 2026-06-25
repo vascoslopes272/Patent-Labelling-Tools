@@ -254,6 +254,9 @@ details.m3-readonly[open] summary::after { content: '\2212'; }
     <span style="font-size:11px;font-family:var(--mono);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--accent-text);">Load Batch</span>
     <input type="file" id="batch-xlsx-input" accept=".xlsx" style="font-size:12px;color:var(--text2);">
     <span id="batch-load-status" style="font-size:12px;font-family:var(--mono);color:var(--text3);"></span>
+    <label for="batch-resume-input" style="font-size:11px;font-family:var(--mono);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--accent-text);" title="Optional: load a previously-exported reviewed_patents_*.xlsx to restore your earlier choices on top of the ml batch above, and jump straight to the first not-yet-reviewed patent.">Resume Review</label>
+    <input type="file" id="batch-resume-input" accept=".xlsx" style="font-size:12px;color:var(--text2);">
+    <span id="batch-resume-status" style="font-size:12px;font-family:var(--mono);color:var(--text3);"></span>
     <span id="batch-nav" style="display:none;align-items:center;gap:6px;margin-left:auto;">
       <button type="button" id="btn-open-pdf" class="btn" style="padding:4px 10px;font-size:12px;" title="Open this patent's source PDF in its own side-by-side viewer window (display 2)">&#128196; Open PDF</button>
       <button type="button" id="btn-set-viewer" class="btn" style="padding:4px 10px;font-size:12px;" title="Pick exactly where the EPO record and PDF windows open on display 2 — drag/size the placeholder, then save. Remembered across patents and refreshes; re-run any time.">&#128205; Set viewer area</button>
@@ -270,6 +273,7 @@ details.m3-readonly[open] summary::after { content: '\2212'; }
   <div id="throughput" class="progress-tracker"></div>
   <div class="rail-label">Workflow — click to jump</div>
   <div class="stepper" id="stepper"></div>
+  <div id="copy-morph-rail"></div>
 </aside>
 <div class="wiz">
   <div class="bc" id="bc"></div>
@@ -359,6 +363,20 @@ var WING_CONFIG = [
 var W_POS_V = [{id:'High', n:'High / Hub'},{id:'Mid', n:'Mid / Center'},{id:'Low', n:'Low / Down'}];
 var W_POS_L = [{id:'Fwd', n:'Forward (Nose/Canard position)'},{id:'Cent', n:'Center (CG / Mid-Fuselage)'},{id:'Aft', n:'Aft (Tail / Rear position)'}];
 var W_PLAN = [{id:'Str', n:'Straight'},{id:'Swp', n:'Swept'},{id:'Del', n:'Delta'}, {id:'Oth', n:'Other (Elliptical / Tapered / Complex)'}];
+// Hoisted out of pageM2()'s wing-role/wing-tilt render block (was redeclared
+// inline on every render) so recordToRows() can reuse the exact same id->name
+// pairs to label the exported Value column — one source of truth instead of
+// a second copy that could drift out of sync.
+var W_ROLE = [{id:'Canard', n:'Canard (Forward of Main)'}, {id:'Tandem', n:'Tandem (Equal Size / Distributed)'}, {id:'Aft', n:'Aft Stabilizer (Tailplane)'}, {id:'Stacked', n:'Stacked (Biplane / Vertical Separation at same CG)'}, {id:'Other', n:'Other'}];
+var W_TILT = [{id:'Fixed', n:'Fixed Surface'},{id:'Tilt', n:'Tiltable/Pivoting'}];
+// Hoisted out of pageT1()'s disapprove-reason <select> (was inline <option>
+// text) for the same reason — recordToRows() needs the exact label text.
+var T1_DISAPPROVE_REASONS = [
+  {id:'Pure UAV', n:'Pure UAV (No Passenger/AAM application)'},
+  {id:'Out of Domain', n:'Out of Technological Domain'},
+  {id:'Unreadable', n:'Unreadable / Insufficient Data'},
+  {id:'Other', n:'Other'}
+];
 var EMP_TYPE = [
   {id:'Tailless', n:'Tailless (None)'}, {id:'Conventional', n:'Conventional (Horizontal at base)'}, {id:'Cruciform', n:'Cruciform (Horizontal mid-vertical)'}, {id:'T-Tail', n:'T-Tail'}, {id:'V-Tail', n:'V-Tail'}, {id:'Inv_V-Tail', n:'Inverted V-Tail'}, {id:'H-Tail', n:'H-Tail / Twin Tail'}, {id:'VertFin', n:'Vertical Fin(s) Only (No Horizontal Stabilizer)'}, {id:'Fins', n:'Minimal Stabilizing Fins'}
 ];
@@ -593,6 +611,29 @@ function getArchCount() {
     if (a > maxTag) maxTag = a;
   });
   return Math.max(1, maxTag, S.archProfiles ? S.archProfiles.length : 1, S.archCount || 1);
+}
+
+// ── Main figure is PER ARCHITECTURE ──────────────────────────────────────────
+// A patent can describe several architectures; each gets its own "main figure".
+// Stored as a per-figure flag (figData[fNum].isMain) — a figure already carries
+// its 1-based architecture tag (figData[fNum].arch), so "main of architecture N"
+// is the figure tagged N that has isMain set. This replaces the old single
+// patent-level S.mainFigure.
+function figArchOf(fNum){ var a = parseInt(figGet(fNum, 'arch', '1'), 10); return isNaN(a) ? 1 : a; }
+function mainFigureOfArch(arch1){
+  var nums = Object.keys(S.figData || {});
+  for (var i = 0; i < nums.length; i++){ if (figArchOf(nums[i]) === arch1 && (S.figData[nums[i]]||{}).isMain) return nums[i]; }
+  return null;
+}
+// Set fNum as the main figure of ITS architecture, clearing any previous main in
+// that same architecture (other architectures' mains are untouched).
+function setMainFigure(fNum){
+  if (!fNum) return;
+  var a = figArchOf(fNum);
+  Object.keys(S.figData || {}).forEach(function(f){
+    if (f !== fNum && figArchOf(f) === a && (S.figData[f]||{}).isMain) figSet(f, 'isMain', false);
+  });
+  figSet(fNum, 'isMain', true);
 }
 
 // Save the flat S.* morphology keys into archProfiles[curArch].
@@ -1224,7 +1265,8 @@ function reassignFigure(sourceFig, targetFig) {
     delete S.figData[sourceFig];
   }
   if (S.t2figNum === sourceFig) S.t2figNum = targetFig;
-  if (S.mainFigure === sourceFig) S.mainFigure = targetFig;
+  // The per-figure isMain flag travels with figData (merged above), so no
+  // separate main-figure fix-up is needed when reassigning.
 }
 
 function figGridCard(fNum) {
@@ -1382,7 +1424,7 @@ function figCoverageGrid() {
     var fStr = String(i);
     var fd = S.figData[fStr] || {};
     var status = fd.status || (Object.keys(fd).length > 0 ? 'partial' : 'empty');
-    var isMain = (S.mainFigure === fStr);
+    var isMain = !!fd.isMain;
     var active = (S.t2figNum === fStr);
     var color = status==='approved'?'var(--ok-bg)':status==='disapproved'?'var(--danger-bg)':status==='partial'?'var(--warn-bg)':'var(--bg2)';
     var border = active ? '2px solid var(--accent)' : '1px solid var(--border)';
@@ -1439,10 +1481,7 @@ function pageT1(){
         h += '<div class="m3-field" style="margin-top:12px; padding-top:12px; border-top:1px dashed var(--border);"><div class="m3-label">Reason for Disapproval</div>'
         + '<select class="m3-num" data-field="t1DisapproveReason">'
         + '<option value="">Select reason...</option>'
-        + '<option value="Pure UAV" '+(S.t1DisapproveReason=='Pure UAV'?'selected':'')+'>Pure UAV (No Passenger/AAM application)</option>'
-        + '<option value="Out of Domain" '+(S.t1DisapproveReason=='Out of Domain'?'selected':'')+'>Out of Technological Domain</option>'
-        + '<option value="Unreadable" '+(S.t1DisapproveReason=='Unreadable'?'selected':'')+'>Unreadable / Insufficient Data</option>'
-        + '<option value="Other" '+(S.t1DisapproveReason=='Other'?'selected':'')+'>Other</option>'
+        + T1_DISAPPROVE_REASONS.map(function(o){ return '<option value="'+o.id+'" '+(S.t1DisapproveReason==o.id?'selected':'')+'>'+o.n+'</option>'; }).join('')
         + '</select></div>';
 
         // Audit B-08 Fix: Free text for Other
@@ -1469,10 +1508,11 @@ function pageT1(){
           if (!info) return '';
           var h2 = '<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">'
             + '<span class="m3-label" style="margin:0;">Duplicate of</span>'
-            + '<span style="font-family:var(--mono); font-weight:600; font-size:13px;">' + escHtml(info.motherId) + '</span>';
-          if (info.inBatch) {
-            h2 += '<button type="button" class="btn pri" id="btn-goto-mother" data-goto-idx="' + info.motherIdx + '" style="padding:4px 12px; font-size:12px;" title="Open the base patent ' + escHtml(info.motherId) + ' (patent ' + (info.motherIdx+1) + ' in this batch)">↪ Go to ' + escHtml(info.motherId) + '</button>';
-          }
+            + '<span style="font-family:var(--mono); font-weight:600; font-size:13px;">' + escHtml(info.motherId) + '</span>'
+            // Opens the BASE patent's own page (EPO Espacenet, built from its
+            // publication number) in the side viewer — WITHOUT navigating this
+            // wizard away from the patent you're reviewing.
+            + '<button type="button" class="btn pri" id="btn-goto-mother" data-mother-id="' + escHtml(info.motherId) + '" style="padding:4px 12px; font-size:12px;" title="Open ' + escHtml(info.motherId) + '\'s patent page in the side viewer (does not leave this patent)">🔗 Open ' + escHtml(info.motherId) + '</button>';
           h2 += '</div>';
           if (info.inBatch && !info.appearedEarlier) {
             h2 += '<div class="flag warn" style="margin-top:0;"><span class="f-lbl">⚠ Order check</span>'
@@ -1556,7 +1596,7 @@ function pageT1(){
 
 function pageT2(){
   var fNum = (S.t2figNum||'1').trim();
-  var isMain = (S.mainFigure === fNum && fNum !== '');
+  var isMain = (fNum !== '' && !!figGet(fNum, 'isMain', false));
   var status = figGet(fNum, 'status', null);
   var arch = figGet(fNum, 'arch', '1');
 
@@ -1673,7 +1713,7 @@ function pageT2(){
     h += '<div class="m3-card" style="margin-bottom:8px; border-color:var(--accent);">'
       + '<div class="m3-head" style="margin-bottom:10px;">Figure Validation & Assignment</div>'
       + '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">'
-        + '<button type="button" class="btn '+(isMain?'pri':'')+'" data-t2-main="true">★ Set as Main Figure</button>'
+        + '<button type="button" class="btn '+(isMain?'pri':'')+'" data-t2-main="true" title="Sets the main figure of THIS figure\'s architecture (Architecture '+figArchOf(fNum)+'). Each architecture has its own main figure.">★ Set as Main Figure'+(getArchCount()>1?' (Arch '+figArchOf(fNum)+')':'')+'</button>'
         + '<div style="width:1px; height:24px; background:var(--border);"></div>'
         + '<div style="display:flex; align-items:center; gap:6px;"><span class="m3-label" style="margin-bottom:0;">Assign To:</span><select class="m3-num" data-t2-arch="true" style="padding:6px 10px; min-height:0; width:140px;">'+archOptions+'</select></div>'
         + '<button type="button" class="btn" id="btn-add-arch" style="padding:6px 10px; font-size:12px;" title="Declare another distinct architecture in this patent">+ Add architecture</button>'
@@ -1854,12 +1894,12 @@ function pageM2(){ if (isOtherArch()) return otherCommentaryPage('M2', 'Lifting 
               if(i === 1) {
                   h+='<div class="m3-sub" style="color:var(--accent); font-weight:500;">Wing 1 is the Main/Primary Lifting Surface (largest area). If wings are equal in size (e.g., Tandem), designate the forward-most wing as Wing 1.</div>';
               } else {
-                  var roleOpts = [{id:'Canard', n:'Canard (Forward of Main)'}, {id:'Tandem', n:'Tandem (Equal Size / Distributed)'}, {id:'Aft', n:'Aft Stabilizer (Tailplane)'}, {id:'Stacked', n:'Stacked (Biplane / Vertical Separation at same CG)'}, {id:'Other', n:'Other'}];
+                  var roleOpts = W_ROLE;
                   h+='<div class="m2-kv" style="margin-top:8px;">Relative Aerodynamic Role</div>' + grid('n', roleOpts.map(function(p){return oc(wingField('wRole',i),p.id,p.n);}));
               }
 
-              var tiltOpts = [{id:'Fixed', n:'Fixed Surface'},{id:'Tilt', n:'Tiltable/Pivoting'}];
-              
+              var tiltOpts = W_TILT;
+
               if (S.topType === 'TP') {
                   h += physicsLock('TP', 'the wing stays fixed; only the propulsors tilt to vector thrust.');
                   h += grid('n', tiltOpts.map(function(p){return oc(wingField('wTilt',i),p.id,p.n,null,null,p.id!=='Fixed');}));
@@ -1950,27 +1990,34 @@ function renderPreserveScroll() {
 // when no usable image exists. The panel is CSS-positioned (.morph-mainfig): fixed
 // in the right margin on wide screens, static at the top on narrow ones.
 function morphologyMainImage() {
+  // Shown only on the morphology pages (per architecture), so prefer the main
+  // figure of the CURRENT architecture; fall back to an approved/any figure that
+  // belongs to this architecture, then to any figure at all.
+  var curArch1 = (S.curArch || 0) + 1;
   var pick = null;
-  if (S.mainFigure && realFigImage(S.mainFigure)) pick = S.mainFigure;
+  var amf = mainFigureOfArch(curArch1);
+  if (amf && realFigImage(amf)) pick = amf;
   if (!pick) {
     var nums = Object.keys(S.figData || {}).sort(function(a,b){ return (parseFloat(a)||0) - (parseFloat(b)||0); });
-    for (var i = 0; i < nums.length; i++) {
-      if (figGet(nums[i],'status',null) === 'approved' && realFigImage(nums[i])) { pick = nums[i]; break; }
+    var inArch = nums.filter(function(n){ return figArchOf(n) === curArch1; });
+    var pools = [inArch, nums];   // this architecture first, then any figure
+    for (var p = 0; p < pools.length && !pick; p++) {
+      for (var i = 0; i < pools[p].length; i++) { if (figGet(pools[p][i],'status',null) === 'approved' && realFigImage(pools[p][i])) { pick = pools[p][i]; break; } }
+      if (!pick) { for (var j = 0; j < pools[p].length; j++) { if (realFigImage(pools[p][j])) { pick = pools[p][j]; break; } } }
     }
-    if (!pick) { for (var j = 0; j < nums.length; j++) { if (realFigImage(nums[j])) { pick = nums[j]; break; } } }
   }
   if (!pick) return '';
   var url = realFigImage(pick);
   if (!url) return '';
   return '<div class="morph-mainfig">'
-    + '<div class="morph-mainfig-lbl">Main figure · FIG. ' + escHtml(pick) + '</div>'
+    + '<div class="morph-mainfig-lbl">Main figure' + (getArchCount() > 1 ? ' · Arch ' + (S.curArch + 1) : '') + ' · FIG. ' + escHtml(pick) + '</div>'
     + '<img src="' + url + '" onerror="this.parentNode.style.display=\'none\';" alt="Main figure FIG. ' + escHtml(pick) + '">'
     + '</div>';
 }
 
 function render(){
   persistSession();   // refresh-safe: snapshot the whole session on every render (debounced)
-  renderStep(); renderBC(); renderThroughput();
+  renderStep(); renderBC(); renderThroughput(); renderCopyMorph();
   document.getElementById('hdr-id').textContent = T1_META.recordNumber || '';
   // Prefer a dedicated, capitalization-normalized aircraft/prototype name;
   // fall back to the patent title when the pipeline doesn't supply one.
@@ -2070,9 +2117,24 @@ function buildExport() {
     archCount: getArchCount(), scope: S.t1Scope, techField: S.t1Field, innovTarget: S.t1Target,
     figures: Object.keys(S.figData).reduce(function(acc, fNum){
       var fd = S.figData[fNum] || {};
-      acc[fNum] = Object.assign({}, fd, { rotation_deg: fd.t2_rotation || 0 });
+      // Single source of truth for every per-figure default the UI shows as
+      // "selected" without the reviewer ever clicking it (qualityFlag defaults
+      // to "Clean" in qualityChip(), arch defaults to "1" in figArchOf()) —
+      // resolved HERE, once, so every consumer of record.figures (recordToRows,
+      // any future reader) sees the real displayed value instead of having to
+      // duplicate the same fallback and risk drifting out of sync (the bug that
+      // silently dropped "Clean" from the export).
+      // Disapproved figures are exempt from the "arch" default: recordToRows()
+      // deliberately keeps disapproved-image rows lean (only status + arch IF
+      // it was actually tagged), so forcing a "1" here would add a spurious
+      // arch row to every discarded figure.
+      acc[fNum] = Object.assign({}, fd, {
+        rotation_deg: fd.t2_rotation || 0,
+        qualityFlag: fd.qualityFlag != null ? fd.qualityFlag : 'clean',
+        arch: (fd.arch != null || fd.status === 'disapproved') ? fd.arch : '1',
+      });
       return acc;
-    }, {}), mainFigure: S.mainFigure,
+    }, {}), mainFigure: mainFigureOfArch(1),   // legacy META field = architecture 1's main (per-figure isMain carries the rest)
     // architectures[]: one morphology per architecture. The flat morphology
     // fields below mirror architectures[0] for backward-compatibility with any
     // consumer that still reads record.topologyClass etc. directly.
@@ -2192,6 +2254,7 @@ function ingestAI(data) {
         if (fig[key] != null) figSet(figNum, key, fig[key]);
       });
       if (fig.hasLegends != null) figSet(figNum, 'hasLegends', xlBool(fig.hasLegends));
+      if (fig.isMain != null) figSet(figNum, 'isMain', xlBool(fig.isMain));
       if (Array.isArray(fig.tiltedInView) && fig.tiltedInView.length > 0) figSet(figNum, 'tiltedInView', fig.tiltedInView);
       // Restore the saved single/multi mode BEFORE handling parts so the collapse
       // below respects a figure the human deliberately set to multi.
@@ -2434,13 +2497,37 @@ function realFigImage(fNum) {
 // src/excel_schema.py's COLUMNS — written out as one xlsx per batch via
 // exportReviewedBatch() instead of one JSON download per patent.
 var REVIEWED_ROWS = [];
-var EXCEL_COLUMNS = ["Patent_ID","Section","Sub_Dimension","Field","Definition","Options","Value","Confidence","Source","Image_Path"];
+// Definition/Options/Confidence dropped from the wizard's OWN export — they
+// were always blank/null here (the only real values for those columns live
+// in the upstream ml_predict_labels_<batch>.xlsx, written by the Python
+// pipeline's excel_schema.py, which this file is NOT). Confirmed nothing
+// downstream reads them back: the only Python consumer of a reviewed file
+// (01_review.ipynb's "Copy approved files" cell) looks up columns by name
+// (Section/Field/Value/Patent_ID) and never touches these three.
+var EXCEL_COLUMNS = ["Patent_ID","Section","Sub_Dimension","Field","Value","Source","Image_Path"];
+
+// Make coded taxonomy values ("CVT", "LE", "1"...) readable in the exported
+// Excel WITHOUT losing the machine-readable code: write "<id> — <name>" and,
+// on re-load, strip everything from " — " onward to recover the bare id.
+// stripLabel() is a no-op for plain ids/free text that never contained
+// " — " in the first place, so older reviewed_patents_*.xlsx files (written
+// before this change) keep loading exactly as before.
+function withLabel(rawId, optsArray) {
+  if (rawId == null || rawId === '' || !optsArray) return rawId;
+  var o = optsArray.find(function(x){ return x.id === rawId; });
+  if (!o) return rawId;
+  return rawId + ' — ' + (o.n || o.name);
+}
+function stripLabel(v) {
+  if (typeof v !== 'string') return v;
+  var i = v.indexOf(' — ');
+  return i > -1 ? v.slice(0, i).trim() : v;
+}
 
 function reviewRow(pid, section, subDim, field, value, confidence, source, imagePath) {
   return {
     Patent_ID: pid, Section: section, Sub_Dimension: subDim, Field: field,
-    Definition: "", Options: "", Value: value != null ? value : null,
-    Confidence: confidence != null ? confidence : null,
+    Value: value != null ? value : null,
     Source: source != null ? source : null,
     Image_Path: imagePath != null ? imagePath : null,
   };
@@ -2455,33 +2542,51 @@ function recordToRows(record, pid) {
 
   // ── T1 ── title/abstract/description_of_drawings come from T1_META since
   // buildExport() doesn't carry them (they're not editable in the wizard).
-  rows.push(reviewRow(pid, "T1", "Patent Title", "title", T1_META.title));
-  rows.push(reviewRow(pid, "T1", "Aircraft / Prototype Name", "aircraftName", record.aircraftName));
-  rows.push(reviewRow(pid, "T1", "Abstract", "abstract", T1_META.abstract));
-  rows.push(reviewRow(pid, "T1", "Assignee", "assignee", record.assignee));
-  rows.push(reviewRow(pid, "T1", "Publication Year", "pub_year", record.pubYear));
-  rows.push(reviewRow(pid, "T1", "Application Year", "app_year", record.appYear));
-  rows.push(reviewRow(pid, "T1", "Description of Drawings", "description_of_drawings", T1_META.descriptionOfDrawings));
-  rows.push(reviewRow(pid, "T1", "scope", "scope", record.scope));
-  rows.push(reviewRow(pid, "T1", "t1Field", "t1Field", record.techField));
-  rows.push(reviewRow(pid, "T1", "t1Target", "t1Target", record.innovTarget));
+  // Disapproved patents were never actually reviewed by the human past the
+  // triage step, so only the disapproval verdict + reason are worth keeping —
+  // everything else below would just be unreviewed ML/placeholder noise.
   rows.push(reviewRow(pid, "T1", "T1 — Approval Status", "isApproved", record.isApproved));
-  rows.push(reviewRow(pid, "T1", "T1 — Disapproval Reason", "t1DisapproveReason", record.disapproveReason));
-  rows.push(reviewRow(pid, "T1", "T1 — Distinct Architectures", "archCount", record.archCount));
-  rows.push(reviewRow(pid, "T1", "T1 — Duplicate Flag", "isDuplicate", record.isDuplicate));
-  rows.push(reviewRow(pid, "T1", "T1 — Duplicate Of (Patent ID)", "duplicateId", record.duplicateOf));
-  // Extra fields buildExport() carries with no build_patent_rows() slot —
-  // harmless additions, ignored by rowsToAIData() on reload.
-  rows.push(reviewRow(pid, "META", "Review Metadata", "familyId", record.familyId));
-  rows.push(reviewRow(pid, "META", "Review Metadata", "duplicateType", record.duplicateType));
-  rows.push(reviewRow(pid, "META", "Review Metadata", "disapproveOther", record.disapproveOther));
-  rows.push(reviewRow(pid, "META", "Review Metadata", "mainFigure", record.mainFigure));
-  rows.push(reviewRow(pid, "META", "Review Metadata", "comments", record.comments));
-  rows.push(reviewRow(pid, "META", "Review Metadata", "imgNotReflect", record.imgNotReflect));
-  rows.push(reviewRow(pid, "META", "Review Metadata", "imgApparentArch", record.imgApparentArch));
-  rows.push(reviewRow(pid, "META", "Review Metadata", "patentImageComments", record.patentImageComments));
-  rows.push(reviewRow(pid, "META", "Review Metadata", "labelToken", record.labelToken));
+  if (record.isApproved === false) {
+    rows.push(reviewRow(pid, "T1", "T1 — Disapproval Reason", "t1DisapproveReason", withLabel(record.disapproveReason, T1_DISAPPROVE_REASONS)));
+    if (record.disapproveReason === 'Other') {
+      rows.push(reviewRow(pid, "META", "Review Metadata", "disapproveOther", record.disapproveOther));
+    }
+  } else {
+    rows.push(reviewRow(pid, "T1", "Patent Title", "title", T1_META.title));
+    rows.push(reviewRow(pid, "T1", "Aircraft / Prototype Name", "aircraftName", record.aircraftName));
+    rows.push(reviewRow(pid, "T1", "Abstract", "abstract", T1_META.abstract));
+    rows.push(reviewRow(pid, "T1", "Assignee", "assignee", record.assignee));
+    rows.push(reviewRow(pid, "T1", "Publication Year", "pub_year", record.pubYear));
+    rows.push(reviewRow(pid, "T1", "Application Year", "app_year", record.appYear));
+    rows.push(reviewRow(pid, "T1", "Description of Drawings", "description_of_drawings", T1_META.descriptionOfDrawings));
+    if (T1_META.pdfLinkRaw) rows.push(reviewRow(pid, "T1", "PDF Link", "pdf_link", T1_META.pdfLinkRaw, null, "patseer"));
+    rows.push(reviewRow(pid, "T1", "scope", "scope", record.scope));
+    rows.push(reviewRow(pid, "T1", "t1Field", "t1Field", record.techField));
+    rows.push(reviewRow(pid, "T1", "t1Target", "t1Target", record.innovTarget));
+    rows.push(reviewRow(pid, "T1", "T1 — Distinct Architectures", "archCount", record.archCount));
+    rows.push(reviewRow(pid, "T1", "T1 — Duplicate Flag", "isDuplicate", record.isDuplicate));
+    rows.push(reviewRow(pid, "T1", "T1 — Duplicate Of (Patent ID)", "duplicateId", record.duplicateOf));
+    // Extra fields buildExport() carries with no build_patent_rows() slot —
+    // harmless additions, ignored by rowsToAIData() on reload.
+    rows.push(reviewRow(pid, "META", "Review Metadata", "familyId", record.familyId));
+    rows.push(reviewRow(pid, "META", "Review Metadata", "duplicateType", withLabel(record.duplicateType, DUP_TYPES)));
+    rows.push(reviewRow(pid, "META", "Review Metadata", "mainFigure", record.mainFigure));
+    rows.push(reviewRow(pid, "META", "Review Metadata", "comments", record.comments));
+    rows.push(reviewRow(pid, "META", "Review Metadata", "imgNotReflect", record.imgNotReflect));
+    rows.push(reviewRow(pid, "META", "Review Metadata", "imgApparentArch", withLabel(record.imgApparentArch, APPARENT_ARCH)));
+    rows.push(reviewRow(pid, "META", "Review Metadata", "patentImageComments", record.patentImageComments));
+    rows.push(reviewRow(pid, "META", "Review Metadata", "labelToken", record.labelToken));
+  }
   rows.push(reviewRow(pid, "META", "Review Metadata", "timestamp", record.timestamp));
+
+  // Disapproved patent: STOP here. Per the rule "when I disapprove a patent,
+  // only the reason appears", we emit nothing else — no T2 image classification,
+  // no G1/M1/M2/M3 morphology (none of it was human-reviewed for a rejected
+  // patent; it would just be unreviewed ML noise). Patent_ID is already on every
+  // row above, so the rejected patent stays identifiable. (All rows emitted so
+  // far — isApproved/reason/timestamp — are non-empty, so skipping the trailing
+  // empty-trim below is harmless.)
+  if (record.isApproved === false) return rows;
 
   // ── T2 — per-figure rows, keyed back to filenames via FIG_FILENAMES ──────
   var fNums = Object.keys(record.figures || {});
@@ -2493,6 +2598,14 @@ function recordToRows(record, pid) {
     var fname   = FIG_FILENAMES[fNum] || "";
     var imgPath = FIG_IMAGE_PATH[fNum] || null;
     var subDim  = fname ? ("Image: " + fname) : ("Image: (fig " + fNum + ")");
+    // Discarded (disapproved) image: per the rule "a disapproved image only says
+    // it's disapproved", we emit ONLY the status row — no architecture tag, no
+    // duplicate-of info, and certainly no ML classification fields. The Image_Path
+    // still rides on this row so the figure stays anchored to its file.
+    if (fd.status === 'disapproved') {
+      rows.push(reviewRow(pid, "T2", subDim, "status", "disapproved", null, "human", imgPath));
+      return;
+    }
     ["per","acSty","acCol","bgSty","bgCol"].forEach(function(f) {
       rows.push(reviewRow(pid, "T2", subDim, f, fd[f] != null ? fd[f] : null, null, "human", imgPath));
     });
@@ -2504,17 +2617,23 @@ function recordToRows(record, pid) {
     // Persistence fix (C1-C5): these per-figure human labels used to be captured
     // in buildExport() but never serialised here, so they were silently lost on
     // save. edgeTags is an array → joined with "|" like parts (split back on load).
-    rows.push(reviewRow(pid, "T2", subDim, "qualityFlag", fd.qualityFlag != null ? fd.qualityFlag : null, null, "human", imgPath));
+    // qualityFlag's "Clean" default is now resolved once in buildExport()'s
+    // figures reduce, so fd.qualityFlag is always populated here already.
+    rows.push(reviewRow(pid, "T2", subDim, "qualityFlag", withLabel(fd.qualityFlag != null ? fd.qualityFlag : null, QUALITY_FLAGS), null, "human", imgPath));
     rows.push(reviewRow(pid, "T2", subDim, "hasLegends", fd.hasLegends != null ? fd.hasLegends : null, null, "human", imgPath));
     rows.push(reviewRow(pid, "T2", subDim, "comment", fd.comment != null ? fd.comment : null, null, "human", imgPath));
     rows.push(reviewRow(pid, "T2", subDim, "edgeTags", Array.isArray(fd.edgeTags) ? fd.edgeTags.join("|") : (fd.edgeTags || null), null, "human", imgPath));
+    // arch's "1" default is now resolved once in buildExport()'s figures
+    // reduce (same fix as qualityFlag above), so fd.arch is always populated.
     rows.push(reviewRow(pid, "T2", subDim, "arch", fd.arch != null ? fd.arch : null, null, "human", imgPath));
+    // Per-architecture main-figure flag (replaces the single patent-level mainFigure).
+    rows.push(reviewRow(pid, "T2", subDim, "isMain", fd.isMain != null ? fd.isMain : null, null, "human", imgPath));
     // partsMulti: persists whether the reviewer opted this figure into multi-select
     // so the single-select collapse-on-load (ingestAI) doesn't undo a deliberate >1 pick.
     rows.push(reviewRow(pid, "T2", subDim, "partsMulti", fd.partsMulti != null ? fd.partsMulti : null, null, "human", imgPath));
     // Per-figure aircraft state in this view (config + what's tilted + free note).
-    rows.push(reviewRow(pid, "T2", subDim, "acState", fd.acState != null ? fd.acState : null, null, "human", imgPath));
-    rows.push(reviewRow(pid, "T2", subDim, "tiltedInView", Array.isArray(fd.tiltedInView) ? fd.tiltedInView.join("|") : (fd.tiltedInView || null), null, "human", imgPath));
+    rows.push(reviewRow(pid, "T2", subDim, "acState", withLabel(fd.acState != null ? fd.acState : null, AC_STATE), null, "human", imgPath));
+    rows.push(reviewRow(pid, "T2", subDim, "tiltedInView", Array.isArray(fd.tiltedInView) ? fd.tiltedInView.map(function(v){ return withLabel(v, TILTED_IN_VIEW); }).join("|") : (fd.tiltedInView || null), null, "human", imgPath));
     rows.push(reviewRow(pid, "T2", subDim, "stateNote", fd.stateNote != null ? fd.stateNote : null, null, "human", imgPath));
   });
 
@@ -2528,12 +2647,12 @@ function recordToRows(record, pid) {
     var apid = archs.length > 1 ? (pid + "_arch" + (ai + 1)) : pid;
 
     // ── G1 ──
-    rows.push(reviewRow(apid, "G1", "Topology Type", "topType", m.topologyClass));
+    rows.push(reviewRow(apid, "G1", "Topology Type", "topType", withLabel(m.topologyClass, TOP)));
 
     // ── M1 ──
-    rows.push(reviewRow(apid, "M1", "fusShape", "fusShape", m.fusShape));
-    rows.push(reviewRow(apid, "M1", "fusKin", "fusKin", m.fusKin));
-    rows.push(reviewRow(apid, "M1", "gearArch", "gearArch", m.gearArch));
+    rows.push(reviewRow(apid, "M1", "fusShape", "fusShape", withLabel(m.fusShape, FUS_SHAPE)));
+    rows.push(reviewRow(apid, "M1", "fusKin", "fusKin", withLabel(m.fusKin, FUS_KIN)));
+    rows.push(reviewRow(apid, "M1", "gearArch", "gearArch", withLabel(m.gearArch, GEAR_ARCH)));
     rows.push(reviewRow(apid, "M1", "latSym", "latSym", m.latSym));
     rows.push(reviewRow(apid, "M1", "M1 — Footprint Length (m)", "footLen", m.footLen));
     rows.push(reviewRow(apid, "M1", "M1 — Footprint Width (m)", "footWid", m.footWid));
@@ -2546,22 +2665,32 @@ function recordToRows(record, pid) {
     rows.push(reviewRow(apid, "M1", "gearNotes", "gearNotes", m.gearNotes));
 
     // ── M2 — wingConf/wCount/empType/empKin + per-wing rows ──
-    rows.push(reviewRow(apid, "M2", "wingConf", "wingConf", m.wingConf));
+    rows.push(reviewRow(apid, "M2", "wingConf", "wingConf", withLabel(m.wingConf, WING_CONFIG)));
     rows.push(reviewRow(apid, "M2", "wCount", "wCount", m.wCount));
-    rows.push(reviewRow(apid, "M2", "empType", "empType", m.empType));
-    rows.push(reviewRow(apid, "M2", "empKin", "empKin", m.empKin));
+    rows.push(reviewRow(apid, "M2", "empType", "empType", withLabel(m.empType, EMP_TYPE)));
+    rows.push(reviewRow(apid, "M2", "empKin", "empKin", withLabel(m.empKin, EMP_KIN)));
     (m.wings || []).forEach(function(w, i) {
       var wi = i + 1;
-      [["tilt","Tilt"],["posV","Vertical Position"],["posL","Longitudinal Position"],
-       ["plan","Planform"],["role","Role"]].forEach(function(pair) {
-        var field = pair[0], label = pair[1];
-        rows.push(reviewRow(apid, "M2", "Wing " + wi + " — " + label, "wing" + wi + "_" + field, w[field] != null ? w[field] : null));
+      [["tilt","Tilt",W_TILT],["posV","Vertical Position",W_POS_V],["posL","Longitudinal Position",W_POS_L],
+       ["plan","Planform",W_PLAN],["role","Role",W_ROLE]].forEach(function(pair) {
+        var field = pair[0], label = pair[1], opts = pair[2];
+        rows.push(reviewRow(apid, "M2", "Wing " + wi + " — " + label, "wing" + wi + "_" + field, withLabel(w[field] != null ? w[field] : null, opts)));
       });
     });
 
     // ── M3 — one set of rows per propulsion-card component ──
     (m.propulsionCards || []).forEach(function(card) {
       var subDim = "Propulsion: " + card.component;
+      // "zone" options depend on WHICH card this is (m3ZoneOptions(bp)), so look
+      // up its blueprint once; the rest are static option sets shared by every
+      // card. "orient" is deliberately left unlabelled — Horizontal/Vertical/
+      // Mixed are already plain English, unlike the short codes (LE, CVT, Cent...)
+      // everything else here uses.
+      var _bp = m3Blueprints().find(function(b){ return b.key === card.component; });
+      var M3_FIELD_OPTS = {
+        zone: _bp ? m3ZoneOptions(_bp) : null, zoneChord: m3ZoneChordOptions(), zoneSpan: m3ZoneSpanOptions(),
+        boomAttach: BOOM_ATTACH, boomPos: BOOM_POS, chord: CHORD, bmech: BLADE_MECH, rmech: RETRACT_MECH, propKin: PROP_KIN,
+      };
       // Persistence fix (C6/C7): propKin + sym were captured by buildMorphologyObj()
       // but omitted from this emit list, so they were lost on save (propKin only
       // re-derivable for TP via the physics lock; sym not at all). The reader
@@ -2570,7 +2699,7 @@ function recordToRows(record, pid) {
       // many distinct propeller types this card holds.
       ["count","sym","zone","zoneChord","zoneSpan","boomAttach","boomPos","notes","ntypes"].forEach(function(field) {
         if (card[field] === undefined) return;
-        rows.push(reviewRow(apid, "M3", subDim, card.component + "_" + field, card[field] != null ? card[field] : null));
+        rows.push(reviewRow(apid, "M3", subDim, card.component + "_" + field, withLabel(card[field] != null ? card[field] : null, M3_FIELD_OPTS[field])));
       });
       if (card.types && card.types.length) {
         // Multi-type: one labelled sub-dimension per propeller type, fields
@@ -2579,17 +2708,34 @@ function recordToRows(record, pid) {
           var tDim = subDim + " — Type " + ty.idx;
           ["count","chord","orient","bmech","rmech","propKin","zone","zoneChord","zoneSpan","boomAttach","boomPos"].forEach(function(field) {
             if (ty[field] === undefined) return;
-            rows.push(reviewRow(apid, "M3", tDim, card.component + "_t" + ty.idx + "_" + field, ty[field] != null ? ty[field] : null));
+            rows.push(reviewRow(apid, "M3", tDim, card.component + "_t" + ty.idx + "_" + field, withLabel(ty[field] != null ? ty[field] : null, M3_FIELD_OPTS[field])));
           });
         });
-      } else {
+      } else if (card.count > 0 || m.topologyClass === 'RC') {
         // Legacy single-type: flat per-attribute fields under the bare component.
+        // Mirrors the UI's own gate (m3Card(): count>0 is what reveals this
+        // section, EXCEPT for RC, whose single/coaxial hub attrs are always
+        // shown with no count stepper at all) — with 0 propulsors here the
+        // attribute fields were never shown to the reviewer, so stale
+        // ML/default values must not be saved.
         ["chord","orient","bmech","rmech","propKin"].forEach(function(field) {
           if (card[field] === undefined) return;
-          rows.push(reviewRow(apid, "M3", subDim, card.component + "_" + field, card[field] != null ? card[field] : null));
+          rows.push(reviewRow(apid, "M3", subDim, card.component + "_" + field, withLabel(card[field] != null ? card[field] : null, M3_FIELD_OPTS[field])));
         });
       }
     });
+  });
+
+  // ── Trim empties ─────────────────────────────────────────────────────────
+  // Drop rows whose Value is null/undefined/'' so the export only carries what
+  // was actually set — no more one-row-per-unset-field bloat. IMPORTANT: keep
+  // boolean false and numeric 0 (those ARE meaningful answers), and always keep
+  // each figure's T2 "status" row so a figure stays anchored (its Image_Path
+  // rides on it) even when nothing else was recorded for it.
+  function _emptyVal(v){ return v === null || v === undefined || v === ''; }
+  rows = rows.filter(function(r){
+    if (r.Section === 'T2' && r.Field === 'status') return true;   // figure anchor
+    return !_emptyVal(r.Value);
   });
 
   return rows;
@@ -2672,22 +2818,28 @@ function rowsToAIData(rows) {
   // load, so the wizard never echoed back the approval/duplicate choices that
   // were already recorded in the file.
   if (val('isApproved')         != null) T1.approved          = xlBool(val('isApproved'));
-  if (val('t1DisapproveReason') != null) T1.disapprove_reason = val('t1DisapproveReason');
+  if (val('t1DisapproveReason') != null) T1.disapprove_reason = stripLabel(val('t1DisapproveReason'));
   if (val('disapproveOther')    != null) T1.disapprove_other  = val('disapproveOther');
   if (val('archCount')          != null) T1.arch_count        = val('archCount');
   if (val('isDuplicate')        != null) T1.isDuplicate       = xlBool(val('isDuplicate'));
   if (val('duplicateId')        != null) T1.duplicateId       = val('duplicateId');
-  if (val('duplicateType')      != null) T1.duplicateType     = val('duplicateType');
+  if (val('duplicateType')      != null) T1.duplicateType     = stripLabel(val('duplicateType'));
 
-  if (val('topType') != null) G1.topType = val('topType');
+  if (val('topType') != null) G1.topType = stripLabel(val('topType'));
 
   // wingConf/wCount/empType/empKin live under Section "M2" in the row schema,
   // fusShape/fusKin/gearArch/latSym under "M1" — ingestAI() expects all of
   // them merged into one data.M1 object, so just look each field up by name.
+  // wingConf/empType/empKin/fusShape/fusKin/gearArch are written as "<id> —
+  // <name>" by recordToRows() (see withLabel()), so they need stripLabel() to
+  // recover the bare id. The rest (counts/booleans/numbers/free-text notes)
+  // must NOT go through stripLabel — a human note can legitimately contain
+  // " — " as ordinary punctuation, and truncating it there would corrupt it.
+  var CODED_M1_FIELDS = { wingConf:1, empType:1, empKin:1, fusShape:1, fusKin:1, gearArch:1 };
   ['wingConf', 'wCount', 'empType', 'empKin', 'fusShape', 'fusKin', 'gearArch', 'latSym',
    'footLen', 'footWid', 'footHgt', 'footAmbiguous', 'longSym',
    'wingNotes', 'empNotes', 'fusNotes', 'gearNotes']   // persistence fix (H4): notes round-trip
-    .forEach(function(f) { var v = val(f); if (v != null) M1[f] = v; });
+    .forEach(function(f) { var v = val(f); if (v != null) M1[f] = CODED_M1_FIELDS[f] ? stripLabel(v) : v; });
 
   // T2 — rows grouped by Sub_Dimension "Image: <filename>"
   var byImage = {};
@@ -2719,14 +2871,19 @@ function rowsToAIData(rows) {
     // Persistence fix: qualityFlag/hasLegends/comment/arch/status/rotation_deg are
     // now read back so the reviewed-file round-trip restores them. ML pre-label
     // files never carry these fields, so loading them is unaffected.
+    // qualityFlag/acState are written as "<id> — <name>" (withLabel()) — strip
+    // back to the bare id; the rest here are free text/booleans/plain strings
+    // that never carry a label, so stripLabel must NOT touch them.
     ['per', 'acSty', 'acCol', 'bgSty', 'bgCol', 'dupOfPatent', 'dupOfFig',
-     'qualityFlag', 'hasLegends', 'comment', 'arch', 'status', 'rotation_deg', 'partsMulti',
-     'acState', 'stateNote'].forEach(function(k) {
+     'hasLegends', 'comment', 'arch', 'status', 'rotation_deg', 'partsMulti',
+     'stateNote', 'isMain'].forEach(function(k) {
       if (rec[k] != null) entry[k] = rec[k];
     });
+    if (rec.qualityFlag != null) entry.qualityFlag = stripLabel(rec.qualityFlag);
+    if (rec.acState != null) entry.acState = stripLabel(rec.acState);
     if (rec.parts != null) entry.parts = String(rec.parts).split('|').filter(Boolean);
     if (rec.edgeTags != null) entry.edgeTags = String(rec.edgeTags).split('|').filter(Boolean);
-    if (rec.tiltedInView != null) entry.tiltedInView = String(rec.tiltedInView).split('|').filter(Boolean);
+    if (rec.tiltedInView != null) entry.tiltedInView = String(rec.tiltedInView).split('|').map(stripLabel).filter(Boolean);
     var fNum = figNumFromFilename(fname);
     T2[fNum] = entry;
     FIG_FILENAMES[fNum] = fname;
@@ -2738,6 +2895,10 @@ function rowsToAIData(rows) {
   // Multi-type cards add per-type sub-dimensions "Propulsion: <component> — Type N"
   // with fields "<component>_t<N>_<field>"; we strip the "— Type N" suffix so all
   // types regroup under the base component, and collect them into a `types` array.
+  // chord/bmech/rmech/propKin/zone*/boomAttach/boomPos are written as "<id> —
+  // <name>"; count/sym/notes/ntypes/orient are not (orient's Horizontal/
+  // Vertical/Mixed are already plain words) — only strip the former.
+  var CODED_M3_FIELDS = { chord:1, bmech:1, rmech:1, propKin:1, zone:1, zoneChord:1, zoneSpan:1, boomAttach:1, boomPos:1 };
   var byComponent = {};
   rows.forEach(function(r) {
     if (r.Section !== 'M3') return;
@@ -2757,9 +2918,9 @@ function rowsToAIData(rows) {
       var card = byComponent[component];
       if (!card.types) card.types = {};
       if (!card.types[ti]) card.types[ti] = { idx: ti };
-      card.types[ti][tfield] = val;
+      card.types[ti][tfield] = CODED_M3_FIELDS[tfield] ? stripLabel(val) : val;
     } else {
-      byComponent[component][suffix] = val;
+      byComponent[component][suffix] = CODED_M3_FIELDS[suffix] ? stripLabel(val) : val;
     }
   });
   var propulsionCards = Object.keys(byComponent).map(function(k) {
@@ -2778,16 +2939,22 @@ function rowsToAIData(rows) {
   // tilt/position/planform/role labels stayed at their defaults on load even
   // when the Excel had them. Map the wizard's wField names back to the
   // ingestAI() wing shape ({id, tilt, posV, posL, plan, role}).
-  var WING_FIELD_MAP = { wTilt:'tilt', wPosV:'posV', wPosL:'posL', wPlan:'plan', wRole:'role' };
+  // Accept BOTH field namings: the wizard's own recordToRows() emits
+  // "wing1_tilt/posV/posL/plan/role", while the Python pipeline (excel_schema.py)
+  // emits "wing1_wTilt/wPosV/...". The old regex only matched the Python form, so
+  // the wizard's OWN reviewed exports never round-tripped M2 wing details — THIS
+  // was the "M2 not saved" bug.
+  var WING_FIELD_MAP = { wTilt:'tilt', wPosV:'posV', wPosL:'posL', wPlan:'plan', wRole:'role',
+                         tilt:'tilt', posV:'posV', posL:'posL', plan:'plan', role:'role' };
   var byWing = {};
   rows.forEach(function(r) {
     if (r.Section !== 'M2') return;
-    var m = /^wing(\d+)_(wTilt|wPosV|wPosL|wPlan|wRole)$/.exec(String(r.Field || ''));
+    var m = /^wing(\d+)_(wTilt|wPosV|wPosL|wPlan|wRole|tilt|posV|posL|plan|role)$/.exec(String(r.Field || ''));
     if (!m) return;
     var idx = parseInt(m[1], 10), key = WING_FIELD_MAP[m[2]];
     if (r.Value === undefined || r.Value === '' || r.Value == null) return;
     if (!byWing[idx]) byWing[idx] = { id: idx };
-    byWing[idx][key] = r.Value;
+    byWing[idx][key] = stripLabel(r.Value);
   });
   var wings = Object.keys(byWing)
     .map(function(k){ return parseInt(k, 10); })
@@ -2818,6 +2985,100 @@ function copyMorphologyFromOriginal(originalPid) {
   FIG_FILENAMES = savedFilenames;
   FIG_IMAGE_PATH = savedImagePaths;
   ingestAI({ G1: origData.G1, M1: origData.M1, wings: origData.wings, propulsionCards: origData.propulsionCards });
+}
+
+// ── Copy morphology (G1/M1/M2/M3) into the CURRENT architecture ──────────────
+// Sources: another architecture of THIS patent, or any architecture of the
+// PREVIOUS patent (read back from its reviewed rows). Driven by a sidebar button.
+var _copyMorphOpen = false;     // is the source picker expanded?
+var _copyMorphSources = [];     // [{key,label,snap}] computed when the picker opens
+
+// Rebuild per-architecture morphology snapshots from a patent's reviewed rows,
+// WITHOUT disturbing the patent currently in S (save + restore everything the
+// extraction touches: morphology snapshot, m3_* keys, and the FIG_* lookups
+// that rowsToAIData rebuilds as a side effect).
+function extractArchSnapshots(rows) {
+  var idxSet = {};
+  rows.forEach(function(r){ var s = archSuffixNum(r.Patent_ID); if (s != null) idxSet[s] = true; });
+  var archIdxs = Object.keys(idxSet).map(Number).sort(function(a,b){ return a-b; });
+  if (!archIdxs.length) archIdxs = [1];
+
+  var savedSnap = captureAircraftSnapshot();
+  var savedFN = FIG_FILENAMES, savedIP = FIG_IMAGE_PATH;
+  var out = [];
+  archIdxs.forEach(function(n){
+    var blank = fresh();
+    Object.keys(S).forEach(function(k){ if (k.indexOf('m3_') === 0) delete S[k]; });
+    aircraftSnapshotKeys().forEach(function(k){ S[k] = blank[k]; });
+    var d = rowsToAIData(rowsForArch(rows, n));
+    ingestAI({ G1: d.G1, M1: d.M1, wings: d.wings, propulsionCards: d.propulsionCards });
+    out.push({ arch: n, snapshot: captureAircraftSnapshot() });
+  });
+  // Restore the live patent's morphology + image lookups.
+  applyAircraftSnapshot(savedSnap);
+  FIG_FILENAMES = savedFN; FIG_IMAGE_PATH = savedIP;
+  return out;
+}
+
+// Build the list of morphology sources available to copy into the current arch.
+function buildCopyMorphSources() {
+  var sources = [];
+  saveCurArchProfile();                 // capture the active arch so it's in archProfiles
+  var nArch = getArchCount();
+  for (var i = 0; i < nArch; i++) {
+    if (i === S.curArch) continue;      // can't copy an arch onto itself
+    if (S.archProfiles[i]) sources.push({ key: 'self|' + i, label: 'This patent · Arch ' + (i + 1), snap: S.archProfiles[i] });
+  }
+  if (BATCH && BATCH.idx > 0) {
+    var prevPid = BATCH.ids[BATCH.idx - 1];
+    // Prefer the previous patent's REVIEWED rows (human-edited); fall back to its
+    // original ML-predicted rows so you can still copy even if it wasn't reviewed.
+    var prevReviewed = REVIEWED_ROWS.filter(function(r){ return basePatentId(r.Patent_ID) === prevPid; });
+    var prevRows = prevReviewed.length ? prevReviewed : (BATCH.byId[prevPid] || []);
+    var tag = prevReviewed.length ? '' : ' (predicted)';
+    if (prevRows.length) {
+      extractArchSnapshots(prevRows).forEach(function(s){
+        sources.push({ key: 'prev|' + s.arch, label: 'Prev ' + prevPid + ' · Arch ' + s.arch + tag, snap: s.snapshot });
+      });
+    }
+  }
+  return sources;
+}
+
+// Apply one source snapshot onto the current architecture (editable pre-fill).
+function applyCopyMorphSource(idx) {
+  var src = _copyMorphSources[idx];
+  if (!src || !src.snap) return;
+  applyAircraftSnapshot(src.snap);   // overwrite current arch's G1/M1/M2/M3 morphology
+  saveCurArchProfile();              // persist into archProfiles[curArch]
+  _copyMorphOpen = false;
+  if (BATCH) markBatchDirty();
+  render();
+}
+
+// Sidebar panel: a toggle button + (when open) the list of sources. Shown from
+// T2 onward (T2 + the morphology pages), where figures/architectures exist —
+// hidden on T1 (pure metadata) and when no batch is loaded.
+function renderCopyMorph() {
+  var el = document.getElementById('copy-morph-rail');
+  if (!el) return;
+  var show = BATCH && ['t2','gate','m1','m2','m3'].indexOf(curSID()) > -1;
+  if (!show) { el.innerHTML = ''; _copyMorphOpen = false; return; }
+
+  var h = '<div class="rail-label" style="margin-top:6px;">Copy morphology</div>'
+        + '<button type="button" id="btn-copy-morph-toggle" class="btn" title="Copy G1/M1/M2/M3 from another architecture or the previous patent into Architecture ' + (S.curArch + 1) + '">⧉ Copy M1–M3 into Arch ' + (S.curArch + 1) + (_copyMorphOpen ? ' ▲' : ' ▼') + '</button>';
+  if (_copyMorphOpen) {
+    if (!_copyMorphSources.length) {
+      h += '<div class="m3-sub" style="margin-top:6px;">No sources yet — another architecture in this patent, or review the previous patent first.</div>';
+    } else {
+      h += '<div style="display:flex; flex-direction:column; gap:6px; margin-top:6px;">'
+        + _copyMorphSources.map(function(s, i){
+            return '<button type="button" class="btn" data-copy-morph-idx="' + i + '" style="font-size:11px; text-align:left;" title="Copy from ' + escHtml(s.label) + ' into Architecture ' + (S.curArch + 1) + '">⟲ ' + escHtml(s.label) + '</button>';
+          }).join('')
+        + '</div>';
+    }
+  }
+  el.innerHTML = h;
 }
 
 // ── Save-state indicator ─────────────────────────────────────────────────
@@ -2986,6 +3247,11 @@ function loadBatchPatent(idx) {
   // Fall back to the EPO link when a patent has no PatSeer PDF link, so the
   // button is never blank.
   T1_META.pdfSourceLink        = metaVal('pdf_link') || T1_META.pdfLink;
+  // Raw value (no EPO fallback baked in) so recordToRows() can re-emit the
+  // original 'pdf_link' row on export — without this, every reviewed export
+  // silently dropped the PatSeer PDF link injected by inject_pdf_links.py,
+  // so re-loading a reviewed file always fell back to the EPO link.
+  T1_META.pdfLinkRaw           = metaVal('pdf_link') || '';
   // Always reset the name per patent (no fallback to the previous patent's name,
   // which would wrongly carry a name onto a blank-name patent).
   T1_META.aircraftName          = metaVal('aircraftName') || '';
@@ -3007,7 +3273,13 @@ function loadBatchPatent(idx) {
   // rows on save but were never read back; restore them from this patent's rows.
   // No-op for ML pre-label files (which carry neither) and for the placeholder
   // fresh() defaults when a patent hasn't been reviewed yet.
-  var _mainFig = metaVal('mainFigure'); if (_mainFig) S.mainFigure = _mainFig;
+  // Main figure is now per-architecture (per-figure isMain flag, restored above
+  // by ingestPatentRows). Backward-compat: if this is an OLD reviewed file that
+  // only carries the single META mainFigure (no per-figure isMain), seed that
+  // figure's isMain so it still shows as the main of its architecture.
+  var _mainFig = metaVal('mainFigure');
+  var _anyMain = Object.keys(S.figData || {}).some(function(f){ return (S.figData[f]||{}).isMain; });
+  if (_mainFig && !_anyMain && S.figData[_mainFig]) setMainFigure(_mainFig);
   var _patComments = metaVal('comments'); if (_patComments) S.comments = _patComments;
   // Patent-level image-semantics review (T2 col 4) — restore from META rows.
   S.imgNotReflect = String(metaVal('imgNotReflect')).toLowerCase() === 'true';
@@ -3079,6 +3351,57 @@ document.getElementById('batch-xlsx-input').addEventListener('change', function(
   };
   reader.readAsArrayBuffer(file);
 });
+
+// Resume a batch: load a previously-exported reviewed_patents_<batch>.xlsx
+// AFTER the ml_predict batch above is already loaded, and overlay its rows
+// onto REVIEWED_ROWS (loadBatchPatent() already prefers REVIEWED_ROWS over
+// BATCH.byId, so every patent present in this file shows the human's saved
+// choices instead of the raw ML guesses). Patents not present in this file
+// fall back to the ml batch untouched. Jumps straight to the first patent
+// NOT yet in this file, so closing/reopening the page resumes where you left
+// off instead of restarting at patent 1.
+document.getElementById('batch-resume-input').addEventListener('change', function(e) {
+  var file = e.target.files[0];
+  if (!file) return;
+  var status = document.getElementById('batch-resume-status');
+  if (!BATCH) { status.textContent = ' Load the ml batch first.'; e.target.value = ''; return; }
+  var reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      var wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' });
+      var sheetName = wb.SheetNames.indexOf('Review') > -1 ? 'Review' : wb.SheetNames[0];
+      var rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: null });
+
+      var byId = {};
+      rows.forEach(function(r) {
+        if (r.Patent_ID == null) return;
+        var pid = basePatentId(r.Patent_ID);
+        if (!byId[pid]) byId[pid] = [];
+        byId[pid].push(r);
+      });
+
+      var restored = 0;
+      Object.keys(byId).forEach(function(pid) {
+        if (BATCH.ids.indexOf(pid) === -1) return;   // not part of the currently loaded ml batch
+        REVIEWED_ROWS = REVIEWED_ROWS.filter(function(r){ return basePatentId(r.Patent_ID) !== pid; });
+        REVIEWED_ROWS = REVIEWED_ROWS.concat(byId[pid]);
+        BATCH.saved[pid] = true;
+        restored++;
+      });
+
+      // First not-yet-reviewed patent, or the last one if every patent is already saved.
+      var nextIdx = BATCH.ids.findIndex(function(pid){ return !BATCH.saved[pid]; });
+      if (nextIdx === -1) nextIdx = BATCH.ids.length - 1;
+
+      status.textContent = ' Restored ' + restored + '/' + BATCH.ids.length + ' patent(s) — resuming at #' + (nextIdx + 1) + '.';
+      loadBatchPatent(nextIdx);
+    } catch (err) {
+      status.textContent = ' Failed to resume: ' + err.message;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+});
+
 document.getElementById('batch-prev').addEventListener('click', function() {
   if (BATCH) {
     autoSaveCurrentPatent();   // persist current edits before paging away
@@ -3088,16 +3411,33 @@ document.getElementById('batch-prev').addEventListener('click', function() {
 });
 document.getElementById('batch-export').addEventListener('click', exportReviewedBatch);
 
-// "Go to" the base/mother patent a duplicate references — saves current edits
-// then navigates the batch to that patent so the two can be compared.
+// Sidebar "Copy morphology" — toggle the source picker (computing sources on
+// open), and apply a chosen source onto the current architecture.
+document.addEventListener('click', function(e){
+  if (!e.target.closest) return;
+  if (e.target.closest('#btn-copy-morph-toggle')) {
+    _copyMorphOpen = !_copyMorphOpen;
+    _copyMorphSources = _copyMorphOpen ? buildCopyMorphSources() : [];
+    renderCopyMorph();
+    return;
+  }
+  var cm = e.target.closest('[data-copy-morph-idx]');
+  if (cm) {
+    applyCopyMorphSource(parseInt(cm.getAttribute('data-copy-morph-idx'), 10));
+    return;
+  }
+});
+
+// "Open <mother>" — opens the BASE patent's own page (EPO Espacenet, built from
+// its publication number) in the side viewer window, so you can compare WITHOUT
+// navigating this wizard away from the patent you're currently reviewing.
 document.addEventListener('click', function(e){
   var g = e.target.closest && e.target.closest('#btn-goto-mother');
-  if (!g || !BATCH) return;
-  var idx = parseInt(g.getAttribute('data-goto-idx'), 10);
-  if (isNaN(idx)) return;
-  autoSaveCurrentPatent();
-  loadBatchPatent(idx);
-  openOrUpdatePatentWindow(T1_META.pdfLink, 'epo');
+  if (!g) return;
+  var mid = (g.getAttribute('data-mother-id') || '').trim();
+  if (!mid) return;
+  var link = 'https://worldwide.espacenet.com/patent/search?q=pn%3D' + encodeURIComponent(mid);
+  openOrUpdatePatentWindow(link, 'epo');
 });
 
 // Clickable step rail — jump straight to any step (the per-architecture loop is
@@ -3156,15 +3496,15 @@ document.addEventListener('keydown', function(e) {
     if (e.key === 'x' || e.key === 'X') {
       if (fNum) {
         figSet(fNum, 'status', 'disapproved');
-        if (S.mainFigure === fNum) S.mainFigure = null;
+        figSet(fNum, 'isMain', false);   // a disapproved figure can't be the arch's main
         markBatchDirty(); render();
       }
     }
     if (e.key === 'm' || e.key === 'M') {
-      if (fNum) { S.mainFigure = fNum; figSet(fNum, 'status', 'approved'); markBatchDirty(); render(); }
+      if (fNum) { setMainFigure(fNum); figSet(fNum, 'status', 'approved'); markBatchDirty(); render(); }
     }
     if (e.key === 'Escape') {
-      if (fNum) { delete S.figData[fNum]; if(S.mainFigure === fNum) S.mainFigure = null; markBatchDirty(); render(); }
+      if (fNum) { delete S.figData[fNum]; markBatchDirty(); render(); }   // isMain lived on figData, gone with it
     }
   }
 
@@ -3416,14 +3756,13 @@ document.getElementById('panel').addEventListener('click', function(e){
     var fNumD = gridDisBtn.getAttribute('data-grid-disapprove');
     var nextD = figGet(fNumD,'status',null) === 'disapproved' ? null : 'disapproved';
     figSet(fNumD, 'status', nextD);
-    if (nextD === 'disapproved' && S.mainFigure === fNumD) S.mainFigure = null;
+    if (nextD === 'disapproved') figSet(fNumD, 'isMain', false);   // a disapproved figure can't be a main
     renderPreserveScroll(); return;
   }
   // Bulk "Disapprove all" — set every figure to disapproved in one click, so the
   // reviewer then only clicks ✓ on the images they want to keep.
   if (tgt.closest('#btn-grid-disapprove-all')) {
-    t2AllFigNums().forEach(function(fn){ figSet(fn, 'status', 'disapproved'); });
-    S.mainFigure = null;   // the main figure can't be a disapproved one
+    t2AllFigNums().forEach(function(fn){ figSet(fn, 'status', 'disapproved'); figSet(fn, 'isMain', false); });
     if (BATCH) markBatchDirty();
     renderPreserveScroll(); return;
   }
@@ -3458,7 +3797,7 @@ document.getElementById('panel').addEventListener('click', function(e){
   var t2MainBtn = tgt.closest('[data-t2-main]');
   if (t2MainBtn) {
       var fNum2 = (S.t2figNum||'1').trim();
-      if(fNum2){ S.mainFigure = fNum2; figSet(fNum2, 'status', 'approved'); renderPreserveScroll(); }
+      if(fNum2){ setMainFigure(fNum2); figSet(fNum2, 'status', 'approved'); if (BATCH) markBatchDirty(); renderPreserveScroll(); }
       return;
   }
 
