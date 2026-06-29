@@ -28,7 +28,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.cross_modal import T2_PER, T2_AC_STY, T2_AC_COL, T2_BG_STY, T2_BG_COL, T2_PARTS, T2_ROT, G1_TOP_TYPES
+from src.cross_modal import (
+    T2_PER, T2_AC_STY, T2_AC_COL, T2_BG_STY, T2_BG_COL, T2_PARTS, T2_ROT,
+    T2_AC_STATE, T2_TILTED, T2_DINO_UNDERSTANDING, G1_TOP_TYPES,
+)
 from src.reviewer import (
     _T1_SCOPE_DEFS, _T1_FIELD_DEFS, _T1_TARGET_DEFS,
     _M1_FUS_SHAPE_DEFS, _M1_FUS_KIN_DEFS, _M1_GEAR_ARCH_DEFS, _M1_LAT_SYM_DEFS,
@@ -209,6 +212,23 @@ def build_patent_rows(patent_id: str, record: dict, patent_img_dir: "Path | None
             "|".join(parts), None, "siglip" if parts else None, img_path,
         ))
 
+        # acState — flight configuration shown in this figure (single-select).
+        # NonApplicable is a rule override (classify_t2_fields), not a SigLIP
+        # guess — listed in the options for round-trip parity with the HTML.
+        ac_state = preds.get("acState") or {}
+        rows.append(_row(
+            patent_id, "T2", sub_dim, "acState", f"{sub_dim} — flight configuration shown",
+            "|".join(T2_AC_STATE + ["NonApplicable"]), ac_state.get("value"), ac_state.get("confidence"),
+            ac_state.get("source") if ac_state.get("value") else None, img_path,
+            needs_review=_needs_review("T2", ac_state.get("confidence")),
+        ))
+        # tiltedInView — what is tilted/deployed in this view (multi-select).
+        tilted = preds.get("tiltedInView") or []
+        rows.append(_row(
+            patent_id, "T2", sub_dim, "tiltedInView", f"{sub_dim} — what is tilted in view",
+            "|".join(T2_TILTED), "|".join(tilted), None, "siglip" if tilted else None, img_path,
+        ))
+
         rows.append(_row(
             patent_id, "T2", sub_dim, "match_status", f"{sub_dim} — OCR/description match status", "",
             img.get("match_status"), img.get("composite_confidence"), img.get("match_method"), img_path,
@@ -249,6 +269,18 @@ def build_patent_rows(patent_id: str, record: dict, patent_img_dir: "Path | None
         value, conf, source = _pred_val(m1, field)
         rows.append(_row(patent_id, "M1", field, field, field, _OPT(defs), value, conf, source,
                           needs_review=_needs_review("M1", conf)))
+
+    # dinoUnderstanding — projected level of understanding by DINOv2. This is
+    # per-ARCHITECTURE in the HTML wizard, not per-image/patent: the pipeline
+    # has no concept of multiple architectures yet, so this row pre-fills
+    # architecture 1 only, exactly like every other M1 field above (a
+    # multi-architecture patent's later architectures are filled by hand).
+    dino_value, dino_conf, dino_source = _pred_val(m1, "dinoUnderstanding")
+    rows.append(_row(
+        patent_id, "M1", "dinoUnderstanding", "dinoUnderstanding", "dinoUnderstanding",
+        _OPT(T2_DINO_UNDERSTANDING), dino_value, dino_conf, dino_source,
+        needs_review=_needs_review("M1", dino_conf),
+    ))
 
     # The pipeline never extracts real footprint dimensions (length/width/height),
     # so default footAmbiguous=True — this makes the wizard's "Bypass Missing
@@ -322,13 +354,29 @@ def build_patent_rows(patent_id: str, record: dict, patent_img_dir: "Path | None
     bmech_v, bmech_conf, bmech_src = _pred_val(m3, "bmech")
     rmech_v, rmech_conf, rmech_src = _pred_val(m3, "rmech")
     propkin_v, propkin_conf, propkin_src = _pred_val(m3, "propKin")
-    # TP (tilt propulsors) physics lock — the propulsors tilt by definition, so
-    # force propKin=Tilt, mirroring the HTML wizard's TP lock.
-    if top_type == "TP":
-        propkin_v, propkin_conf, propkin_src = "Tilt", propkin_conf, "ensemble"
+    # NOTE: TP no longer force-locks propKin=Tilt. The HTML wizard's physics
+    # matrix was updated so TP (and CVT) leave articulation FREE — a tilt-rotor
+    # patent can legitimately mix tilting and fixed propulsors — while only
+    # TW/DS/SLC/SRW/MR lock to Fixed and RC to Cyclic (handled by the wizard /
+    # SBERT side). So we pass SigLIP/SBERT's predicted propKin through unchanged
+    # for TP and let the reviewer confirm it (it's margin-flagged for review).
+
+    # Spatial mounting predictions (image-level, best-effort, margin-flagged).
+    # Applied PER component type below: wing cards take zoneChord/zoneSpan;
+    # fuselage/core/hull cards take zone (Nose/Aft/Side/Dorsal/Ventral). The emp
+    # card's zone uses a different vocab (StackV/StackH/Tip) that SigLIP isn't
+    # scored against, so it's left blank for the human. boomAttach/boomPos are
+    # human-only here — the pipeline emits no dedicated boom card.
+    zonechord_v, zonechord_conf, zonechord_src = _pred_val(m3, "zoneChord")
+    zonespan_v,  zonespan_conf,  zonespan_src  = _pred_val(m3, "zoneSpan")
+    zone_v,      zone_conf,      zone_src       = _pred_val(m3, "zone")
 
     for component in m3_card_keys(top_type, wing_conf, w_count, emp_type):
         sub_dim = f"Propulsion: {component}"
+        is_wing = component.startswith("wing")
+        # fuselage/core_layout/hull_array share the Nose/Aft/Side/Dorsal/Ventral
+        # zone vocab; emp does NOT (StackV/StackH/Tip), so it stays unpredicted.
+        zone_predicted = component in ("fuselage", "core_layout", "hull_array")
         for field, defs, value, conf, source in [
             ("chord",   _M3_CHORD_DEFS,   chord_v,   chord_conf,   chord_src),
             ("orient",  _M3_ORIENT_DEFS,  orient_v,  orient_conf,  orient_src),
@@ -340,8 +388,18 @@ def build_patent_rows(patent_id: str, record: dict, patent_img_dir: "Path | None
                               f"{sub_dim} — {field}", _OPT(defs), value, conf, source,
                               needs_review=_needs_review("M3", conf)))
         for field, label, options in _M3_MANUAL:
+            # Fill the spatial mounting fields from SigLIP per component type;
+            # everything else (count/sym/notes) stays human-entered (blank).
+            sp_val = sp_conf = sp_src = None
+            if field == "zoneChord" and is_wing:
+                sp_val, sp_conf, sp_src = zonechord_v, zonechord_conf, zonechord_src
+            elif field == "zoneSpan" and is_wing:
+                sp_val, sp_conf, sp_src = zonespan_v, zonespan_conf, zonespan_src
+            elif field == "zone" and zone_predicted:
+                sp_val, sp_conf, sp_src = zone_v, zone_conf, zone_src
             rows.append(_row(patent_id, "M3", sub_dim, f"{component}_{field}",
-                              f"{sub_dim} — {label}", options))
+                              f"{sub_dim} — {label}", options, sp_val, sp_conf, sp_src,
+                              needs_review=_needs_review("M3", sp_conf) if sp_val else None))
 
     return rows
 

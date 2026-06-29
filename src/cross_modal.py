@@ -314,7 +314,7 @@ T2_PER_PROMPTS = {
         "and the fuselage top, with visible depth foreshortening, wing tips appear "
         "further away than wing roots, three faces visible",
 }
-T2_AC_STY = ["Render", "Line Drawing", "Draft", "Blueprint"]
+T2_AC_STY = ["Render", "Line Drawing", "Simple Line Drawing", "Draft", "Blueprint"]
 T2_AC_COL = ["B/W (Monochrome)", "Grayscale", "Full Color"]
 T2_BG_STY = ["Solid Fill", "Shaded/Gradient", "Grid/Pattern"]
 T2_BG_COL = ["White", "Blueprint Blue", "Dark", "Grayscale"]
@@ -325,6 +325,44 @@ T2_PARTS  = [
     "Internal Components/Batteries/Wiring",
 ]
 T2_ROT = [0, 90, 180, 270]
+
+# Per-figure "flight configuration shown" (HTML AC_STATE). "Unclear" is a
+# human-only fallback (no positive visual signature), so SigLIP scores only the
+# four concrete states and the wizard/low-confidence path covers the rest.
+T2_AC_STATE = ["Ground", "Hover", "Transition", "Cruise"]
+T2_AC_STATE_PROMPTS = {
+    "Ground":     "an eVTOL aircraft at rest on the ground with landing gear, skids, or wheels "
+                  "touching a surface, rotors level or stopped, no flight motion",
+    "Hover":      "an eVTOL aircraft in vertical hover with lift rotors facing upward, wings level, "
+                  "no forward-facing cruise propulsion engaged",
+    "Transition": "an eVTOL aircraft mid-transition with its wings or rotors drawn part-way tilted "
+                  "at an intermediate angle between vertical hover and horizontal cruise",
+    "Cruise":     "an eVTOL aircraft in forward cruise flight with propulsors facing forward and the "
+                  "wings providing lift, rotors level with the flight direction",
+}
+# Per-figure "what is tilted/deployed in this view" (HTML TILTED_IN_VIEW),
+# multi-select — a figure can show both wings AND rotors tilted.
+T2_TILTED = ["Wings", "Rotors"]
+T2_TILTED_PROMPTS = {
+    "Wings":  "an aircraft drawing where an entire wing panel is rotated or tilted away from level",
+    "Rotors": "an aircraft drawing where rotor or propulsor units are tilted or rotated away from their "
+              "cruise orientation",
+}
+
+# Reviewer's projection of how usable a figure will be as a DINOv2 3-D shape
+# cue (HTML DINO_UNDERSTANDING). Zero-shot over visual legibility cues — reuses
+# the same image embedding as every other T2 axis, so this is free beyond one
+# extra _score() call.
+T2_DINO_UNDERSTANDING = ["Easy", "Hard", "Impossible"]
+T2_DINO_UNDERSTANDING_PROMPTS = {
+    "Easy":       "a clear, unoccluded patent technical drawing of a single aircraft shown in full from "
+                  "an unambiguous angle, with clean simple lines and no clutter, callouts, or cropping",
+    "Hard":       "a patent technical drawing of an aircraft that is partially occluded, drawn from an "
+                  "unusual or foreshortened angle, or rendered with sparse/ambiguous line art that is "
+                  "still partly readable",
+    "Impossible": "a patent drawing that is too abstract, schematic, cluttered with callouts and text, "
+                  "cropped, or low-detail to make out the aircraft's 3-D shape at all",
+}
 
 
 # ─── Zero-shot T2 taxonomy classification ─────────────────────────────────────
@@ -432,6 +470,46 @@ def classify_t2_fields(
         }
     except Exception:
         result["rotation_deg_suggested"] = {"value": 0, "confidence": 0.0, "source": "siglip"}
+
+    # Flight configuration shown in THIS figure (acState) — single-select over the
+    # four concrete states, scored with discriminative per-state prompts.
+    try:
+        state_scores = _score(T2_AC_STATE, "{}", T2_AC_STATE_PROMPTS)
+        best_i       = state_scores.index(max(state_scores))
+        result["acState"] = {"value": T2_AC_STATE[best_i],
+                             "confidence": round(state_scores[best_i], 4), "source": "siglip"}
+    except Exception:
+        result["acState"] = {"value": None, "confidence": 0.0, "source": "siglip"}
+
+    # Mirror the HTML wizard's rule: a figure whose dominant structural token is
+    # NOT "Whole Vehicle Layout" is a component close-up, so "Aircraft State"
+    # doesn't really apply — override the SigLIP guess with NonApplicable.
+    # Free (no extra model call) and keeps the pre-label consistent with what
+    # the reviewer would get from clicking through the UI by hand.
+    if "Whole Vehicle Layout" not in result.get("parts", []):
+        result["acState"] = {"value": "NonApplicable", "confidence": 1.0, "source": "rule"}
+
+    # Projected level of understanding by DINOv2 (HTML DINO_UNDERSTANDING) —
+    # single-select, same scoring pattern as acState.
+    try:
+        dino_scores = _score(T2_DINO_UNDERSTANDING, "{}", T2_DINO_UNDERSTANDING_PROMPTS)
+        best_i      = dino_scores.index(max(dino_scores))
+        result["dinoUnderstanding"] = {"value": T2_DINO_UNDERSTANDING[best_i],
+                                        "confidence": round(dino_scores[best_i], 4), "source": "siglip"}
+    except Exception:
+        result["dinoUnderstanding"] = {"value": None, "confidence": 0.0, "source": "siglip"}
+
+    # What is tilted/deployed in this view (tiltedInView) — multi-select, same
+    # threshold pattern as parts.
+    TILTED_THRESHOLD = 0.20
+    try:
+        tilt_scores = _score(T2_TILTED, "{}", T2_TILTED_PROMPTS)
+        result["tiltedInView"]        = [T2_TILTED[i] for i, s in enumerate(tilt_scores)
+                                          if s > TILTED_THRESHOLD]
+        result["tiltedInView_scores"] = {T2_TILTED[i]: round(s, 4) for i, s in enumerate(tilt_scores)}
+    except Exception:
+        result["tiltedInView"]        = []
+        result["tiltedInView_scores"] = {}
 
     return result
 
@@ -646,6 +724,7 @@ def classify_m2_fields(
         ("V-Tail",      "aircraft with a V-shaped tail combining horizontal and vertical stabilization"),
         ("Inv_V-Tail",  "aircraft with an inverted V-tail pointing downward"),
         ("H-Tail",      "aircraft with an H-tail or twin-boom tail with two vertical fins connected by a horizontal stabilizer"),
+        ("VertFin",     "aircraft with one or more vertical fins only and no horizontal stabilizer"),
         ("Fins",        "aircraft with minimal small stabilizing fins rather than a full tail empennage"),
     ]
     EMP_KIN = [
@@ -714,10 +793,11 @@ def classify_m3_fields(
         ("Vertical",   "rotors oriented vertically for hovering lift"),
         ("Mixed",      "rotors or propulsors with a visible tilting or vectoring mechanism that rotates between hover and cruise"),
     ]
+    # bmech = blade housing ONLY: Open vs Ducted (matches the HTML wizard's
+    # BLADE_MECH). Folding/stowing is rmech=Retractable, not a bmech value.
     BLADE_MECH = [
         ("Open",   "open free rotor or propeller blades exposed to airflow"),
         ("Ducted", "rotors inside a duct or shroud or enclosed fan housing"),
-        ("Folded", "folding or stowable rotor blades that collapse when not in use"),
     ]
     RETRACT_MECH = [
         ("Exposed",     "non-retractable rotors permanently exposed outside the aircraft structure"),
@@ -737,6 +817,46 @@ def classify_m3_fields(
         ("Tilt",  "a propulsor that tilts as a unit to vector thrust between hover and cruise"),
         ("Fixed", "a fixed propulsor with no articulation"),
     ]
+    # ── Spatial mounting position (HTML M3 zone fields) ───────────────────────
+    # Best-effort image-level guesses; all are margin-flagged for human review in
+    # reviewer.process_patent (a single B&W drawing rarely pins these precisely).
+    # WING-mounted: chordwise (LE/TE/Above/Below) + spanwise (Inboard..Wingtip/FullSpan).
+    ZONE_CHORD = [
+        ("LE",    "rotors or propulsors mounted at the wing leading edge, ahead of the wing"),
+        ("TE",    "rotors or propulsors mounted at the wing trailing edge, behind the wing"),
+        ("Above", "rotors or propulsors mounted above the wing surface"),
+        ("Below", "rotors or propulsors mounted below the wing surface"),
+    ]
+    ZONE_SPAN = [
+        ("Inboard",  "rotors mounted inboard near the wing root and fuselage"),
+        ("MidSpan",  "rotors mounted at mid-span along the wing"),
+        ("Outboard", "rotors mounted outboard toward the wing tip"),
+        ("Wingtip",  "rotors mounted right at the wing tip"),
+        ("FullSpan", "rotors distributed across the full span of the wing"),
+    ]
+    # NON-wing airframe mounting zone (fuselage / generic cards).
+    ZONE = [
+        ("Nose",    "propulsors mounted at the nose or forward of the aircraft"),
+        ("Aft",     "propulsors mounted at the aft or rear of the aircraft"),
+        ("Side",    "propulsors mounted on side outriggers"),
+        ("Dorsal",  "propulsors mounted dorsally on top of the aircraft"),
+        ("Ventral", "propulsors mounted ventrally underneath the aircraft"),
+    ]
+    # Boom-mounted propulsor cards only.
+    BOOM_ATTACH = [
+        ("Wings",     "propulsor booms attached to the wings"),
+        ("Fuselage",  "propulsor booms attached to the fuselage"),
+        ("Both",      "propulsor booms attached to both wings and fuselage"),
+        ("Empennage", "propulsor booms attached to the empennage or tail"),
+    ]
+    BOOM_POS = [
+        ("Fore",     "booms positioned forward, extending ahead of their attachment"),
+        ("Mid",      "booms positioned at the middle of their attachment"),
+        ("Aft",      "booms positioned aft, extending behind their attachment"),
+        ("Inboard",  "booms positioned inboard near the root or fuselage"),
+        ("Outboard", "booms positioned outboard toward the wingtip"),
+        ("Spanning", "booms running spanwise along their attachment"),
+    ]
 
     try:
         return {
@@ -745,6 +865,14 @@ def classify_m3_fields(
             "bmech":   _best(BLADE_MECH,  "A patent drawing showing an eVTOL with {}"),
             "rmech":   _best(RETRACT_MECH, "A patent drawing showing an eVTOL with {}"),
             "propKin": _best(PROP_KIN,    "A patent drawing showing an eVTOL with {}"),
+            # Spatial mounting — consumed per-component by excel_schema
+            # (wing cards take zoneChord/zoneSpan; fuselage/generic take zone;
+            # boom cards take boomAttach/boomPos).
+            "zoneChord":  _best(ZONE_CHORD,  "A patent drawing showing an eVTOL with {}"),
+            "zoneSpan":   _best(ZONE_SPAN,   "A patent drawing showing an eVTOL with {}"),
+            "zone":       _best(ZONE,        "A patent drawing showing an eVTOL with {}"),
+            "boomAttach": _best(BOOM_ATTACH, "A patent drawing showing an eVTOL with {}"),
+            "boomPos":    _best(BOOM_POS,    "A patent drawing showing an eVTOL with {}"),
         }
     except Exception:
         return {}

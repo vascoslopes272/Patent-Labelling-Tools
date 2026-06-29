@@ -104,6 +104,8 @@ _NORMALIZE = {
         "inverted-v": "Inv_V-Tail",
         "h-tail": "H-Tail", "htail": "H-Tail", "tailboom": "H-Tail",
         "twin-boom": "H-Tail", "twinboom": "H-Tail",
+        "vertfin": "VertFin", "verticalfin": "VertFin", "vertical-fin": "VertFin",
+        "finonly": "VertFin", "vertical-fins-only": "VertFin",
         "fins": "Fins", "fin": "Fins",
     },
     "empKin": {
@@ -122,10 +124,15 @@ _NORMALIZE = {
         "mixed": "Mixed", "tilting": "Mixed", "tilting_mechanism": "Mixed",
         "tilt": "Mixed", "vectored": "Mixed",
     },
+    # bmech = blade HOUSING only (Open vs Ducted). Folding/stowable is rmech
+    # (Retractable), not a bmech value — the HTML wizard has no "Folded" housing.
+    # A folding rotor's housing is whatever it is when deployed (usually Open),
+    # so VLM "folding/stowable" maps to Open here; its retractability is captured
+    # by the rmech field's own "stowing"->Retractable mapping below.
     "bmech": {
         "open": "Open", "openrotor": "Open", "exposed": "Open", "free": "Open",
+        "folded": "Open", "folding": "Open", "stowable": "Open",
         "ducted": "Ducted", "shrouded": "Ducted", "fan": "Ducted",
-        "folded": "Folded", "folding": "Folded", "stowable": "Folded",
     },
     "rmech": {
         "exposed": "Exposed", "nonretractable": "Exposed", "fixed": "Exposed",
@@ -332,7 +339,7 @@ _M2_QUESTION = (
     "drawing and classify the lifting surfaces. Reply with ONLY a JSON object, no prose:\n"
     "{\n"
     '  "wingConf": one of ["W","BWB","FW","LB"],\n'
-    '  "empType":  one of ["Tailless","Conventional","Cruciform","T-Tail","V-Tail","Inv_V-Tail","H-Tail","Fins"],\n'
+    '  "empType":  one of ["Tailless","Conventional","Cruciform","T-Tail","V-Tail","Inv_V-Tail","H-Tail","VertFin","Fins"],\n'
     '  "empKin":   one of ["Fixed","Tilt","Stabilator"],\n'
     '  "wCount":   integer number of main wing panels, 1 to 4\n'
     "}\n"
@@ -363,14 +370,14 @@ _M3_QUESTION = (
     "{\n"
     '  "chord":   one of ["Front","Back"],\n'
     '  "orient":  one of ["Horizontal","Vertical","Mixed"],\n'
-    '  "bmech":   one of ["Open","Ducted","Folded"],\n'
+    '  "bmech":   one of ["Open","Ducted"],\n'
     '  "rmech":   one of ["Exposed","Retractable"],\n'
     '  "propKin": one of ["Fixed","Tilt","Vectored","Cyclic"]\n'
     "}\n"
     "chord = rotors at the front/leading edge (pulling) vs back/trailing edge (pushing); "
     "orient = rotor disc orientation (Horizontal lift, Vertical cruise, or Mixed); "
-    "bmech = blade housing (Open exposed blades, Ducted/shrouded, or Folding/stowable); "
-    "rmech = whether rotors are permanently Exposed or Retractable into the structure; "
+    "bmech = blade housing (Open exposed blades vs Ducted/shrouded); "
+    "rmech = whether rotors are permanently Exposed or Retractable/folding into the structure; "
     "propKin = propulsor articulation (Fixed, Tilt, thrust-Vectored, or Cyclic swashplate). "
     "If a field is not determinable from this figure, omit that key."
 )

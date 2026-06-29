@@ -487,6 +487,7 @@ _M2_EMP_TYPE_DEFS = {
     "V-Tail":       "the aircraft has a V-shaped tail combining horizontal and vertical stabilization",
     "Inv_V-Tail":   "the aircraft has an inverted V-tail pointing downward",
     "H-Tail":       "the aircraft has an H-tail or twin-boom tail with two vertical fins connected by a horizontal stabilizer",
+    "VertFin":      "the aircraft has one or more vertical fins only, with no horizontal stabilizer",
     "Fins":         "the aircraft has minimal small stabilizing fins rather than a full tail empennage",
 }
 _M2_EMP_KIN_DEFS = {
@@ -512,10 +513,14 @@ _M3_ORIENT_DEFS = {
     "Vertical":   "the rotors are oriented vertically for hovering lift",
     "Mixed":      "the rotors or propulsors tilt or vector between vertical hover and horizontal cruise",
 }
+# bmech = blade HOUSING only: Open (exposed) vs Ducted (shrouded). The HTML
+# wizard's BLADE_MECH has exactly these two — folding/stowing is NOT a blade
+# housing trait, it's captured separately by rmech (Retractable). "Folded" was
+# dropped here so SigLIP/SBERT/VLM can never emit a bmech value the wizard
+# can't display as selected.
 _M3_BMECH_DEFS = {
     "Open":   "the aircraft has open free rotor or propeller blades exposed to airflow",
     "Ducted": "the rotors are inside a duct, shroud, or enclosed fan housing",
-    "Folded": "the aircraft has folding or stowable rotor blades that collapse when not in use",
 }
 _M3_RMECH_DEFS = {
     "Exposed":     "the rotors are non-retractable and permanently exposed outside the aircraft structure",
@@ -528,6 +533,14 @@ _M3_PROPKIN_DEFS = {
     "Vectored": "the propulsor uses thrust vectoring to redirect the exhaust or slipstream",
     "Cyclic":   "the rotor uses cyclic swashplate pitch control like a helicopter",
 }
+
+# Core M3 fields (the four/five visually-classified attribute axes) vs the
+# SPATIAL mounting-position fields (HTML M3 zone/boom options). SigLIP predicts
+# both (cross_modal.classify_m3_fields), but only image-level — the spatial ones
+# are best-effort and margin-flagged. SBERT/VLM do NOT predict spatial, so they
+# pass through the merges untouched (text.get(f) is None ⇒ visual wins).
+_M3_CORE_FIELDS    = ["chord", "orient", "bmech", "rmech", "propKin"]
+_M3_SPATIAL_FIELDS = ["zoneChord", "zoneSpan", "zone", "boomAttach", "boomPos"]
 
 
 def _empty_pred() -> dict:
@@ -1172,6 +1185,7 @@ def process_patent(
     m1_per_fig: list[dict] = []
     m2_per_fig: list[dict] = []
     m3_per_fig: list[dict] = []
+    dino_per_fig: list[dict] = []
 
     if siglip_bundle is not None and not skip_siglip:
         model, tokenizer, preprocess, device = siglip_bundle
@@ -1215,11 +1229,22 @@ def process_patent(
                 vlm_m3 = vlm_extract_m3(img_path, vlm_bundle)
                 m1_pred = merge_prediction_dicts(m1_pred, vlm_m1, ["fusShape", "fusKin", "gearArch", "latSym"])
                 m2_pred = merge_prediction_dicts(m2_pred, vlm_m2, ["wingConf", "empType", "empKin", "wCount"])
-                m3_pred = merge_prediction_dicts(m3_pred, vlm_m3, ["chord", "orient", "bmech", "rmech", "propKin"])
+                # VLM has no spatial fields, so merge only the core axes and keep
+                # SigLIP's spatial predictions (merge_prediction_dicts returns only
+                # the listed keys, which would otherwise drop the spatial ones).
+                m3_merged = merge_prediction_dicts(m3_pred, vlm_m3, _M3_CORE_FIELDS)
+                for _sf in _M3_SPATIAL_FIELDS:
+                    if _sf in m3_pred:
+                        m3_merged[_sf] = m3_pred[_sf]
+                m3_pred = m3_merged
 
             m1_per_fig.append(m1_pred)
             m2_per_fig.append(m2_pred)
             m3_per_fig.append(m3_pred)
+            # dinoUnderstanding is per-ARCHITECTURE, not per-image — collected
+            # here per figure and rolled up below (same aggregation pattern as
+            # m1/m2/m3) into a single value alongside the rest of M1.
+            dino_per_fig.append(res["T2_predictions"])
 
     # ── Aggregate per-figure SigLIP predictions → patent-level (visual) ───────
     m1_visual = aggregate_architecture_predictions(
@@ -1231,8 +1256,15 @@ def process_patent(
     ) if m2_per_fig else {}
 
     m3_visual = aggregate_architecture_predictions(
-        m3_per_fig, ["chord", "orient", "bmech", "rmech", "propKin"]
+        m3_per_fig, _M3_CORE_FIELDS + _M3_SPATIAL_FIELDS
     ) if m3_per_fig else {}
+
+    # dinoUnderstanding: per-architecture, not per-image — same highest-
+    # confidence aggregation as m1/m2/m3, then folded into m1_predictions
+    # below (no text/SBERT counterpart, so it skips merge_prediction_dicts).
+    dino_visual = aggregate_architecture_predictions(
+        dino_per_fig, ["dinoUnderstanding"]
+    ) if dino_per_fig else {}
 
     g1_visual: dict | None = None
     for res in match_results:
@@ -1298,18 +1330,25 @@ def process_patent(
         )
 
     m1_predictions = merge_prediction_dicts(m1_visual, m1_text, ["fusShape", "fusKin", "gearArch", "latSym"])
+    # No text/SBERT counterpart for dinoUnderstanding (it's purely a visual
+    # legibility judgment) — fold the aggregated visual guess straight in.
+    m1_predictions["dinoUnderstanding"] = dino_visual.get(
+        "dinoUnderstanding", {"value": None, "confidence": 0.0, "source": None}
+    )
     m2_predictions = merge_prediction_dicts(m2_visual, m2_text, ["wingConf", "empType", "empKin", "wCount"])
-    m3_predictions = merge_prediction_dicts(m3_visual, m3_text, ["chord", "orient", "bmech", "rmech", "propKin"])
+    m3_predictions = merge_prediction_dicts(m3_visual, m3_text, _M3_CORE_FIELDS + _M3_SPATIAL_FIELDS)
 
     # Guess-but-flag the KINEMATIC fields (the tilt/motion question, like G1, is
     # not legible in a static drawing): cap confidence on a near-tie/low-conf
     # prediction so the wizard prompts the human to verify. The genuinely VISUAL
     # fields (fusShape, perspective, wingConf, …) are left untouched — vision is
-    # the right authority for a drawn geometric fact.
+    # the right authority for a drawn geometric fact. The SPATIAL mounting fields
+    # (zone/zoneChord/zoneSpan/boom*) are inherently hard to read off a single
+    # drawing, so they're flagged for review too.
     for _f in ("empKin",):
         if _f in m2_predictions:
             m2_predictions[_f] = _margin_flag(m2_predictions[_f])
-    for _f in ("orient", "propKin"):
+    for _f in ["orient", "propKin"] + _M3_SPATIAL_FIELDS:
         if _f in m3_predictions:
             m3_predictions[_f] = _margin_flag(m3_predictions[_f])
 
