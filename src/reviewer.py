@@ -461,7 +461,8 @@ _M1_FUS_SHAPE_DEFS = {
 }
 _M1_FUS_KIN_DEFS = {
     "Fixed":    "the aircraft has a conventional fixed fuselage that does not tilt or pivot",
-    "Variable": "the aircraft has a variable incidence or tilting fuselage body that rotates during transition",
+    "VarInc":   "the aircraft has a variable incidence wing or surface that pivots relative to the fuselage to change angle of attack during transition",
+    "TiltBody": "the aircraft has a tilting fuselage body that rotates or pitches forward during transition to vectored flight",
 }
 _M1_GEAR_ARCH_DEFS = {
     "Skids":      "the aircraft has fixed skid-type landing gear or runners",
@@ -540,7 +541,7 @@ _M3_PROPKIN_DEFS = {
 # are best-effort and margin-flagged. SBERT/VLM do NOT predict spatial, so they
 # pass through the merges untouched (text.get(f) is None ⇒ visual wins).
 _M3_CORE_FIELDS    = ["chord", "orient", "bmech", "rmech", "propKin"]
-_M3_SPATIAL_FIELDS = ["zoneChord", "zoneSpan", "zone", "boomAttach", "boomPos"]
+_M3_SPATIAL_FIELDS = ["zoneChord", "zoneSpan", "zone"]
 
 
 def _empty_pred() -> dict:
@@ -1256,7 +1257,7 @@ def process_patent(
     ) if m2_per_fig else {}
 
     m3_visual = aggregate_architecture_predictions(
-        m3_per_fig, _M3_CORE_FIELDS + _M3_SPATIAL_FIELDS
+        m3_per_fig, _M3_CORE_FIELDS + _M3_SPATIAL_FIELDS + ["symCirc"]
     ) if m3_per_fig else {}
 
     # dinoUnderstanding: per-architecture, not per-image — same highest-
@@ -1337,6 +1338,12 @@ def process_patent(
     )
     m2_predictions = merge_prediction_dicts(m2_visual, m2_text, ["wingConf", "empType", "empKin", "wCount"])
     m3_predictions = merge_prediction_dicts(m3_visual, m3_text, _M3_CORE_FIELDS + _M3_SPATIAL_FIELDS)
+    # symCirc (circular/radial propulsor arrangement) is a purely VISUAL judgment
+    # with no text/SBERT counterpart — fold the aggregated visual guess straight in
+    # (same pattern as dinoUnderstanding), then margin-flag it below.
+    m3_predictions["symCirc"] = m3_visual.get(
+        "symCirc", {"value": None, "confidence": 0.0, "source": None}
+    )
 
     # Guess-but-flag the KINEMATIC fields (the tilt/motion question, like G1, is
     # not legible in a static drawing): cap confidence on a near-tie/low-conf
@@ -1348,7 +1355,7 @@ def process_patent(
     for _f in ("empKin",):
         if _f in m2_predictions:
             m2_predictions[_f] = _margin_flag(m2_predictions[_f])
-    for _f in ["orient", "propKin"] + _M3_SPATIAL_FIELDS:
+    for _f in ["orient", "propKin", "symCirc"] + _M3_SPATIAL_FIELDS:
         if _f in m3_predictions:
             m3_predictions[_f] = _margin_flag(m3_predictions[_f])
 

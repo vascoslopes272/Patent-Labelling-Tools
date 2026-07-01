@@ -47,7 +47,7 @@ HTML_PATH = REPO_ROOT / "notebooks" / "UI_for_taxonomy_caracterization_10.0.html
 
 sys.path.insert(0, str(REPO_ROOT))
 
-from src.excel_schema import _T1_MANUAL, _M1_MANUAL, _WING_MANUAL, _M3_MANUAL  # noqa: E402
+from src.excel_schema import _T1_MANUAL, _G1_MANUAL, _M1_MANUAL, _WING_MANUAL, _M3_MANUAL  # noqa: E402
 from src.reviewer import (  # noqa: E402
     _T1_SCOPE_DEFS, _T1_FIELD_DEFS, _T1_TARGET_DEFS,
     _M1_FUS_SHAPE_DEFS, _M1_FUS_KIN_DEFS, _M1_GEAR_ARCH_DEFS, _M1_LAT_SYM_DEFS,
@@ -55,7 +55,7 @@ from src.reviewer import (  # noqa: E402
     _M3_CHORD_DEFS, _M3_ORIENT_DEFS, _M3_BMECH_DEFS, _M3_RMECH_DEFS,
 )
 from src.cross_modal import (  # noqa: E402
-    T2_PER, T2_SYM, T2_AC_STY, T2_AC_COL, T2_BG_STY, T2_BG_COL, T2_PARTS,
+    T2_PER, T2_AC_STY, T2_AC_COL, T2_BG_STY, T2_BG_COL, T2_PARTS,
     G1_TOP_TYPES,
 )
 
@@ -195,7 +195,6 @@ def test_defs_dict_matches_html_function(js_src, py_defs, html_func, label):
 
 @pytest.mark.parametrize("py_list,html_var,label", [
     (T2_PER,    "T2_PER",            "T2.per"),
-    (T2_SYM,    "T2_SYM",            "T2.sym"),
     (T2_AC_STY, "T2_AC_STY",         "T2.acSty"),
     (T2_AC_COL, "T2_AC_COL",         "T2.acCol"),
     (T2_BG_STY, "T2_BG_STY",         "T2.bgSty"),
@@ -283,6 +282,7 @@ def test_t1_disapprove_reason_options_match_html(js_src):
     (_M1_MANUAL,  "longSym",       {"true", "false"}),
     (_T1_MANUAL,  "isApproved",    {"true", "false"}),
     (_T1_MANUAL,  "isDuplicate",   {"true", "false"}),
+    (_G1_MANUAL,  "notPureArch",   {"true", "false"}),
 ])
 def test_manual_boolean_field_domain(manual_list, field, expected):
     assert _opts_for(manual_list, field) == expected

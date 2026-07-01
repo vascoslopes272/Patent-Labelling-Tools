@@ -68,10 +68,18 @@ def _pred_val(pred_dict: dict | None, key: str):
 
 _T1_MANUAL = [
     ("isApproved",          "T1 — Approval Status",       "true|false"),
-    ("t1DisapproveReason",  "T1 — Disapproval Reason",    "Pure UAV|Out of Domain|Unreadable|Other"),
+    ("t1DisapproveReason",  "T1 — Disapproval Reason",    "Pure UAV|Out of Domain|Unreadable|No Aircraft Image|Other"),
     ("archCount",           "T1 — Distinct Architectures", ""),
     ("isDuplicate",         "T1 — Duplicate Flag",        "true|false"),
     ("duplicateId",         "T1 — Duplicate Of (Patent ID)", ""),
+]
+
+# G1 has one predicted field (topType, emitted directly below) plus this
+# human-only reviewer judgment: whether the patent is NOT a single clean
+# architecture (a hybrid / mixed / transitional concept). No ML signal for it —
+# mirrors the HTML wizard's "Architecture Purity" checkbox (G1 page).
+_G1_MANUAL = [
+    ("notPureArch", "Architecture Purity", "true|false"),
 ]
 
 _M1_MANUAL = [
@@ -84,18 +92,22 @@ _M1_MANUAL = [
 
 _WING_MANUAL = [
     ("wTilt",  "Tilt",            "Fixed|Tilt"),
-    ("wPosV",  "Vertical Position", "High|Mid|Low"),
+    ("wPosV",  "Vertical Position", "High|Mid|Low|Unknown"),
     ("wPosL",  "Longitudinal Position", "Fwd|Cent|Aft"),
     ("wPlan",  "Planform",        "Str|Swp|Del|Oth"),
     ("wRole",  "Role",            "Canard|Tandem|Aft|Stacked"),
 ]
 
+# sym / symLong stay human-only (blank); symCirc is filled from a SigLIP
+# best-guess (margin-flagged) — see classify_m3_fields() + process_patent().
 _M3_MANUAL = [
     ("count",     "Count",              ""),
     ("sym",       "Symmetric",          "true|false"),
-    ("zone",      "Zone",               "Nose|Aft|Side|Dorsal|Ventral|StackV|StackH|Tip"),
+    ("symLong",   "Longitudinally Symmetric",  "true|false"),
+    ("symCirc",   "Circular / Radial Symmetry", "true|false"),
+    ("zone",      "Zone",               "Nose|Aft|FusFront|FusRear|Side|Dorsal|Ventral|StackV|StackH|Tip|Other"),
     ("zoneChord", "Zone — Chordwise",   "LE|TE|Above|Below"),
-    ("zoneSpan",  "Zone — Spanwise",    "Inboard|MidSpan|Outboard|Wingtip"),
+    ("zoneSpan",  "Zone — Spanwise",    "Inboard|MidSpan|Outboard|Wingtip|FullSpan"),
     ("notes",     "Notes",              ""),
 ]
 
@@ -259,6 +271,10 @@ def build_patent_rows(patent_id: str, record: dict, patent_img_dir: "Path | None
         _OPT(G1_TOP_TYPES), top_type, g1.get("confidence"), g1.get("source"),
         needs_review=_needs_review("G1", g1.get("confidence")),
     ))
+    # Human-only architecture-purity flag (no ML prediction) — blank for the
+    # reviewer to tick in the wizard when the patent isn't one clean architecture.
+    for field, sub_dim, options in _G1_MANUAL:
+        rows.append(_row(patent_id, "G1", sub_dim, field, sub_dim, options))
 
     # ── M1 ──────────────────────────────────────────────────────────────────
     m1 = record.get("M1_predictions") or {}
@@ -341,6 +357,18 @@ def build_patent_rows(patent_id: str, record: dict, patent_img_dir: "Path | None
                     patent_id, "M2", f"Wing {wi} — {label}", f"wing{wi}_{field}",
                     f"Wing {wi} — {label}", options,
                 ))
+    elif is_winged and wing_conf in ("BWB", "FW", "LB"):
+        # Integrated-hull frameworks (Blended Wing Body / Flying Wing / Lifting
+        # Body) have no discrete countable wing panel, so per-panel tilt/position/
+        # role are bypassed — but the HTML wizard still records the overall
+        # planform of the hull-as-wing (wing1_wPlan). Emit just that one row so
+        # the pre-label structure matches the wizard. Human-only (planform isn't
+        # ML-predicted for any wing config).
+        _wplan_opts = next(o for f, l, o in _WING_MANUAL if f == "wPlan")
+        rows.append(_row(
+            patent_id, "M2", "Wing 1 — Planform", "wing1_wPlan",
+            "Wing 1 — Planform", _wplan_opts,
+        ))
 
     # ── M3 — one set of rows per propulsion-card component ───────────────────
     m3 = record.get("M3_predictions") or {}
@@ -354,22 +382,28 @@ def build_patent_rows(patent_id: str, record: dict, patent_img_dir: "Path | None
     bmech_v, bmech_conf, bmech_src = _pred_val(m3, "bmech")
     rmech_v, rmech_conf, rmech_src = _pred_val(m3, "rmech")
     propkin_v, propkin_conf, propkin_src = _pred_val(m3, "propKin")
-    # NOTE: TP no longer force-locks propKin=Tilt. The HTML wizard's physics
-    # matrix was updated so TP (and CVT) leave articulation FREE — a tilt-rotor
-    # patent can legitimately mix tilting and fixed propulsors — while only
-    # TW/DS/SLC/SRW/MR lock to Fixed and RC to Cyclic (handled by the wizard /
-    # SBERT side). So we pass SigLIP/SBERT's predicted propKin through unchanged
-    # for TP and let the reviewer confirm it (it's margin-flagged for review).
+    # NOTE: TP no longer force-locks propKin=Tilt, and DS is no longer locked to
+    # Fixed either. The HTML wizard's physics matrix leaves articulation FREE for
+    # TP, CVT and DS (a deflected-slipstream patent can still articulate its
+    # propulsors) — while only TW/SLC/SRW/MR lock to Fixed and RC to Cyclic
+    # (handled by the wizard / SBERT side). So we pass SigLIP/SBERT's predicted
+    # propKin through unchanged for these and let the reviewer confirm it (it's
+    # margin-flagged for review).
 
     # Spatial mounting predictions (image-level, best-effort, margin-flagged).
     # Applied PER component type below: wing cards take zoneChord/zoneSpan;
     # fuselage/core/hull cards take zone (Nose/Aft/Side/Dorsal/Ventral). The emp
     # card's zone uses a different vocab (StackV/StackH/Tip) that SigLIP isn't
-    # scored against, so it's left blank for the human. boomAttach/boomPos are
-    # human-only here — the pipeline emits no dedicated boom card.
+    # scored against, so it's left blank for the human. Boom geometry is not
+    # emitted here at all — it lives in the M1 "boom groups" (human-only,
+    # variable-count, round-tripped by the HTML wizard); the pipeline emits no
+    # dedicated boom card and no per-card boom attach/position fields.
     zonechord_v, zonechord_conf, zonechord_src = _pred_val(m3, "zoneChord")
     zonespan_v,  zonespan_conf,  zonespan_src  = _pred_val(m3, "zoneSpan")
     zone_v,      zone_conf,      zone_src       = _pred_val(m3, "zone")
+    # symCirc (circular/radial propulsor arrangement) — one card-level SigLIP
+    # best-guess applied to every propulsion card (margin-flagged for review).
+    symcirc_v,   symcirc_conf,  symcirc_src    = _pred_val(m3, "symCirc")
 
     for component in m3_card_keys(top_type, wing_conf, w_count, emp_type):
         sub_dim = f"Propulsion: {component}"
@@ -397,6 +431,8 @@ def build_patent_rows(patent_id: str, record: dict, patent_img_dir: "Path | None
                 sp_val, sp_conf, sp_src = zonespan_v, zonespan_conf, zonespan_src
             elif field == "zone" and zone_predicted:
                 sp_val, sp_conf, sp_src = zone_v, zone_conf, zone_src
+            elif field == "symCirc":
+                sp_val, sp_conf, sp_src = symcirc_v, symcirc_conf, symcirc_src
             rows.append(_row(patent_id, "M3", sub_dim, f"{component}_{field}",
                               f"{sub_dim} — {label}", options, sp_val, sp_conf, sp_src,
                               needs_review=_needs_review("M3", sp_conf) if sp_val else None))

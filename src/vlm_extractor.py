@@ -74,7 +74,7 @@ _NORMALIZE = {
     },
     "fusKin": {
         "fixed": "Fixed", "rigid": "Fixed", "conventional": "Fixed",
-        "variable": "Variable", "articulated": "Variable", "tilting": "Variable",
+        "variable": "VarInc", "articulated": "TiltBody", "tilting": "TiltBody", "incidence": "VarInc",
     },
     "gearArch": {
         "skids": "Skids", "skid": "Skids", "runners": "Skids",
@@ -325,7 +325,7 @@ _M1_QUESTION = (
     "drawing and classify the airframe. Reply with ONLY a JSON object, no prose:\n"
     "{\n"
     '  "fusShape": one of ["Circular","Oval","Rectangular","Blended"],\n'
-    '  "fusKin":   one of ["Fixed","Variable"],\n'
+    '  "fusKin":   one of ["Fixed","VarInc","TiltBody"],\n'
     '  "gearArch": one of ["Skids","FixedWheel","RetrWheel","PadsHull"],\n'
     '  "latSym":   true or false\n'
     "}\n"

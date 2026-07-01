@@ -652,7 +652,8 @@ def classify_m1_fields(
     ]
     FUS_KIN = [
         ("Fixed",    "aircraft with a conventional fixed fuselage that does not tilt or pivot"),
-        ("Variable", "aircraft with a variable incidence or tilting fuselage body that rotates during transition"),
+        ("VarInc",   "aircraft with a variable incidence wing or surface that pivots relative to the fuselage during transition"),
+        ("TiltBody", "aircraft with a tilting fuselage body that pitches forward or rotates during transition to vectored flight"),
     ]
     GEAR_ARCH = [
         ("Skids",      "aircraft with fixed skid-type landing gear or runners underneath"),
@@ -834,7 +835,14 @@ def classify_m3_fields(
         ("Wingtip",  "rotors mounted right at the wing tip"),
         ("FullSpan", "rotors distributed across the full span of the wing"),
     ]
-    # NON-wing airframe mounting zone (fuselage / generic cards).
+    # NON-wing airframe mounting zone (fuselage / generic cards). SigLIP only
+    # predicts the 5 COARSE zones below. The HTML/excel_schema also offer the
+    # finer human-only refinements `FusFront`/`FusRear` (front/rear of the
+    # fuselage BODY, as opposed to the pointed Nose/Aft tips) and `Other` —
+    # deliberately NOT scored here because "nose tip" vs "fuselage front" is
+    # visually indistinguishable in a line drawing, so asking SigLIP to choose
+    # would only add noise. This is a safe asymmetry (like Oth/Unknown): the
+    # reviewer picks the refinement; the model never emits a value the HTML lacks.
     ZONE = [
         ("Nose",    "propulsors mounted at the nose or forward of the aircraft"),
         ("Aft",     "propulsors mounted at the aft or rear of the aircraft"),
@@ -842,38 +850,43 @@ def classify_m3_fields(
         ("Dorsal",  "propulsors mounted dorsally on top of the aircraft"),
         ("Ventral", "propulsors mounted ventrally underneath the aircraft"),
     ]
-    # Boom-mounted propulsor cards only.
-    BOOM_ATTACH = [
-        ("Wings",     "propulsor booms attached to the wings"),
-        ("Fuselage",  "propulsor booms attached to the fuselage"),
-        ("Both",      "propulsor booms attached to both wings and fuselage"),
-        ("Empennage", "propulsor booms attached to the empennage or tail"),
-    ]
-    BOOM_POS = [
-        ("Fore",     "booms positioned forward, extending ahead of their attachment"),
-        ("Mid",      "booms positioned at the middle of their attachment"),
-        ("Aft",      "booms positioned aft, extending behind their attachment"),
-        ("Inboard",  "booms positioned inboard near the root or fuselage"),
-        ("Outboard", "booms positioned outboard toward the wingtip"),
-        ("Spanning", "booms running spanwise along their attachment"),
+    # NOTE: boom geometry is no longer predicted here. Booms are now described as
+    # human-only "boom groups" in the HTML M1 section (attach/spanwise/longitudinal/
+    # orientation/count/symmetric + an explicit link to the propulsion cards they
+    # carry), so there is no per-card boomAttach/boomPos prediction to emit.
+
+    # symCirc = circular / radial symmetry of the propulsor ARRANGEMENT (the whole
+    # array laid out around a central point, e.g. a quad/hexa multirotor seen in
+    # plan view) — the HTML M3 card-level "Circular / Radial Symmetry" checkbox.
+    # It's genuinely legible only from a top/plan view, so like the spatial zone
+    # fields it's a best-effort guess that gets margin-flagged for human review in
+    # process_patent. The other two M3 symmetry checkboxes (sym = lateral pairs,
+    # symLong = fore/aft) stay human-only — a whole-array mirror is trivial for a
+    # reviewer and noisy for SigLIP on an arbitrary view.
+    SYM_CIRC = [
+        ("true",  "propulsors arranged with circular or radial symmetry evenly around a central "
+                  "point, like a multirotor drone seen from above"),
+        ("false", "propulsors not arranged in circular or radial symmetry"),
     ]
 
     try:
-        return {
+        result = {
             "chord":   _best(CHORD,       "A patent drawing showing an eVTOL with {}"),
             "orient":  _best(ORIENT,      "A patent drawing showing an eVTOL with {}"),
             "bmech":   _best(BLADE_MECH,  "A patent drawing showing an eVTOL with {}"),
             "rmech":   _best(RETRACT_MECH, "A patent drawing showing an eVTOL with {}"),
             "propKin": _best(PROP_KIN,    "A patent drawing showing an eVTOL with {}"),
             # Spatial mounting — consumed per-component by excel_schema
-            # (wing cards take zoneChord/zoneSpan; fuselage/generic take zone;
-            # boom cards take boomAttach/boomPos).
+            # (wing cards take zoneChord/zoneSpan; fuselage/generic take zone).
             "zoneChord":  _best(ZONE_CHORD,  "A patent drawing showing an eVTOL with {}"),
             "zoneSpan":   _best(ZONE_SPAN,   "A patent drawing showing an eVTOL with {}"),
             "zone":       _best(ZONE,        "A patent drawing showing an eVTOL with {}"),
-            "boomAttach": _best(BOOM_ATTACH, "A patent drawing showing an eVTOL with {}"),
-            "boomPos":    _best(BOOM_POS,    "A patent drawing showing an eVTOL with {}"),
+            "symCirc":    _best(SYM_CIRC,    "A patent drawing showing an eVTOL with {}"),
         }
+        # symCirc is a card-level boolean in the HTML — convert "true"/"false" id
+        # to a real bool so it round-trips like latSym.
+        result["symCirc"]["value"] = result["symCirc"]["value"] == "true"
+        return result
     except Exception:
         return {}
 
