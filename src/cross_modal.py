@@ -724,6 +724,7 @@ def classify_m2_fields(
         ("T-Tail",      "aircraft with a T-tail where horizontal stabilizer is mounted at the top of the vertical fin"),
         ("V-Tail",      "aircraft with a V-shaped tail combining horizontal and vertical stabilization"),
         ("Inv_V-Tail",  "aircraft with an inverted V-tail pointing downward"),
+        ("Y-Tail",      "aircraft with a Y-tail combining two dihedral surfaces and a single ventral fin"),
         ("H-Tail",      "aircraft with an H-tail or twin-boom tail with two vertical fins connected by a horizontal stabilizer"),
         ("VertFin",     "aircraft with one or more vertical fins only and no horizontal stabilizer"),
         ("Fins",        "aircraft with minimal small stabilizing fins rather than a full tail empennage"),

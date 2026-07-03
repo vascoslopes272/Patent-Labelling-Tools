@@ -102,6 +102,7 @@ _NORMALIZE = {
         "v-tail": "V-Tail", "vtail": "V-Tail",
         "inv_v-tail": "Inv_V-Tail", "invvtail": "Inv_V-Tail",
         "inverted-v": "Inv_V-Tail",
+        "y-tail": "Y-Tail", "ytail": "Y-Tail",
         "h-tail": "H-Tail", "htail": "H-Tail", "tailboom": "H-Tail",
         "twin-boom": "H-Tail", "twinboom": "H-Tail",
         "vertfin": "VertFin", "verticalfin": "VertFin", "vertical-fin": "VertFin",
@@ -339,7 +340,7 @@ _M2_QUESTION = (
     "drawing and classify the lifting surfaces. Reply with ONLY a JSON object, no prose:\n"
     "{\n"
     '  "wingConf": one of ["W","BWB","FW","LB"],\n'
-    '  "empType":  one of ["Tailless","Conventional","Cruciform","T-Tail","V-Tail","Inv_V-Tail","H-Tail","VertFin","Fins"],\n'
+    '  "empType":  one of ["Tailless","Conventional","Cruciform","T-Tail","V-Tail","Inv_V-Tail","Y-Tail","H-Tail","VertFin","Fins"],\n'
     '  "empKin":   one of ["Fixed","Tilt","Stabilator"],\n'
     '  "wCount":   integer number of main wing panels, 1 to 4\n'
     "}\n"

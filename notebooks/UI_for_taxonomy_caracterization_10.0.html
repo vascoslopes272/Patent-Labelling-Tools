@@ -1947,6 +1947,7 @@ function pageT2(){
     + '</div>'
     + warnHtml
     + '<div style="margin-bottom:8px;"><img id="t2-img-preview" src="' + imgPath + '" onerror="this.onerror=null;this.src=\'' + previewPlaceholder + '\';" style="width:100%;border-radius:6px;border:1px solid var(--border);background:var(--bg2);transform:rotate(' + rotation + 'deg);transition:transform .15s ease;"></div>'
+    + '<div style="margin-bottom:8px;"><button type="button" data-attach-img="'+escHtml(fNum)+'" style="width:100%;padding:6px 0;font-size:11px;border-radius:4px;cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--text2);">📎 ' + (imgPath === previewPlaceholder ? 'Attach Image' : 'Replace Image') + '</button></div>'
     + (srcUrl
         ? '<div style="margin-top:4px;font-size:11px;">'
           + '<a href="' + escHtml(srcUrl) + '" target="_blank" rel="noopener"'
@@ -2846,6 +2847,17 @@ var BATCH = null;  // { ids: [...], byId: {pid: rows[]}, idx: 0, label: "Batch_0
 var FIG_FILENAMES  = {};
 var FIG_IMAGE_PATH = {};
 
+// Manually-attached images (the "📎 Attach Image" button in pageT2, for
+// figures the pipeline never matched a crop for). Browsers never expose a
+// real disk path for a picked File, so this is a session-only blob: URL for
+// preview — it takes priority over FIG_IMAGE_PATH in realFigImage() but is
+// NOT persisted across F5/export as a usable path. FIG_FILENAMES[fNum] is
+// still set to file.name so recordToRows()/export still emits a correct
+// "Image: <filename>" row; a Python-side script (scripts/resolve_image_paths.py)
+// fills in the real absolute Image_Path afterwards by locating that filename
+// under matched/ — see [[patent-labelling-ui]] memory for the full flow.
+var FIG_ATTACHED_URL = {};
+
 // FIG_IMAGE_PATH values are absolute local filesystem paths written by
 // src/excel_schema.py (e.g. "/mnt/storage_11tb/.../matched/Batch_02/<pid>/<crop>.png"),
 // not URLs — convert to a file:// URL so <img src> can load them directly from
@@ -2960,7 +2972,7 @@ function calibrateViewerArea() {
 }
 
 function realFigImage(fNum) {
-  return pathToFileURL(FIG_IMAGE_PATH[fNum]);
+  return FIG_ATTACHED_URL[fNum] || pathToFileURL(FIG_IMAGE_PATH[fNum]);
 }
 
 // Reviewed rows accumulated across the whole batch, in the same flat
@@ -3077,6 +3089,15 @@ function recordToRows(record, pid) {
     var fname   = FIG_FILENAMES[fNum] || "";
     var imgPath = FIG_IMAGE_PATH[fNum] || null;
     var subDim  = fname ? ("Image: " + fname) : ("Image: (fig " + fNum + ")");
+    // figKey carries the TRUE fig number explicitly, independent of the
+    // filename. figNumFromFilename() only recovers fNum correctly when the
+    // filename follows the pipeline's own "_F<N>"/"_Fu<N>" convention — an
+    // arbitrarily-named manually-attached image (see the "📎 Attach Image"
+    // button) falls through to using the whole filename as a fake fNum,
+    // silently forking the figure into a new orphan entry on reload instead
+    // of staying "FIG. <fNum>". Reading figKey back (rowsToAIData) takes
+    // priority over the filename guess, so this can never happen again.
+    rows.push(reviewRow(pid, "T2", subDim, "figKey", fNum, null, "human", imgPath));
     // Discarded (disapproved) image: per the rule "a disapproved image only says
     // it's disapproved", we emit ONLY the status row — no architecture tag, no
     // duplicate-of info, and certainly no ML classification fields. The Image_Path
@@ -3651,7 +3672,10 @@ function rowsToAIData(rows) {
     if (rec.parts != null) entry.parts = String(rec.parts).split('|').filter(Boolean);
     if (rec.edgeTags != null) entry.edgeTags = String(rec.edgeTags).split('|').filter(Boolean);
     if (rec.tiltedInView != null) entry.tiltedInView = String(rec.tiltedInView).split('|').map(stripLabel).filter(Boolean);
-    var fNum = figNumFromFilename(fname);
+    // figKey (written by recordToRows on export) is the authoritative fNum —
+    // fall back to guessing from the filename only for files that never had
+    // one (ML pre-label exports, or older reviewed files from before this fix).
+    var fNum = rec.figKey != null ? String(rec.figKey) : figNumFromFilename(fname);
     T2[fNum] = entry;
     FIG_FILENAMES[fNum] = fname;
     if (rec.__imagePath) FIG_IMAGE_PATH[fNum] = rec.__imagePath;
@@ -4580,6 +4604,38 @@ document.getElementById('panel').addEventListener('click', function(e){
     var tagsArr = figGet(fNumRmTag, 'edgeTags', []).filter(function(t){ return t !== tagToRemove; });
     figSet(fNumRmTag, 'edgeTags', tagsArr);
     renderPreserveScroll();
+    return;
+  }
+
+  // Attach/replace image for the active FIG (see FIG_ATTACHED_URL comment
+  // above): opens a throwaway file input, previews the pick via blob: URL,
+  // and records file.name into FIG_FILENAMES so export still emits a correct
+  // "Image: <filename>" row (Image_Path is filled in later by the Python
+  // scripts/resolve_image_paths.py enrichment pass).
+  var attachBtn = tgt.closest('[data-attach-img]');
+  if (attachBtn) {
+    var fNumAttach = attachBtn.getAttribute('data-attach-img');
+    var picker = document.createElement('input');
+    picker.type = 'file'; picker.accept = 'image/*';
+    picker.addEventListener('change', function() {
+      var file = picker.files && picker.files[0];
+      if (!file) return;
+      if (FIG_ATTACHED_URL[fNumAttach]) { try { URL.revokeObjectURL(FIG_ATTACHED_URL[fNumAttach]); } catch (e) {} }
+      FIG_ATTACHED_URL[fNumAttach] = URL.createObjectURL(file);
+      FIG_FILENAMES[fNumAttach] = file.name;
+      // Same "fresh figure" appearance defaults ingestAI() applies to a brand
+      // new ML crop (per/acSty/acCol/bgSty/bgCol/parts) — a manually attached
+      // image never goes through ingestAI, so without this it would sit blank
+      // instead of pre-filled. Only fills fields still unset, so re-attaching
+      // over an already-labeled figure never clobbers the reviewer's picks.
+      Object.keys(T2_APPEARANCE_DEFAULTS).forEach(function(key) {
+        if (figGet(fNumAttach, key, null) == null) figSet(fNumAttach, key, T2_APPEARANCE_DEFAULTS[key]);
+      });
+      if (figGet(fNumAttach, 'parts', null) == null) figSet(fNumAttach, 'parts', ['Whole Vehicle Layout']);
+      markBatchDirty();
+      renderPreserveScroll();
+    });
+    picker.click();
     return;
   }
 

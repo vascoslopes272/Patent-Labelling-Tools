@@ -264,10 +264,6 @@ details.m3-readonly[open] summary::after { content: '\2212'; }
       <span id="batch-nav-label" style="font-size:12px;font-family:var(--mono);color:var(--text2);"></span>
       <span id="batch-save-status" style="font-size:11px;font-family:var(--mono);font-weight:600;letter-spacing:.04em;padding:2px 8px;border-radius:999px;border:1px solid var(--border2);background:var(--bg2);color:var(--text2);white-space:nowrap;" title="Whether the patent currently on screen has been written into the reviewed .xlsx buffer">&#8226; Unsaved</span>
       <button type="button" id="batch-next" class="btn" style="padding:4px 10px;font-size:12px;">Next &#9654;</button>
-      <input type="text" id="batch-jump-input" list="batch-jump-list" placeholder="Jump: ID / # / applicant" style="font-size:12px;padding:4px 8px;width:170px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg2);color:var(--text);" title="Type a patent ID (e.g. EP3594113), a batch position number (e.g. 39), or an applicant/assignee name, then press Enter or click Go.">
-      <datalist id="batch-jump-list"></datalist>
-      <button type="button" id="batch-jump-btn" class="btn" style="padding:4px 10px;font-size:12px;">Go</button>
-      <span id="batch-jump-status" style="font-size:11px;font-family:var(--mono);color:var(--text3);"></span>
       <button type="button" id="batch-export" class="btn" style="padding:4px 10px;font-size:12px;" title="Download reviewed rows accumulated so far for this batch">&#11015; Export batch <span id="batch-saved-count" style="opacity:.7;"></span></button>
       <button type="button" id="batch-autosave" class="btn" style="padding:4px 10px;font-size:12px;" title="Pick a .xlsx file your progress is written to on every change (crash-safe).">&#128190; Auto-save: OFF</button>
     </span>
@@ -968,82 +964,6 @@ function lookupAssigneeGroup(assignee) {
   if (!g) return null;
   return { count: g.patentIds.length, isRepeat: g.patentIds.length > 1,
            otherIds: g.patentIds.filter(function(id){ return id !== T1_META.recordNumber; }) };
-}
-
-// Fills the <datalist> backing the "Jump: ID / # / applicant" input with every
-// patent ID and applicant/assignee name in the loaded batch, so the browser's
-// native autocomplete surfaces matches as the reviewer types (no custom
-// dropdown code needed). Re-run on every batch load/resume-restore.
-function populateJumpDatalist() {
-  var dl = document.getElementById('batch-jump-list');
-  if (!dl || !BATCH) return;
-  var seen = {};
-  var html = '';
-  BATCH.ids.forEach(function(pid){
-    if (seen[pid]) return; seen[pid] = true;
-    html += '<option value="' + escHtml(pid) + '">';
-  });
-  Object.keys(ASSIGNEE_GROUPS).forEach(function(key){
-    var disp = ASSIGNEE_GROUPS[key].display;
-    if (seen[disp]) return; seen[disp] = true;
-    html += '<option value="' + escHtml(disp) + '">';
-  });
-  dl.innerHTML = html;
-}
-
-// Resolves the free-text "Jump" box to a patent and navigates to it. Tries,
-// in order: (1) exact/prefix patent-ID match (case-insensitive — reviewers may
-// type "3594113" without the "EP" country prefix); (2) a bare batch position
-// number ("39" or "#39"), 1-indexed to match the "Patent N / total" label;
-// (3) an applicant/assignee substring match, landing on the first patent for
-// that applicant (and reporting how many others share it, since one applicant
-// can span several patents in the batch).
-function jumpToPatentQuery(raw) {
-  var status = document.getElementById('batch-jump-status');
-  var q = String(raw || '').trim();
-  if (!BATCH || !q) { if (status) status.textContent = ''; return; }
-  var qLower = q.toLowerCase();
-
-  // (1) Patent ID — exact match first, then prefix match (so "3594113" finds
-  // "EP3594113A1" etc).
-  var idIdx = BATCH.ids.findIndex(function(pid){ return pid.toLowerCase() === qLower; });
-  if (idIdx === -1) idIdx = BATCH.ids.findIndex(function(pid){ return pid.toLowerCase().indexOf(qLower) === 0; });
-  if (idIdx === -1) idIdx = BATCH.ids.findIndex(function(pid){ return pid.toLowerCase().indexOf(qLower) > -1; });
-  if (idIdx > -1) {
-    if (status) status.textContent = '';
-    loadBatchPatent(idIdx);
-    return;
-  }
-
-  // (2) Bare batch position number, e.g. "39" or "#39" (1-indexed).
-  var numMatch = /^#?(\d+)$/.exec(q);
-  if (numMatch) {
-    var n = parseInt(numMatch[1], 10);
-    if (n >= 1 && n <= BATCH.ids.length) {
-      if (status) status.textContent = '';
-      loadBatchPatent(n - 1);
-      return;
-    }
-    if (status) status.textContent = ' Out of range (1-' + BATCH.ids.length + ').';
-    return;
-  }
-
-  // (3) Applicant / assignee name — substring match against the grouped
-  // display names built by buildAssigneeGroups().
-  var matchKey = Object.keys(ASSIGNEE_GROUPS).find(function(key){ return key.indexOf(qLower) > -1; });
-  if (matchKey) {
-    var grp = ASSIGNEE_GROUPS[matchKey];
-    var firstIdx = BATCH.ids.indexOf(grp.patentIds[0]);
-    if (firstIdx > -1) {
-      if (status) status.textContent = grp.patentIds.length > 1
-        ? ' ' + grp.display + ': ' + grp.patentIds.length + ' patent(s) in batch — showing first.'
-        : '';
-      loadBatchPatent(firstIdx);
-      return;
-    }
-  }
-
-  if (status) status.textContent = ' No match for "' + q + '".';
 }
 
 // FigData Accessors
@@ -2318,8 +2238,6 @@ function pageT2(){
     + '</div>'
     + warnHtml
     + '<div style="margin-bottom:8px;"><img id="t2-img-preview" src="' + imgPath + '" onerror="this.onerror=null;this.src=\'' + previewPlaceholder + '\';" style="width:100%;border-radius:6px;border:1px solid var(--border);background:var(--bg2);transform:rotate(' + rotation + 'deg);transition:transform .15s ease;"></div>'
-    + '<div style="margin-bottom:8px;display:flex;gap:6px;"><button type="button" data-attach-img="'+escHtml(fNum)+'" style="flex:1;padding:6px 0;font-size:11px;border-radius:4px;cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--text2);">📎 ' + (imgPath === previewPlaceholder ? 'Attach Image' : 'Replace Image') + '</button>'
-    + (imgPath !== previewPlaceholder ? '<button type="button" data-remove-img="'+escHtml(fNum)+'" title="Remove this image" style="padding:6px 10px;font-size:11px;border-radius:4px;cursor:pointer;border:1px solid var(--danger);background:var(--surface);color:var(--danger);">🗑</button>' : '') + '</div>'
     + (srcUrl
         ? '<div style="margin-top:4px;font-size:11px;">'
           + '<a href="' + escHtml(srcUrl) + '" target="_blank" rel="noopener"'
@@ -3337,17 +3255,6 @@ var BATCH = null;  // { ids: [...], byId: {pid: rows[]}, idx: 0, label: "Batch_0
 var FIG_FILENAMES  = {};
 var FIG_IMAGE_PATH = {};
 
-// Manually-attached images (the "📎 Attach Image" button in pageT2, for
-// figures the pipeline never matched a crop for). Browsers never expose a
-// real disk path for a picked File, so this is a session-only blob: URL for
-// preview — it takes priority over FIG_IMAGE_PATH in realFigImage() but is
-// NOT persisted across F5/export as a usable path. FIG_FILENAMES[fNum] is
-// still set to file.name so recordToRows()/export still emits a correct
-// "Image: <filename>" row; a Python-side script (scripts/resolve_image_paths.py)
-// fills in the real absolute Image_Path afterwards by locating that filename
-// under matched/ — see [[patent-labelling-ui]] memory for the full flow.
-var FIG_ATTACHED_URL = {};
-
 // FIG_IMAGE_PATH values are absolute local filesystem paths written by
 // src/excel_schema.py (e.g. "/mnt/storage_11tb/.../matched/Batch_02/<pid>/<crop>.png"),
 // not URLs — convert to a file:// URL so <img src> can load them directly from
@@ -3386,33 +3293,25 @@ function openOrUpdatePatentWindow(url, slot) {
   if (!url) return;
   slot = (slot === 'pdf') ? 'pdf' : 'epo';
   var win = patentWindows[slot];
-  // ── Reuse by NAME: window.open(url, <name>), no features (2026-07-03 v3) ──
-  // History of this block: v1 reused the popup by assigning win.location.href
-  // (cross-origin location WRITES are allowed) — but Espacenet is now behind
-  // Cloudflare bot screening, and that scripted cross-origin navigation is
-  // exactly what it challenges: every Prev/Next stalled on a non-resolving
-  // challenge page (the __cf_chl_f_tk token in the stuck URL is the tell), so
-  // the popup stayed on the LAST patent that resolved. v2 closed + reopened a
-  // fresh window each time — Cloudflare passed, but every patent reset the
-  // popup to a computed position, destroying the reviewer's hand-dragged
-  // two-display layout (they don't use Set viewer area) and the two viewers
-  // kept landing on top of each other. v3 (this): window.open(url, sameName)
-  // WITHOUT a features string — the browser navigates the EXISTING named
-  // window in place, KEEPING its user-dragged geometry, and unlike a
-  // location.href write the open() call consumes the click's transient user
-  // activation, which Cloudflare accepts as a human navigation. The
-  // positioned fresh-open below only runs when no live popup exists.
+  // ── Reuse-in-place first ──────────────────────────────────────────────────
+  // Navigating an existing cross-origin window IS allowed (you can assign its
+  // location even though you can't READ it), so when the previous popup is still
+  // reachable we just point it at the new URL — same window, same size, same
+  // spot, no flicker. We deliberately do NOT moveTo/resizeTo on reuse so we never
+  // fight a layout you positioned by hand on display 2.
   if (win && !win.closed) {
     try {
-      win = window.open(url, PATENT_WINDOW_NAMES[slot]);   // navigate in place, keep position
-      if (win) {
-        patentWindows[slot] = win;
-        try { win.focus(); } catch (e) {}
-        return;
-      }
-    } catch (e) { /* severed reference — fall through to a fresh open */ }
+      win.location.href = url;              // navigate in place (cross-origin OK)
+      try { win.focus(); } catch (e) {}
+      return;
+    } catch (e) {
+      // Reference severed (a target sending Cross-Origin-Opener-Policy:
+      // same-origin moves the popup into a new browsing-context group and nulls
+      // our handle). Fall through and reopen.
+      try { win.close(); } catch (e2) {}
+    }
   }
-  // ── Fresh open (every call — see close-and-reopen note above) ─────────────
+  // ── First open (or after a severed reference) ─────────────────────────────
   // Prefer the calibrated viewer area; otherwise sit beside the wizard, using
   // THIS window's actual location/size (not window.screen, which on multi-
   // monitor Linux often reports the whole virtual desktop).
@@ -3430,7 +3329,7 @@ function openOrUpdatePatentWindow(url, slot) {
   win = window.open(url, PATENT_WINDOW_NAMES[slot],
     'left=' + left + ',top=' + top + ',width=' + w + ',height=' + h);
   // Some Linux WMs ignore the features string but honor an explicit
-  // moveTo/resizeTo once the window exists.
+  // moveTo/resizeTo once the window exists — only on first open, never on reuse.
   if (win) {
     try { win.moveTo(left, top); win.resizeTo(w, h); } catch (e) {}
   }
@@ -3470,7 +3369,7 @@ function calibrateViewerArea() {
 }
 
 function realFigImage(fNum) {
-  return FIG_ATTACHED_URL[fNum] || pathToFileURL(FIG_IMAGE_PATH[fNum]);
+  return pathToFileURL(FIG_IMAGE_PATH[fNum]);
 }
 
 // Reviewed rows accumulated across the whole batch, in the same flat
@@ -3600,15 +3499,6 @@ function recordToRows(record, pid) {
     var fname   = FIG_FILENAMES[fNum] || "";
     var imgPath = FIG_IMAGE_PATH[fNum] || null;
     var subDim  = fname ? ("Image: " + fname) : ("Image: (fig " + fNum + ")");
-    // figKey carries the TRUE fig number explicitly, independent of the
-    // filename. figNumFromFilename() only recovers fNum correctly when the
-    // filename follows the pipeline's own "_F<N>"/"_Fu<N>" convention — an
-    // arbitrarily-named manually-attached image (see the "📎 Attach Image"
-    // button) falls through to using the whole filename as a fake fNum,
-    // silently forking the figure into a new orphan entry on reload instead
-    // of staying "FIG. <fNum>". Reading figKey back (rowsToAIData) takes
-    // priority over the filename guess, so this can never happen again.
-    rows.push(reviewRow(pid, "T2", subDim, "figKey", fNum, null, "human", imgPath));
     // Discarded (disapproved) image: per the rule "a disapproved image only says
     // it's disapproved", we emit ONLY the status row — no architecture tag, no
     // duplicate-of info, and certainly no ML classification fields. The Image_Path
@@ -3844,26 +3734,6 @@ function recordToRows(record, pid) {
 // Builds one xlsx (SheetJS, client-side) from REVIEWED_ROWS accumulated so
 // far and downloads it — named after the batch label so it never collides
 // with another batch's output, mirroring ml_predict_labels_<batch>.xlsx.
-// Any "Image: <real filename>" row (i.e. not the "(none available)"/"(fig N)"
-// no-file placeholders) that still has a blank Image_Path came from the 📎
-// Attach Image button — the browser can never fill in a real disk path for a
-// picked file, so it needs scripts/resolve_image_paths.py run on the export
-// afterward, or the image will keep showing "no image on disk" forever.
-function _pendingAttachedImages() {
-  var seen = {};
-  REVIEWED_ROWS.forEach(function(r) {
-    if (r.Section !== 'T2') return;
-    var sub = String(r.Sub_Dimension || '');
-    if (sub.indexOf('Image: ') !== 0) return;
-    var fname = sub.slice('Image: '.length);
-    if (!fname || fname === '(none available)' || /^\(fig .+\)$/.test(fname)) return;
-    var hasPath = r.Image_Path && String(r.Image_Path).trim() !== '' && r.Image_Path !== 'null';
-    if (hasPath) seen[fname] = false;
-    else if (!(fname in seen)) seen[fname] = true;
-  });
-  return Object.keys(seen).filter(function(f){ return seen[f]; });
-}
-
 function exportReviewedBatch() {
   if (!REVIEWED_ROWS.length) {
     document.getElementById('batch-load-status').textContent = ' Nothing reviewed yet — nothing to export.';
@@ -3873,15 +3743,7 @@ function exportReviewedBatch() {
   var ws = XLSX.utils.json_to_sheet(REVIEWED_ROWS, { header: EXCEL_COLUMNS });
   var wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Review");
-  var fname = "reviewed_patents_" + label + ".xlsx";
-  XLSX.writeFile(wb, fname);
-  var pending = _pendingAttachedImages();
-  if (pending.length) {
-    alert('Exported ' + fname + '.\n\n'
-      + pending.length + ' attached image(s) still need their real path resolved — run:\n\n'
-      + '  python3 scripts/resolve_image_paths.py <path to ' + fname + '>\n\n'
-      + 'before this export is truly done, or those images will keep showing "no image on disk".');
-  }
+  XLSX.writeFile(wb, "reviewed_patents_" + label + ".xlsx");
 }
 
 // ─── Durable auto-save to a real file (File System Access API) ──────────────
@@ -4278,14 +4140,6 @@ function rowsToAIData(rows) {
   var T2 = {};
   // Reset per-patent — recordToRows() needs fNum -> filename/path for
   // whichever patent is currently loaded, not a previous one.
-  // NOTE: FIG_ATTACHED_URL is deliberately NOT touched here — rowsToAIData()
-  // is also called for transient/nested reads (copyMorphologyFromOriginal,
-  // extractArchSnapshots peeking at a DIFFERENT patent's rows mid-session),
-  // and URL.revokeObjectURL() is irreversible: wiping it here once killed the
-  // CURRENT patent's real attached images the moment either of those ran,
-  // even though the caller "restored" the dict reference right after (the
-  // blobs were already dead). The one-time "we're now on a new patent" reset
-  // belongs in ingestPatentRows() instead — see there.
   FIG_FILENAMES = {};
   FIG_IMAGE_PATH = {};
   Object.keys(byImage).forEach(function(fname) {
@@ -4320,10 +4174,7 @@ function rowsToAIData(rows) {
     if (rec.edgeTags != null) entry.edgeTags = String(rec.edgeTags).split('|').filter(Boolean);
     if (rec.tiltedInView != null) entry.tiltedInView = String(rec.tiltedInView).split('|').map(stripLabel).filter(Boolean);
     if (rec.__dupSource != null) entry.__dupSource = rec.__dupSource;
-    // figKey (written by recordToRows on export) is the authoritative fNum —
-    // fall back to guessing from the filename only for files that never had
-    // one (ML pre-label exports, or older reviewed files from before this fix).
-    var fNum = rec.figKey != null ? String(rec.figKey) : figNumFromFilename(fname);
+    var fNum = figNumFromFilename(fname);
     T2[fNum] = entry;
     FIG_FILENAMES[fNum] = fname;
     if (rec.__imagePath) FIG_IMAGE_PATH[fNum] = rec.__imagePath;
@@ -4435,14 +4286,13 @@ function copyMorphologyFromOriginal(originalPid) {
   // as a side effect, keyed to whatever rows it's given — save/restore this
   // patent's own image lookup around the call so pulling the original's
   // G1/M1/M2/M3 doesn't also overwrite which images belong to THIS patent.
-  var savedFilenames = FIG_FILENAMES, savedImagePaths = FIG_IMAGE_PATH, savedAttached = FIG_ATTACHED_URL;
+  var savedFilenames = FIG_FILENAMES, savedImagePaths = FIG_IMAGE_PATH;
   // For multi-arch originals, use only arch 1's rows so the byField lookup
   // isn't confused by arch 2+ overwriting arch 1's field values.
   var arch1Rows = rowsForArch(origRows, 1);
   var origData = rowsToAIData(arch1Rows.length ? arch1Rows : origRows);
   FIG_FILENAMES = savedFilenames;
   FIG_IMAGE_PATH = savedImagePaths;
-  FIG_ATTACHED_URL = savedAttached;
   // isHumanReviewed passed through explicitly (rule 6 guard) — origRows always
   // come from REVIEWED_ROWS here, so origData.isHumanReviewed is already true,
   // but forwarding it keeps this call correct if that source ever changes.
@@ -4472,7 +4322,7 @@ function extractArchSnapshots(rows) {
   if (!archIdxs.length) archIdxs = [1];
 
   var savedSnap = captureAircraftSnapshot();
-  var savedFN = FIG_FILENAMES, savedIP = FIG_IMAGE_PATH, savedAU = FIG_ATTACHED_URL;
+  var savedFN = FIG_FILENAMES, savedIP = FIG_IMAGE_PATH;
   var out = [];
   archIdxs.forEach(function(n){
     var blank = fresh();
@@ -4487,7 +4337,7 @@ function extractArchSnapshots(rows) {
   });
   // Restore the live patent's morphology + image lookups.
   applyAircraftSnapshot(savedSnap);
-  FIG_FILENAMES = savedFN; FIG_IMAGE_PATH = savedIP; FIG_ATTACHED_URL = savedAU;
+  FIG_FILENAMES = savedFN; FIG_IMAGE_PATH = savedIP;
   return out;
 }
 
@@ -4659,15 +4509,6 @@ function rowsForArch(allRows, n) {
 // behave exactly as the old `ingestAI(rowsToAIData(rows))` line did, just with
 // archProfiles[0] populated as a side effect.
 function ingestPatentRows(rows) {
-  // This is the real "we are now displaying a different patent" boundary —
-  // unlike rowsToAIData() (called here per-architecture AND from transient
-  // nested reads elsewhere), this only runs once per genuine patent switch.
-  // FIG_ATTACHED_URL is a blob: URL keyed by fNum only, with no patent
-  // identity of its own, so without clearing it here a manually-attached FIG 1
-  // image on patent A "bleeds" into FIG 1 of every later patent B/C/...
-  // (realFigImage() checks FIG_ATTACHED_URL before FIG_IMAGE_PATH).
-  Object.keys(FIG_ATTACHED_URL).forEach(function(k){ try { URL.revokeObjectURL(FIG_ATTACHED_URL[k]); } catch (e) {} });
-  FIG_ATTACHED_URL = {};
   var idxSet = {};
   rows.forEach(function(r){ var s = archSuffixNum(r.Patent_ID); if (s != null) idxSet[s] = true; });
   var archIdxs = Object.keys(idxSet).map(Number).sort(function(a,b){ return a-b; });
@@ -4857,7 +4698,6 @@ document.getElementById('batch-xlsx-input').addEventListener('change', function(
       AIRCRAFT_REGISTRY = {}; PART_TOKENS = []; EDGE_TOKENS = []; FIGURE_LABEL_REGISTRY = {};  // reset session memory for the new batch
       ingestRegistryFromRows(byId);              // seed aircraft names from the loaded Excel
       buildAssigneeGroups(byId);                 // applicant -> patent-count map for T1
-      populateJumpDatalist();
       document.getElementById('batch-load-status').textContent =
         ' Loaded ' + ids.length + ' patent(s) from ' + sheetName + ' (batch: ' + label + ').';
       document.getElementById('batch-nav').style.display = 'flex';
@@ -4975,22 +4815,6 @@ document.getElementById('batch-next').addEventListener('click', function() {
     autoSaveCurrentPatent();   // persist current edits before paging away
     loadBatchPatent(BATCH.idx + 1);
     openOrUpdatePatentWindow(T1_META.pdfLink, 'epo');
-  }
-});
-
-// "Jump: ID / # / applicant" box — Go button or Enter key resolve the typed
-// text (see jumpToPatentQuery) and navigate straight there, same as Prev/Next.
-document.getElementById('batch-jump-btn').addEventListener('click', function() {
-  if (!BATCH) return;
-  var input = document.getElementById('batch-jump-input');
-  autoSaveCurrentPatent();
-  jumpToPatentQuery(input.value);
-  openOrUpdatePatentWindow(T1_META.pdfLink, 'epo');
-});
-document.getElementById('batch-jump-input').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    document.getElementById('batch-jump-btn').click();
   }
 });
 
@@ -5311,56 +5135,6 @@ document.getElementById('panel').addEventListener('click', function(e){
     var tagToRemove = removeTagEl.getAttribute('data-remove-tag');
     var tagsArr = figGet(fNumRmTag, 'edgeTags', []).filter(function(t){ return t !== tagToRemove; });
     figSet(fNumRmTag, 'edgeTags', tagsArr);
-    renderPreserveScroll();
-    return;
-  }
-
-  // Attach/replace image for the active FIG (see FIG_ATTACHED_URL comment
-  // above): opens a throwaway file input, previews the pick via blob: URL,
-  // and records file.name into FIG_FILENAMES so export still emits a correct
-  // "Image: <filename>" row (Image_Path is filled in later by the Python
-  // scripts/resolve_image_paths.py enrichment pass).
-  var attachBtn = tgt.closest('[data-attach-img]');
-  if (attachBtn) {
-    var fNumAttach = attachBtn.getAttribute('data-attach-img');
-    var picker = document.createElement('input');
-    picker.type = 'file'; picker.accept = 'image/*';
-    picker.addEventListener('change', function() {
-      var file = picker.files && picker.files[0];
-      if (!file) return;
-      if (FIG_ATTACHED_URL[fNumAttach]) { try { URL.revokeObjectURL(FIG_ATTACHED_URL[fNumAttach]); } catch (e) {} }
-      FIG_ATTACHED_URL[fNumAttach] = URL.createObjectURL(file);
-      FIG_FILENAMES[fNumAttach] = file.name;
-      // Same "fresh figure" appearance defaults ingestAI() applies to a brand
-      // new ML crop (per/acSty/acCol/bgSty/bgCol/parts) — a manually attached
-      // image never goes through ingestAI, so without this it would sit blank
-      // instead of pre-filled. Only fills fields still unset, so re-attaching
-      // over an already-labeled figure never clobbers the reviewer's picks.
-      Object.keys(T2_APPEARANCE_DEFAULTS).forEach(function(key) {
-        if (figGet(fNumAttach, key, null) == null) figSet(fNumAttach, key, T2_APPEARANCE_DEFAULTS[key]);
-      });
-      if (figGet(fNumAttach, 'parts', null) == null) figSet(fNumAttach, 'parts', ['Whole Vehicle Layout']);
-      markBatchDirty();
-      renderPreserveScroll();
-    });
-    picker.click();
-    return;
-  }
-
-  // Remove the image currently on this FIG (attached OR pipeline-matched):
-  // clears all three lookups so the figure goes back to "no image on disk"
-  // (a clean escape hatch for the FIG_ATTACHED_URL cross-patent leak, or any
-  // image wrongly attached to the wrong figure — no need to hunt down which
-  // global variable is stale, just remove and reattach the right file).
-  var removeBtn = tgt.closest('[data-remove-img]');
-  if (removeBtn) {
-    var fNumRemove = removeBtn.getAttribute('data-remove-img');
-    if (!confirm('Remove the image from FIG. ' + fNumRemove + '?')) return;
-    if (FIG_ATTACHED_URL[fNumRemove]) { try { URL.revokeObjectURL(FIG_ATTACHED_URL[fNumRemove]); } catch (e) {} }
-    delete FIG_ATTACHED_URL[fNumRemove];
-    FIG_FILENAMES[fNumRemove] = '';
-    FIG_IMAGE_PATH[fNumRemove] = null;
-    markBatchDirty();
     renderPreserveScroll();
     return;
   }
@@ -6006,11 +5780,6 @@ function _applySession(snap, migrateToIdb, done) {
     FIGURE_LABEL_REGISTRY = snap.FIGURE_LABEL_REGISTRY || {};
     FIG_FILENAMES         = snap.FIG_FILENAMES || {};
     FIG_IMAGE_PATH        = snap.FIG_IMAGE_PATH || {};
-    // blob: URLs die with the tab/page they were created in — never persisted
-    // to the F5 snapshot, so always start clean on restore (an attached image
-    // must be re-attached after a reload, same as it needs re-running
-    // scripts/resolve_image_paths.py to become a real Image_Path).
-    FIG_ATTACHED_URL      = {};
     // Back-fill the aircraft-name registry from the committed reviews. The
     // registry (which feeds the name datalist AND the one-click "Copy M1–M3
     // (+G1)") is normally only grown as patents are committed live, so on a
@@ -6052,7 +5821,6 @@ function _applySession(snap, migrateToIdb, done) {
     } catch (e) {}
     if (BATCH) {
       buildAssigneeGroups(BATCH.byId);    // deterministic derived map — safe to recompute
-      populateJumpDatalist();
       var st = document.getElementById('batch-load-status');
       if (st) st.textContent = ' Resumed session — ' + ((BATCH.ids && BATCH.ids.length) || 0)
         + ' patent(s), batch: ' + (BATCH.label || '?') + ' (load a new file to start over).';
