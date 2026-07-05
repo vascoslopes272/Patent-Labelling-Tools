@@ -28,7 +28,10 @@ paths:
   # source_patents_<batch>.xlsx is written per-batch under data_matched/<batch>/
   # by run_stage01() — no fixed root-level path needed.
   reviewed_excel: "{{ paths.base }}/reviewed_patents.xlsx"
-  html_review_exports: "/home/vasco/Downloads"
+  # Where the wizard's reviewed_patents_<batch>.xlsx exports live (moved out
+  # of ~/Downloads 2026-07-05 — browser "(N)" suffixing made the unsuffixed
+  # name silently stale). 02a reads here and writes preprocessed/ under it.
+  html_review_exports: "{{ paths.base }}/data/reviewed xlsxs"
   html_template: "/home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools/notebooks/UI_for_taxonomy_caracterization_10.0.html"
   model_cache:   "/home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools/models/Qwen"
   siglip_cache:  "/home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools/models/SigLIP"

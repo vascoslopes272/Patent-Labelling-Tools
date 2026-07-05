@@ -231,19 +231,28 @@ def _fill_matches_label(fill_hex: str, bg_col) -> bool | None:
 
 # ── batch driver ─────────────────────────────────────────────────────────────
 
-def process_batch(sheet_name: str, cfg: dict, force: bool | None = None) -> pd.DataFrame:
-    """Process one batch's approved wizard images; returns + writes the manifest."""
+def process_batch(sheet_name: str, cfg: dict, force: bool | None = None,
+                  reviewed_xlsx: "Path | None" = None) -> pd.DataFrame:
+    """Process one batch's approved wizard images; returns + writes the manifest.
+
+    `reviewed_xlsx` overrides the input file — used by 02b_postprocessing to
+    consume 02a_preprocessing's preprocessed_patents_<batch>_<ts>.xlsx output
+    (its "Review" sheet is the same flat schema, already IMGPATH-resolved).
+    Defaults to the legacy wizard_resolved_dir convention.
+    """
     p = cfg["processing"]
     target = int(p["target_size"][0])
     force = bool(p.get("overwrite", False)) if force is None else force
     force_white = p.get("pad_color_mode", "auto") == "white"
     use_labels = p.get("pad_color_mode", "auto") == "auto"
 
-    reviewed_xlsx = Path(cfg["paths"]["wizard_resolved_dir"]) / f"reviewed_patents_{sheet_name}.xlsx"
+    if reviewed_xlsx is None:
+        reviewed_xlsx = Path(cfg["paths"]["wizard_resolved_dir"]) / f"reviewed_patents_{sheet_name}.xlsx"
+    reviewed_xlsx = Path(reviewed_xlsx)
     if not reviewed_xlsx.exists():
         raise FileNotFoundError(
-            f"{reviewed_xlsx} not found — export from the wizard, then run "
-            f"scripts/resolve_image_paths.py so Image_Path is absolute.")
+            f"{reviewed_xlsx} not found — run 02a_preprocessing (or export from "
+            f"the wizard + scripts/resolve_image_paths.py) first.")
 
     all_root  = Path(cfg["paths"]["processed"]) / sheet_name / "all"
     main_root = Path(cfg["paths"]["processed"]) / sheet_name / "main"
