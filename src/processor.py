@@ -1,79 +1,321 @@
 """
-processor.py — image padding and resizing (Stage 02, stub).
+processor.py — Stage 02: wizard-driven padding + resizing for DINOv2.
 
-Pads each drawing to a square canvas then resizes to processing.target_size
-so all images have identical dimensions for downstream embedding models.
+Reads the IMGPATH-resolved wizard export (reviewed_patents_<batch>.xlsx,
+Review sheet), takes every approved figure, applies the reviewer's rotation,
+resizes with aspect ratio preserved, pads to a square with a background-aware
+fill and writes processing.target_size PNGs (518x518 -> DINOv2 ViT-L/14's
+native hi-res input, 37x37 patches).
 
-Public API (to be implemented)
--------------------------------
-pad_to_square(img, pad_color)           → PIL.Image
-resize_image(img, target_size)          → PIL.Image
-process_image(src_path, dst_path, cfg)  → None
-process_patent(patent_id, cfg)          → int   (number of images processed)
+Outputs (mirrors the matched/ <-> data/matched convention):
+    processed/<batch>/all/<patent_dir>/<orig_name>.png    every approved figure
+    processed/<batch>/main/<patent>_arch<N>_fig<K>.png    flat canonical set
+    data/processed/<batch>/processing_manifest_<batch>.csv
+
+The manifest is the contract with DINOv2_eVTOL_frozen_Analysis: it maps the
+wizard export's Image_Path (matched/ crop) to the processed 518px file plus
+per-image labels (isMain, arch, bgSty/bgCol/acSty/acCol, qualityFlag, dupOf)
+so the analysis repo never parses filenames.
+
+Padding decision (adaptive_pad_resize) — evolved from
+Patent_Images_Extractor_&_FT_2.0's 03_processing adaptive_padding_resize:
+  1. optional 1.20x sharpen, only when downscaling (preserves thin strokes);
+  2. resize longest side to target (LANCZOS), aspect preserved;
+  3. sample the outermost 1-3 px border ring of the RESIZED image;
+  4. pick the fill:
+       - reviewer's bgSty label, when present, decides: Solid Fill -> flat
+         median fill; Shaded/Gradient or Grid/Pattern -> mirror-extend
+         (BORDER_REFLECT_101, REPLICATE when padding exceeds the image);
+       - unlabelled: solid fill iff >= solid_dominant_frac of border pixels
+         lie within border_color_tol of the per-channel median. This replaces
+         the old raw-std<15 rule, which mis-fired on tight crops where black
+         strokes cross the border (std blows up, reflect then mirrors phantom
+         aircraft geometry into the padding — poison for rotor/wing counting).
+
+Pure PIL + numpy — no cv2, so it runs in the plain anaconda kernel.
 """
 
+from __future__ import annotations
+
+import re
 from pathlib import Path
-from PIL import Image
+
+import numpy as np
+import pandas as pd
+from PIL import Image, ImageEnhance
+
+# per-image T2 fields carried into the manifest
+_T2_FIELDS = ["status", "isMain", "arch", "rotation_deg", "figKey",
+              "bgSty", "bgCol", "acSty", "acCol", "qualityFlag", "dupOf"]
+
+_ARCH_SUFFIX_RE = re.compile(r"^(?P<base>.+?)_arch(?P<n>\d+)$")
+
+_REFLECT_BG_STY = {"Shaded/Gradient", "Grid/Pattern"}
 
 
-def pad_to_square(img: Image.Image, pad_color: str = "white") -> Image.Image:
+# ── image ops ────────────────────────────────────────────────────────────────
+
+def _to_rgb(img: Image.Image) -> Image.Image:
+    """RGB-ify, compositing any transparency over white (never over black)."""
+    if img.mode == "P":
+        img = img.convert("RGBA")
+    if img.mode in ("RGBA", "LA"):
+        base = Image.new("RGB", img.size, (255, 255, 255))
+        base.paste(img, mask=img.getchannel("A"))
+        return base
+    return img.convert("RGB")
+
+
+def rotate_image(img: Image.Image, deg: float) -> Image.Image:
+    """Match the wizard preview: CSS rotate(Ndeg) is clockwise, PIL is CCW."""
+    if not deg:
+        return img
+    return img.rotate(-deg, expand=True, fillcolor=(255, 255, 255))
+
+
+def _border_ring(arr: np.ndarray) -> np.ndarray:
+    """Outermost 1-3 px ring (thickness scales with image size), as Nx3."""
+    h, w = arr.shape[:2]
+    t = max(1, min(3, w // 20, h // 20))
+    strips = [arr[:t, :].reshape(-1, 3), arr[-t:, :].reshape(-1, 3)]
+    if h > 2 * t:
+        strips += [arr[t:-t, :t].reshape(-1, 3), arr[t:-t, -t:].reshape(-1, 3)]
+    return np.vstack(strips)
+
+
+def border_seam_std(img: Image.Image, t: int = 3) -> float:
+    """Mean per-channel std of the outermost t px — seam-visibility proxy."""
+    return float(_border_ring(np.asarray(_to_rgb(img), dtype=np.uint8)).std(axis=0).mean())
+
+
+def adaptive_pad_resize(
+    image: Image.Image,
+    target_size: int,
+    *,
+    sharpen_factor: float = 1.20,
+    solid_dominant_frac: float = 0.70,
+    border_color_tol: int = 24,
+    bg_sty: str | None = None,
+    force_white: bool = False,
+) -> tuple[Image.Image, dict]:
+    """Resize (aspect kept) + pad to target_size square. Returns (img, stats)."""
+    img = _to_rgb(image)
+    w, h = img.size
+    scale = target_size / max(w, h)
+    if sharpen_factor and sharpen_factor != 1.0 and scale < 1.0:
+        img = ImageEnhance.Sharpness(img).enhance(sharpen_factor)
+    new_w = max(1, int(round(w * scale)))
+    new_h = max(1, int(round(h * scale)))
+    resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+    pad_top    = (target_size - new_h) // 2
+    pad_bottom = target_size - new_h - pad_top
+    pad_left   = (target_size - new_w) // 2
+    pad_right  = target_size - new_w - pad_left
+
+    arr = np.asarray(resized, dtype=np.uint8)
+    ring = _border_ring(arr)
+    median = np.median(ring, axis=0)
+    border_std = float(ring.std(axis=0).mean())
+    near = (np.abs(ring.astype(np.int16) - median).max(axis=1)
+            <= border_color_tol)
+    dominant_frac = float(near.mean())
+
+    if force_white:
+        solid, fill = True, (255, 255, 255)
+    elif bg_sty in _REFLECT_BG_STY:
+        solid, fill = False, None
+    elif bg_sty == "Solid Fill" or dominant_frac >= solid_dominant_frac:
+        solid, fill = True, tuple(int(v) for v in median)
+    else:
+        solid, fill = False, None
+
+    if solid:
+        canvas = Image.new("RGB", (target_size, target_size), fill)
+        canvas.paste(resized, (pad_left, pad_top))
+        out, method = canvas, "solid"
+    else:
+        # np.pad "reflect" == cv2 BORDER_REFLECT_101 (edge row not repeated),
+        # but needs pad < image extent on that axis; "edge" == REPLICATE.
+        can_reflect = (pad_top < new_h and pad_bottom < new_h
+                       and pad_left < new_w and pad_right < new_w)
+        mode = "reflect" if can_reflect else "edge"
+        out = Image.fromarray(np.pad(
+            arr, ((pad_top, pad_bottom), (pad_left, pad_right), (0, 0)), mode=mode))
+        method = "reflect" if can_reflect else "replicate"
+        fill = tuple(int(v) for v in median)   # reported, not painted
+
+    stats = {
+        "fill_method": method,
+        "fill_color_hex": "#%02x%02x%02x" % fill,
+        "border_std": round(border_std, 2),
+        "dominant_frac": round(dominant_frac, 3),
+        "scale": round(scale, 4),
+    }
+    return out, stats
+
+
+# ── wizard-export ingestion ──────────────────────────────────────────────────
+
+def parse_arch_id(pid: str) -> tuple[str, int]:
+    """``US..._arch2`` -> (``US...``, 2); unsuffixed ids are architecture 1."""
+    m = _ARCH_SUFFIX_RE.match(str(pid))
+    if m:
+        return m.group("base"), int(m.group("n"))
+    return str(pid), 1
+
+
+def load_review_images(reviewed_xlsx: Path) -> pd.DataFrame:
+    """One row per (Patent_ID, Image_Path) with the T2 fields in _T2_FIELDS.
+
+    Same pivot convention as the analysis repo's labels.image_table. If one
+    image serves several architectures the first T2 row wins (aggfunc first).
     """
-    Pad img to a square canvas (side = max(width, height)) using pad_color.
+    long = pd.read_excel(reviewed_xlsx, sheet_name="Review")
+    t2 = long[(long["Section"] == "T2") & long["Image_Path"].notna()]
+    piv = t2.pivot_table(index=["Patent_ID", "Image_Path"], columns="Field",
+                         values="Value", aggfunc="first").reset_index()
+    piv.columns.name = None
+    for f in _T2_FIELDS:
+        if f not in piv.columns:
+            piv[f] = None
 
-    TODO: create a new RGB image of size (max_side, max_side), paste img
-          centred, return the padded result.
+    parsed = piv["Patent_ID"].map(parse_arch_id)
+    piv["base_patent_id"] = parsed.map(lambda t: t[0])
+    arch_field = pd.to_numeric(piv["arch"], errors="coerce")
+    piv["arch_index"] = arch_field.fillna(parsed.map(lambda t: t[1])).astype(int)
+    piv["is_main"] = piv["isMain"].astype(str).str.lower().isin(
+        ["true", "1", "yes", "main"])
+    piv["approved"] = piv["status"].astype(str).str.lower().eq("approved")
+    piv["rotation"] = pd.to_numeric(piv["rotation_deg"], errors="coerce").fillna(0)
+    return piv
+
+
+_FIG_SUFFIX_RE = re.compile(r"_F([A-Za-z0-9]+)$")
+
+
+def _fig_label(src: Path, fig_key) -> str:
+    """Short figure label for the flat main/ filename.
+
+    The stage-00b crop convention ends stems with ``_F<label>`` (``F15``,
+    ``F11C``, ``Fu`` = unknown) — prefer that; fall back to a sanitized
+    figKey (often NaN for US patents, a stem fragment for CN ones).
     """
-    w, h   = img.size
-    side   = max(w, h)
-    canvas = Image.new("RGB", (side, side), pad_color)
-    canvas.paste(img, ((side - w) // 2, (side - h) // 2))
-    return canvas
+    m = _FIG_SUFFIX_RE.search(src.stem)
+    if m:
+        return m.group(1)
+    if fig_key is not None and not (isinstance(fig_key, float) and pd.isna(fig_key)):
+        s = re.sub(r"[^A-Za-z0-9]+", "-", str(fig_key)).strip("-")
+        if s:
+            return s
+    return "u"
 
 
-def resize_image(img: Image.Image, target_size: tuple[int, int]) -> Image.Image:
-    """
-    Resize img to target_size with high-quality Lanczos resampling.
-
-    TODO: return img.resize(target_size, Image.LANCZOS)
-    """
-    return img.resize(target_size, Image.LANCZOS)
-
-
-def process_image(src_path: Path, dst_path: Path, cfg: dict) -> None:
-    """
-    Pad and resize a single image; write result to dst_path.
-
-    TODO: open src_path, call pad_to_square + resize_image, save to dst_path.
-    Reads pad_color and target_size from cfg["processing"].
-    """
-    pad_color   = cfg.get("processing", {}).get("pad_color", "white")
-    target_size = tuple(cfg.get("processing", {}).get("target_size", [518, 518]))
-    img = Image.open(src_path).convert("RGB")
-    img = pad_to_square(img, pad_color)
-    img = resize_image(img, target_size)
-    dst_path.parent.mkdir(parents=True, exist_ok=True)
-    img.save(dst_path, "PNG")
+def _fill_matches_label(fill_hex: str, bg_col) -> bool | None:
+    """Rough agreement check between the painted fill and the bgCol label."""
+    if bg_col is None or (isinstance(bg_col, float) and pd.isna(bg_col)):
+        return None
+    r, g, b = (int(fill_hex[i:i + 2], 16) for i in (1, 3, 5))
+    lum = 0.299 * r + 0.587 * g + 0.114 * b
+    label = str(bg_col)
+    if label == "White":
+        return min(r, g, b) >= 225
+    if label == "Dark":
+        return lum < 110
+    if label == "Grayscale":
+        return max(r, g, b) - min(r, g, b) <= 18 and 60 <= lum <= 225
+    if label == "Blueprint Blue":
+        return b > r and b > g
+    return None
 
 
-def process_patent(patent_id: str, cfg: dict) -> int:
-    """
-    Process all images for one patent.
-    Reads from  cfg["paths"]["raw_images"] / patent_id
-    Writes to   cfg["paths"]["processed"]  / patent_id
+# ── batch driver ─────────────────────────────────────────────────────────────
 
-    TODO: iterate fig_* images, call process_image for each, return count.
-    """
-    raw_dir  = Path(cfg["paths"]["raw_images"])  / patent_id
-    proc_dir = Path(cfg["paths"]["processed"])   / patent_id
-    proc_dir.mkdir(parents=True, exist_ok=True)
-    count = 0
-    for src in sorted(raw_dir.glob("*.png")):
-        dst = proc_dir / src.name
-        if dst.exists():
-            continue
+def process_batch(sheet_name: str, cfg: dict, force: bool | None = None) -> pd.DataFrame:
+    """Process one batch's approved wizard images; returns + writes the manifest."""
+    p = cfg["processing"]
+    target = int(p["target_size"][0])
+    force = bool(p.get("overwrite", False)) if force is None else force
+    force_white = p.get("pad_color_mode", "auto") == "white"
+    use_labels = p.get("pad_color_mode", "auto") == "auto"
+
+    reviewed_xlsx = Path(cfg["paths"]["wizard_resolved_dir"]) / f"reviewed_patents_{sheet_name}.xlsx"
+    if not reviewed_xlsx.exists():
+        raise FileNotFoundError(
+            f"{reviewed_xlsx} not found — export from the wizard, then run "
+            f"scripts/resolve_image_paths.py so Image_Path is absolute.")
+
+    all_root  = Path(cfg["paths"]["processed"]) / sheet_name / "all"
+    main_root = Path(cfg["paths"]["processed"]) / sheet_name / "main"
+    data_dir  = Path(cfg["paths"]["data_processed"]) / sheet_name
+    for d in (all_root, main_root, data_dir):
+        d.mkdir(parents=True, exist_ok=True)
+
+    images = load_review_images(reviewed_xlsx)
+    rows = []
+    used_main_names: set[str] = set()
+    for _, r in images.iterrows():
+        rec = {
+            "patent_id": r["Patent_ID"], "base_patent_id": r["base_patent_id"],
+            "arch": r["arch_index"], "fig_key": r["figKey"],
+            "is_main": r["is_main"], "status": r["status"],
+            "src_path": r["Image_Path"], "dst_all": None, "dst_main": None,
+            "processed": False, "skip_reason": None,
+            "rotation_deg": r["rotation"],
+            "bg_sty": r["bgSty"], "bg_col": r["bgCol"],
+            "ac_sty": r["acSty"], "ac_col": r["acCol"],
+            "quality_flag": r["qualityFlag"], "dup_of": r["dupOf"],
+        }
+        src = Path(str(r["Image_Path"]))
+        if p.get("approved_only", True) and not r["approved"]:
+            rec["skip_reason"] = "not_approved"
+            rows.append(rec); continue
+        if not src.exists():
+            rec["skip_reason"] = "missing_file"
+            rows.append(rec); continue
+
+        dst_all = all_root / src.parent.name / src.name
+        rec["dst_all"] = str(dst_all)
         try:
-            process_image(src, dst, cfg)
-            count += 1
-        except Exception as exc:
-            print(f"  processor: skipped {src.name}: {exc}")
-    return count
+            if dst_all.exists() and not force:
+                out = Image.open(dst_all)
+                rec.update({"fill_method": "cached", "seam_std": border_seam_std(out)})
+            else:
+                img = rotate_image(Image.open(src), r["rotation"])
+                out, stats = adaptive_pad_resize(
+                    img, target,
+                    sharpen_factor=float(p.get("sharpen_factor", 1.20)),
+                    solid_dominant_frac=float(p.get("solid_dominant_frac", 0.70)),
+                    border_color_tol=int(p.get("border_color_tol", 24)),
+                    bg_sty=(str(r["bgSty"]) if use_labels and pd.notna(r["bgSty"]) else None),
+                    force_white=force_white,
+                )
+                dst_all.parent.mkdir(parents=True, exist_ok=True)
+                out.save(dst_all, "PNG")
+                rec.update(stats)
+                rec["seam_std"] = round(border_seam_std(out), 2)
+                rec["fill_vs_label_ok"] = _fill_matches_label(
+                    stats["fill_color_hex"], r["bgCol"])
+            rec["processed"] = True
+            if r["is_main"]:
+                stem = (f"{r['base_patent_id']}_arch{r['arch_index']}"
+                        f"_F{_fig_label(src, r['figKey'])}")
+                n = 2
+                while stem in used_main_names:
+                    stem = f"{stem.rsplit('-v', 1)[0]}-v{n}"; n += 1
+                used_main_names.add(stem)
+                dst_main = main_root / f"{stem}.png"
+                out.save(dst_main, "PNG")
+                rec["dst_main"] = str(dst_main)
+        except Exception as exc:                       # keep the batch going
+            rec["skip_reason"] = f"error: {exc}"
+        rows.append(rec)
+
+    manifest = pd.DataFrame(rows)
+    out_csv = data_dir / f"processing_manifest_{sheet_name}.csv"
+    manifest.to_csv(out_csv, index=False)
+    n_ok = int(manifest["processed"].sum())
+    n_main = manifest["dst_main"].notna().sum()
+    print(f"[process_batch] {sheet_name}: {n_ok}/{len(manifest)} images processed "
+          f"({n_main} mains) -> {all_root.parent}\n  manifest: {out_csv}")
+    return manifest
