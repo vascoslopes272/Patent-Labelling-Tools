@@ -8,8 +8,8 @@ fill and writes processing.target_size PNGs (518x518 -> DINOv2 ViT-L/14's
 native hi-res input, 37x37 patches).
 
 Outputs (mirrors the matched/ <-> data/matched convention):
-    processed/<batch>/all/<patent_dir>/<orig_name>.png    every approved figure
-    processed/<batch>/main/<patent>_arch<N>_fig<K>.png    flat canonical set
+    processed/<batch>/all/<patent_dir>/<patent>_arch<N>[_main|_2|_3...].png
+    processed/<batch>/main/<patent>_arch<N>_main.png      flat canonical set
     data/processed/<batch>/processing_manifest_<batch>.csv
 
 The manifest is the contract with DINOv2_eVTOL_frozen_Analysis: it maps the
@@ -262,7 +262,19 @@ def process_batch(sheet_name: str, cfg: dict, force: bool | None = None,
 
     images = load_review_images(reviewed_xlsx)
     rows = []
-    used_main_names: set[str] = set()
+    used_names: set[str] = set()
+
+    def _claim_name(stem: str) -> str:
+        """First figure of an arch gets the bare stem; extras get _2, _3, ..."""
+        if stem not in used_names:
+            used_names.add(stem)
+            return stem
+        n = 2
+        while f"{stem}_{n}" in used_names:
+            n += 1
+        used_names.add(f"{stem}_{n}")
+        return f"{stem}_{n}"
+
     for _, r in images.iterrows():
         rec = {
             "patent_id": r["Patent_ID"], "base_patent_id": r["base_patent_id"],
@@ -283,7 +295,11 @@ def process_batch(sheet_name: str, cfg: dict, force: bool | None = None,
             rec["skip_reason"] = "missing_file"
             rows.append(rec); continue
 
-        dst_all = all_root / src.parent.name / src.name
+        # <patent>_arch<N>.png for every figure (mains get _main; extra
+        # figures of the same arch get _2, _3, ... to avoid collisions).
+        base_stem = f"{r['base_patent_id']}_arch{r['arch_index']}"
+        stem = _claim_name(f"{base_stem}_main" if r["is_main"] else base_stem)
+        dst_all = all_root / src.parent.name / f"{stem}.png"
         rec["dst_all"] = str(dst_all)
         try:
             if dst_all.exists() and not force:
@@ -307,12 +323,6 @@ def process_batch(sheet_name: str, cfg: dict, force: bool | None = None,
                     stats["fill_color_hex"], r["bgCol"])
             rec["processed"] = True
             if r["is_main"]:
-                stem = (f"{r['base_patent_id']}_arch{r['arch_index']}"
-                        f"_F{_fig_label(src, r['figKey'])}")
-                n = 2
-                while stem in used_main_names:
-                    stem = f"{stem.rsplit('-v', 1)[0]}-v{n}"; n += 1
-                used_main_names.add(stem)
                 dst_main = main_root / f"{stem}.png"
                 out.save(dst_main, "PNG")
                 rec["dst_main"] = str(dst_main)

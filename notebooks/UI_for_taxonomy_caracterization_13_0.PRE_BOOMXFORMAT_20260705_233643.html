@@ -419,7 +419,6 @@ var AC_STATE = [
   {id:'Hover',        n:'Hover (VTOL)'},
   {id:'Transition',   n:'Transition'},
   {id:'Cruise',       n:'Cruise / Forward'},
-  {id:'Other',        n:'Other'},
   {id:'Unclear',      n:'Unclear'},
   {id:'NonApplicable',n:'Non-Applicable'}
 ];
@@ -593,7 +592,7 @@ function fresh(){
     footLen:null, footWid:null, footHgt:null, footAmbiguous:true, fusShape:null, fusKin:null, fusNotes:'', gearArch:null, gearNotes:'', wingNotes:'', win:null,
     // M1 structural booms / outriggers — present-toggle, count, one orientation,
     // and whether they're symmetric (mirrored left/right).
-    boomsPresent:false, boomGroups:[], boomNotes:'', boomXFormat:false,
+    boomsPresent:false, boomGroups:[], boomNotes:'',
     notPureArch:false,
     comments:'',
     // "Quick Count Override" (v13): per-section bypass toggle + free-text note,
@@ -728,7 +727,7 @@ function aircraftSnapshotKeys() {
   var keys = ['topType','g1Focus','wingConf','wCount','empType','empKin','empNotes',
               'latSym','longSym','footLen','footWid','footHgt','footAmbiguous',
               'fusShape','fusKin','fusNotes','gearArch','gearNotes','wingNotes',
-              'boomsPresent','boomNotes','boomXFormat','notPureArch',
+              'boomsPresent','boomNotes','notPureArch',
               // Quick Count Override (v13) — G1/M1/M2 are per-architecture, so they
               // ride along in the same snapshot as the rest of the morphology.
               'g1_quickOverride','g1_quickNote','m1_quickOverride','m1_quickNote',
@@ -2673,8 +2672,7 @@ function m1BoomsCard(){
         + '</div>';
     });
     h += '<button type="button" class="btn" data-bg-add="1" style="margin-top:10px; padding:4px 12px; font-size:12px;">+ Add boom group</button>';
-    h += '<label class="m2-check" style="display:block; margin-top:14px; padding-top:12px; border-top:1px dashed var(--border2); font-size:13px; font-weight:500;"><input type="checkbox" data-field="boomXFormat" ' + (S.boomXFormat ? 'checked' : '') + '> Booms arranged in X formation</label>';
-    h += '<div class="m3-field" style="margin-top:10px;"><div class="m3-label">Booms Edge-Case Notes</div><textarea class="comments" style="min-height:48px;" data-field="boomNotes" placeholder="Log boom/outrigger edge cases or configuration details...">' + escHtml(S.boomNotes||'') + '</textarea></div>';
+    h += '<div class="m3-field" style="margin-top:14px; padding-top:12px; border-top:1px dashed var(--border2);"><div class="m3-label">Booms Edge-Case Notes</div><textarea class="comments" style="min-height:48px;" data-field="boomNotes" placeholder="Log boom/outrigger edge cases or configuration details...">' + escHtml(S.boomNotes||'') + '</textarea></div>';
   }
   return h + '</div>';
 }
@@ -2887,7 +2885,6 @@ function buildMorphologyObj() {
     boomsPresent: !!S.boomsPresent,
     boomGroups: S.boomsPresent ? cloneBoomGroups(S.boomGroups).map(function(g){ return Object.assign({}, g, { count: xlCount(g.count) }); }) : [],
     boomNotes: S.boomsPresent ? (S.boomNotes||'') : '',
-    boomXFormat: S.boomsPresent ? !!S.boomXFormat : false,
     footLen: S.footLen, footWid: S.footWid, footHgt: S.footHgt, footAmbiguous: S.footAmbiguous, latSym: S.latSym, longSym: S.longSym,
     // Quick Count Override (v13, rule 4e) — G1/M1/M2 are per-architecture, so
     // they ride along in the morphology object like everything else above.
@@ -3121,7 +3118,6 @@ function ingestAI(data) {
     // M1 structural booms / outriggers.
     if (m1.boomsPresent != null) S.boomsPresent = xlBool(m1.boomsPresent);
   if (m1.boomNotes != null)    S.boomNotes    = m1.boomNotes;
-  if (m1.boomXFormat != null)  S.boomXFormat  = xlBool(m1.boomXFormat);
     if (Array.isArray(m1.boomGroups)) S.boomGroups = cloneBoomGroups(m1.boomGroups);
     if (S.boomsPresent && !(S.boomGroups || []).length) S.boomGroups = [];
     // Quick Count Override (v13, rule 4e) — m2_* rides on this same merged M1
@@ -3739,7 +3735,6 @@ function recordToRows(record, pid) {
     });
     // Section-level boom edge-case notes (one per architecture, not per group).
     if (m.boomsPresent && m.boomNotes) rows.push(reviewRow(apid, "M1", "Booms — Notes", "boomNotes", m.boomNotes));
-    if (m.boomsPresent) rows.push(reviewRow(apid, "M1", "Booms — X Formation", "boomXFormat", !!m.boomXFormat));
     // Reviewer's projection of how usable THIS ARCHITECTURE's figures will be
     // as DINOv2 shape cues — one value per architecture, not per image/patent.
     rows.push(reviewRow(apid, "M1", "dinoUnderstanding", "dinoUnderstanding", withLabel(m.dinoUnderstanding, DINO_UNDERSTANDING)));
@@ -4215,7 +4210,7 @@ function rowsToAIData(rows) {
    'footLen', 'footWid', 'footHgt', 'footAmbiguous', 'longSym',
    'wingNotes', 'empNotes', 'fusNotes', 'gearNotes',   // persistence fix (H4): notes round-trip
    'dinoUnderstanding',   // per-architecture DINOv2 understanding projection
-   'boomsPresent', 'boomXFormat',   // M1 structural booms present-gate + X-formation flag
+   'boomsPresent',   // M1 structural booms present-gate (geometry → boom groups below)
    // Quick Count Override (v13, rule 4e) — m1_*/m2_* land on this same merged
    // object (prefixed keys avoid collision, matching the wingConf/latSym pattern).
    'm1_quickOverride', 'm1_quickNote', 'm2_quickOverride', 'm2_quickNote',
@@ -5853,7 +5848,6 @@ document.getElementById('panel').addEventListener('change', function(e){
   }
   if (tgt.type === 'checkbox' && (field === 'latSym' || field === 'longSym')) { S[field] = tgt.checked; renderPreserveScroll(); return; }
   if (tgt.type === 'checkbox' && field === 'boomsPresent') { S.boomsPresent = tgt.checked; if (!tgt.checked) { S.boomGroups = []; } else if (!(S.boomGroups||[]).length) { S.boomGroups = [{ attach:null, wingSpan:null, span:null, long:null, orient:null, count:0, symmetric:true, circSymmetric:false, hasProps:null, cards:[] }]; } renderPreserveScroll(); return; }
-  if (tgt.type === 'checkbox' && field === 'boomXFormat') { S.boomXFormat = tgt.checked; markBatchDirty(); renderPreserveScroll(); return; }
   if (tgt.type === 'checkbox' && tgt.dataset && tgt.dataset.bgField === 'symmetric') { var sgi=parseInt(tgt.dataset.bgIdx,10); if(S.boomGroups[sgi]){ S.boomGroups[sgi].symmetric=tgt.checked; markBatchDirty(); renderPreserveScroll(); } return; }
   if (tgt.type === 'checkbox' && tgt.dataset && tgt.dataset.bgField === 'circSymmetric') { var sgi2=parseInt(tgt.dataset.bgIdx,10); if(S.boomGroups[sgi2]){ S.boomGroups[sgi2].circSymmetric=tgt.checked; markBatchDirty(); renderPreserveScroll(); } return; }
   if (tgt.type === 'number' && tgt.dataset && tgt.dataset.bgField === 'count') { var cgi=parseInt(tgt.dataset.bgIdx,10); if(S.boomGroups[cgi]){ var cv=parseInt(tgt.value,10); if(isNaN(cv)||cv<0)cv=0; S.boomGroups[cgi].count=cv; markBatchDirty(); renderPreserveScroll(); } return; }
