@@ -1,4 +1,4 @@
-  """
+"""
 timer_analysis_battery.py
 Schedules six UNATTENDED prompts (A → B → C and D → E → F) that build and refine 
 the eVTOL structural taxonomy and execute the Core Analysis Battery, pasted 
@@ -20,31 +20,26 @@ import pyautogui
 import pyperclip
 
 # ── TAXONOMY SUITE TARGET TIMES (24h HH:MM) ──────────────────────────────────
-TARGET_TIME_A = "04:30"   # Taxonomy Design
+TARGET_TIME_A = "04:40"   # Taxonomy Design
 TARGET_TIME_B = "05:30"   # Adversarial Review
-TARGET_TIME_C = "04:20"   # Hard Configuration Stress-Testing
+TARGET_TIME_C = "23:20"   # Hard Configuration Stress-Testing
 
 # ── CORE ANALYSIS SUITE TARGET TIMES (24h HH:MM) ──────────────────────────────
-TARGET_TIME_D = ""   # Labels layer (fastest; XLSX -> parquet + QC)
-TARGET_TIME_E = ""   # Probe battery — leave generous gap; E depends on D
-TARGET_TIME_F = ""   # Clustering + retrieval + visuals — F depends on D and E
+TARGET_TIME_D = "23:20"   # Labels layer (fastest; XLSX -> parquet + QC)
+TARGET_TIME_E = "23:20"   # Probe battery — leave generous gap; E depends on D
+TARGET_TIME_F = "23:20"   # Clustering + retrieval + visuals — F depends on D and E
 
 # Folder constraint containment
 LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Patent-Labelling-Tools")
 LOG_PATH = os.path.join(LOG_DIR, "timer_analysis.log")
 
 # ── CORE ANALYSIS SUITE CONFIGURATION PARAMETERS ─────────────────────────────
-# <<EDIT-ME: absolute path to the DINOv2_eVTOL_frozen_Analysis worktree to edit>>
-_REPO = "/home/vasco/Vasco Workspace/Tese_Vasco_Lnx/DINOv2_eVTOL_frozen_Analysis.worktrees/<<EDIT-ME: worktree name>>"
-
-# <<EDIT-ME: absolute path (or glob) to the wizard xlsx export(s)>>
-_LABELS_EXPORT_GLOB = "/mnt/storage_11tb/<<EDIT-ME: path to reviewed_patents_*.xlsx>>"
-
-# <<EDIT-ME: patent-level metadata file + exact column names>>
-_META_PATH = "/mnt/storage_11tb/<<EDIT-ME: PatSeer metadata xlsx/csv>>"
-_META_COL_PATENT_ID = "<<EDIT-ME: e.g. Publication Number>>"
-_META_COL_ASSIGNEE = "<<EDIT-ME: e.g. Assignee/Applicant>>"
-_META_COL_YEAR     = "<<EDIT-ME: e.g. Publication Year>>"
+_REPO = ""
+_LABELS_EXPORT_GLOB = ""
+_META_PATH = ""
+_META_COL_PATENT_ID = ""
+_META_COL_ASSIGNEE = ""
+_META_COL_YEAR     = ""
 
 # Shared unattended-safety header pasted at the top of the core analysis battery prompts.
 _HEADER = """╔══════════════════════════════════════════════════════════════════════════╗

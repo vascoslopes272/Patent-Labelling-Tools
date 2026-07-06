@@ -20,6 +20,9 @@ paths:
   wizard_resolved_dir: "/mnt/storage_11tb/Drive_files_to_syncronize"
   patseer_excel: "/mnt/storage_11tb/Drive_files_to_syncronize/2 - Patente & Validation/3 -Raw_Patent_Exports_PatSeer_&Gold_Standard/1639__dataset_08_06_26.xlsx"
   data:          "{{ paths.base }}/data"
+  # Moved into a subfolder 2026-07-06 (was data/batches.xlsx directly) —
+  # every notebook reads this key rather than hardcoding "data/batches.xlsx".
+  batches_xlsx:  "{{ paths.data }}/Global Statistics/batches.xlsx"
   # Per-batch bookkeeping CSVs (crops_mapping_<Batch_NN>.csv, needs_human_review_<Batch_NN>.csv)
   # mirror the per-batch image folders under paths.matched — named after it so the
   # relation is obvious: data/matched/Batch_NN/ <-> matched/Batch_NN/.

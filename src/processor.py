@@ -8,9 +8,16 @@ fill and writes processing.target_size PNGs (518x518 -> DINOv2 ViT-L/14's
 native hi-res input, 37x37 patches).
 
 Outputs (mirrors the matched/ <-> data/matched convention):
-    processed/<batch>/all/<patent_dir>/<patent>_arch<N>[_main|_2|_3...].png
-    processed/<batch>/main/<patent>_arch<N>_main.png      flat canonical set
+    processed/<batch>/all/<patent_dir>/<patent>_arch<N>[_dupSame|_dupSimilar][_main|_2|_3...].png
+    processed/<batch>/main/<patent>_arch<N>[_dupSame|_dupSimilar]_main.png   flat canonical set
     data/processed/<batch>/processing_manifest_<batch>.csv
+
+duplicateType "1" (Same Aircraft) / "3" (small changes) patents keep their
+own T2 and are processed like any other patent, but get a _dupSame /
+_dupSimilar marker in the filename so provenance is visible without
+cross-referencing the manifest's duplicate_type column. duplicateType "2"
+(exact duplicate, images AND aircraft identical) never appears here — 02a
+strips its T2 rows entirely, so it produces no output at all.
 
 The manifest is the contract with DINOv2_eVTOL_frozen_Analysis: it maps the
 wizard export's Image_Path (matched/ crop) to the processed 518px file plus
@@ -165,6 +172,15 @@ def parse_arch_id(pid: str) -> tuple[str, int]:
     return str(pid), 1
 
 
+def _strip_label(value) -> str | None:
+    """Wizard export Values are "ID — Label" composites (e.g. "1 — Same
+    Aircraft"). Return just the ID part; None for NaN/blank. Mirrors
+    02a_preprocessing's _strip_label / the HTML's stripLabel()."""
+    if pd.isna(value):
+        return None
+    return str(value).split(" — ")[0].strip()
+
+
 def load_review_images(reviewed_xlsx: Path) -> pd.DataFrame:
     """One row per (Patent_ID, Image_Path) with the T2 fields in _T2_FIELDS.
 
@@ -188,6 +204,19 @@ def load_review_images(reviewed_xlsx: Path) -> pd.DataFrame:
         ["true", "1", "yes", "main"])
     piv["approved"] = piv["status"].astype(str).str.lower().eq("approved")
     piv["rotation"] = pd.to_numeric(piv["rotation_deg"], errors="coerce").fillna(0)
+
+    # duplicateType lives on T1, keyed by the BASE patent id (Rule D never
+    # inherits it — every duplicate carries its own). Type "2" (exact
+    # duplicate) never reaches here since 02a strips its T2 rows entirely;
+    # types "1" (Same Aircraft) and "3" (small changes) keep their own T2
+    # and are processed normally, but get flagged in the output filename
+    # (see process_batch) so the processed/ tree self-documents provenance.
+    dup_type_rows = long.loc[long["Field"] == "duplicateType"]
+    dup_type_by_patent = (
+        dup_type_rows.set_index(dup_type_rows["Patent_ID"].astype(str))["Value"]
+        .map(_strip_label)
+    )
+    piv["duplicate_type"] = piv["base_patent_id"].astype(str).map(dup_type_by_patent)
     return piv
 
 
@@ -286,6 +315,11 @@ def process_batch(sheet_name: str, cfg: dict, force: bool | None = None,
             "bg_sty": r["bgSty"], "bg_col": r["bgCol"],
             "ac_sty": r["acSty"], "ac_col": r["acCol"],
             "quality_flag": r["qualityFlag"], "dup_of": r["dupOf"],
+            "duplicate_type": r["duplicate_type"],
+            # Only ever populated on a freshly-processed (non-cached) row —
+            # initialized here so the manifest column always exists even
+            # when every row in a run happens to hit the cache.
+            "fill_vs_label_ok": None, "fill_color_hex": None, "dominant_frac": None,
         }
         src = Path(str(r["Image_Path"]))
         if p.get("approved_only", True) and not r["approved"]:
@@ -297,7 +331,12 @@ def process_batch(sheet_name: str, cfg: dict, force: bool | None = None,
 
         # <patent>_arch<N>.png for every figure (mains get _main; extra
         # figures of the same arch get _2, _3, ... to avoid collisions).
-        base_stem = f"{r['base_patent_id']}_arch{r['arch_index']}"
+        # duplicateType "1"/"3" patents keep their own T2 and are processed
+        # like any other patent, but get a _dupSame/_dupSimilar marker so the
+        # processed/ tree self-documents provenance (type "2" exact
+        # duplicates never reach here — 02a strips their T2 rows entirely).
+        dup_suffix = {"1": "_dupSame", "3": "_dupSimilar"}.get(r["duplicate_type"], "")
+        base_stem = f"{r['base_patent_id']}_arch{r['arch_index']}{dup_suffix}"
         stem = _claim_name(f"{base_stem}_main" if r["is_main"] else base_stem)
         dst_all = all_root / src.parent.name / f"{stem}.png"
         rec["dst_all"] = str(dst_all)
