@@ -20,9 +20,9 @@ import pyautogui
 import pyperclip
 
 # ── TAXONOMY SUITE TARGET TIMES (24h HH:MM) ──────────────────────────────────
-TARGET_TIME_A = "04:40"   # Taxonomy Design
-TARGET_TIME_B = "05:30"   # Adversarial Review
-TARGET_TIME_C = "23:20"   # Hard Configuration Stress-Testing
+TARGET_TIME_A = "02:40"   # Taxonomy Design
+TARGET_TIME_B = "03:30"   # Adversarial Review
+TARGET_TIME_C = "04:30"   # Hard Configuration Stress-Testing
 
 # ── CORE ANALYSIS SUITE TARGET TIMES (24h HH:MM) ──────────────────────────────
 TARGET_TIME_D = "23:20"   # Labels layer (fastest; XLSX -> parquet + QC)
@@ -81,27 +81,194 @@ _VERIFY_PYTHON = """VERIFY BEFORE FINISHING (do not skip):
 # PROMPT DEFINITIONS
 # ─────────────────────────────────────────────────────────────────────────────
 
-PROMPT_A = """ Continue please """
+PROMPT_A = """ Continue please, i am not here to answer anythign, so move one with tthe things you believe are good and anser ust wahat you fif so i can confimr if it is ok """
 
-PROMPT_B = f"""{_HEADER}
+PROMPT_B = f""""{_HEADER}
 
 {_HARD_RULES}
 
 {_DONT_TOUCH}
 
-LABELLER POST-PROCESSING ENHANCEMENT & REVIEW:
-Please step into the shoes of the end-user (the labeller) operating the post-processing notebook 02a 
-Your goal is to ensure the labeller can post-process everything flawlessly without running into technical hurdles.
+# Task: Extend notebook 02a — codebook v2.0 conversions, worklists, and validations
 
-1. Review the entire post-processing pipeline and the associated notebook.
-2. Identify any UX bottlenecks, missing data validations, or unclear steps that might confuse the labeller.
-3. Enhance the code, improve output formatting (e.g., clear dataframes, progress bars, or summary statistics), and update markdown instructions to be completely foolproof.
-4. Apply all necessary changes directly to the codebase and notebook. Do not wait for my approval.
+## Role & ground rules
+You are extending the existing preprocessing/QA notebook (02a) that operates on the reviewed
+labelling excels. It implements the codebook v2.0 decisions closed 2026-07-20.
+- NEVER modify raw patent images or original reviewed excel files in place — always write
+  corrected copies / new columns / separate worklist files.
+- Every automated fix must print a count of affected rows and write a log entry
+  (rule ID, date, n affected) — these logs feed the thesis change-log table.
+- **If unsure which column/sheet holds a value, ASK — do not guess.**
 
-{_VERIFY_PYTHON}"""
+## A. Automated conversions (no human input)
+
+### A1 — AC_STATE auto-set for fixed architectures (PR-04/05)
+For every figure belonging to a patent with `topType ∈ (SLC, SRW, RC, MR, HB, PFV)`:
+set state = `HoverCruise` ("Hover & Cruise (state-invariant)"), REGARDLESS of previous value.
+Log previous-value distribution before overwriting (keep a `state_legacy` column).
+
+### A2 — EMP_KIN → empTilts flag (PR-06)
+New boolean column `empTilts`: `Tilt` or `Stabilator` → True (+ copy old value into notes as
+"legacy: <value>"); `Fixed`/empty → False. Freeze old `EMP_KIN` column as `EMP_KIN_legacy`.
+
+### A3 — TB ⇒ TiltBody auto-fix (PR-12 #7 Hard)
+All patents with `topType = TB`: set `FUS_KIN = TiltBody`. Log count + previous values.
+
+### A4 — Duplicate type rename (PR-02)
+Map duplicate-type labels to D1/D2/D3 wording. Assert count of type-4 == 0; if any exist,
+STOP and output the list (annotator expects zero — nonzero means something is wrong).
+
+## B. Directed re-pass worklists (output = list of patent/figure IDs for the human)
+
+### B1 — AC_STATE manual worklist (PR-04)
+Figures of CONVERTIBLE patents (`topType ∈ (TW, TP, DS, CVT, TB, PTC)`) whose stored state is
+`Ground`, `Other`, `Unclear`, or `NonApplicable`. These get re-labelled by mechanism-wins rule.
+
+### B2 — FUS_KIN VarInc/TiltBody re-check (R-06 reversal)
+All patents with `FUS_KIN ∈ (VarInc, TiltBody)` (any spelling variant, incl. legacy
+"Variable — Variable Incidence / Tilting Body" strings — normalize first, list variants found).
+The annotator suspects systematic reversal; DO NOT auto-swap. Output side-by-side worklist
+(patent ID, current value, main-figure path if available). Exclude TB patents already fixed by A3.
+
+### B3 — Empennage/fuselage mount audit (PR-07)
+Patents where any M3 mount / fuselage_zone ∈ (Empennage, Aft/tail variants, Fuselage-rear).
+New rule: empennage iff stabilizing surfaces present; bare tailcone = fuselage. Output worklist.
+
+### B4 — X-boom sweep (PR-03)
+Grep notes/comments for X-format mentions (case-insensitive: 'x format', 'x-format', 'em x',
+'X booms', etc.) on patents NOT already migrated; output any stragglers.
+
+## C. Validation suite (PR-12 rule table → per-rule worklists)
+
+Implement as a rules table looped over patents; each rule outputs its own flagged list.
+HARD (data error — must be fixed):
+- H1 `topType=SLC` & any propulsor `propKin=Tilt`
+- H2 `topType∈(MR,RC)` & wing count > 0
+- H3 `topType=CVT` & NOT (has Fixed AND has Tilt propulsors [or wing-tilt+rotor-tilt combo])  ← existing PR-11 check, fold in
+- H4 `topType=TW` & no wing with `W_TILT=Tilt`
+- H5 `topType=TB` & `FUS_KIN≠TiltBody` (should be empty after A3 — assert)
+- H6 `topType=DS` & any propulsor `propKin≠Fixed`
+SOFT (warning — eyeball list):
+- S1 `topType=TP` & any wing `W_TILT=Tilt` (legitimate iff folding/clearance tilt per R-18 — check note exists)
+- S2 `topType=SRW` & (propulsor count high OR no central large-rotor pattern)
+
+## D. Integrity checks
+
+- D1 Completeness: every APPROVED patent has all required fields for its `topType`
+  (derive "required" from the wizard's blocker logic — ask if unclear). Output missing-field report.
+- D2 `BOOM_POS` migration completeness: zero records still carrying an old-style combined
+  boom-position value. Report result — HTML v14's C6 deletion is conditional on this passing.
+- D3 UAVSimilar × duplicates (PR-14): list duplicate groups containing ≥1 `UAVSimilar` patent,
+  tags side-by-side. Rule: tag must MATCH within D1/D2 pairs; independent for D3. Flag mismatches.
+- D4 Image-path joining: verify every kept figure resolves to an existing image file; report misses.
+
+## Output
+One summary cell at the end: per section, counts (converted / flagged / clean) — formatted so the
+numbers can be pasted directly into the thesis change-log table.
+
+Before you do any change, we need to talk, because i belive i forgot some changes i did alrad on this notebook,so lets see what is already done, what is imconatible wihht waht we already done to 02a (i belive nothing ahah) and then, i can agree and you mov eon 
+{_VERIFY_PYTHON} """
 
 # (Assuming PROMPT_C, D, E, F are defined elsewhere or you will paste them in)
-PROMPT_C = """ """
+PROMPT_C = """ {_HEADER}
+
+{_HARD_RULES}
+
+{_DONT_TOUCH}
+
+# Task: Audit the codebook v2.0 implementation (wizard v14 + notebook 02a)
+
+## Role
+You are an independent auditor. Both change-sets have been implemented — the wizard
+(`UI_for_taxonomy_caracterization_14_0.html`, generated from `prompt_html_v13_to_v14.md`) and
+the preprocessing notebook 02a (extended from `prompt_notebook_02a.md`). Your job is to verify
+the implementation against those two prompt files, which are the ground-truth specification.
+**Report findings — do NOT fix anything in this pass** unless explicitly trivial (typo-level) and
+you flag it. The pipeline is live; silent changes are worse than reported bugs.
+
+## Context you must read first
+1. `prompt_html_v13_to_v14.md` — the HTML specification (changes C1–C8 + acceptance checklist)
+2. `prompt_notebook_02a.md` — the notebook specification (sections A–D + output requirement)
+3. `UI_for_taxonomy_caracterization_13_0.html` — frozen baseline (must be byte-identical to before)
+4. `UI_for_taxonomy_caracterization_14_0.html` — the implementation under audit
+5. The modified notebook 02a
+If any of these files is missing or you find multiple candidate versions, STOP and ask.
+
+## Known execution-order deviation (audit priority #1)
+The HTML prompt was executed BEFORE notebook 02a, although C6 (deletion of the `BOOM_POS`
+migration shim) was conditional on 02a's check D2 passing first. Verify explicitly:
+- What did the v14 implementation do with C6? (a) left shim untouched, (b) asked and waited,
+  or (c) deleted it anyway?
+- If (c): report as CRITICAL with the exact code that must be restored from v13 (the `BOOM_POS`
+  array and its ingest branch).
+- What does 02a's D2 check report when run? If D2 passes AND the shim was deleted, downgrade
+  to WARNING (outcome accidentally fine, but record it).
+
+## Audit A — HTML v14 vs spec (walk C1–C8 one by one)
+For each change C1–C8: implemented? exactly as specified? anything extra added that the spec
+didn't ask for? Then execute the spec's acceptance checklist items and report pass/fail each:
+- v13 file byte-identical to its previous state (hash/diff it)
+- an old v13-format saved record loads without errors; retired fields ingest silently
+- fixed-architecture patent (SLC/SRW/RC/MR/HB/PFV): T2 shows non-interactive
+  "Hover & Cruise (state-invariant)" badge; state question never asked
+- convertible patent (TW/TP/DS/CVT/TB/PTC): exactly four state options
+  (Hover/Transition/Cruise/Other) with the mechanism-wins tooltip
+- TB patent: FUS_KIN locked to TiltBody, non-editable
+- CVT patent with only tilting propulsors: completion blocked with a clear message
+- DS patent: propKin locked Fixed; TW patent without any tilting wing: M2 completion blocked
+- MR/RC patent: wing cards hidden / count locked to 0
+- empennage: no Fixed/Tilt/Stabilator selector; unticked "Empennage tilts" checkbox by default;
+  ticking makes the note a blocker
+- DUP_TYPES shows D1/D2/D3 wording, internal ids still 1/2/3, no type 4 selectable;
+  a legacy type-4 record ingests without crashing
+- BOOM_ORIENT contains the X / Diagonal option with the crossing-criterion tooltip
+- export contains `empTilts`, contains NO tilt-in-view or EMP_KIN choice columns
+- R-06 tooltip near FUS_KIN and the main-figure=cruise tooltip near ★ both present
+
+## Audit B — notebook 02a vs spec (walk A1–A4, B1–B4, C-suite H1–H6/S1–S2, D1–D4)
+For each item: implemented? Does it write NEW columns/copies rather than overwriting originals?
+Does every automated fix print a count and write a log entry (rule ID, date, n)? Specifically:
+- A1 keeps a `state_legacy` column and logs the previous-value distribution
+- A4 ASSERTS zero type-4 duplicates and stops with a list if nonzero
+- B2 does NOT auto-swap VarInc/TiltBody — worklist only, with normalization of legacy spellings
+- B2 excludes TB patents already auto-fixed by A3
+- H5 asserts empty after A3
+- Soft rules S1/S2 produce warnings/worklists, never modify data
+- Final summary cell exists and outputs per-section counts in a paste-able table
+
+## Audit C — cross-consistency HTML ↔ notebook (the drift check)
+These two artifacts were generated in separate passes; verify they agree on:
+1. The exact id/string for the invariant state (`HoverCruise` vs any variant) — HTML badge,
+   HTML export, and 02a's A1 must write/read the SAME token.
+2. The fixed-vs-convertible architecture sets — both must use
+   fixed = {SLC, SRW, RC, MR, HB, PFV}, convertible = {TW, TP, DS, CVT, TB, PTC}. Any deviation
+   (e.g. PTC placed in fixed somewhere) is CRITICAL.
+3. `empTilts` column name and boolean encoding identical in HTML export and 02a A2.
+4. Duplicate-type ids: HTML keeps internal 1/2/3; 02a's A4 rename maps the same ids.
+5. Lock parity: every Hard rule enforced in HTML (L3–L7 + existing propKinLock) has a matching
+   02a check (H1–H6) with the SAME logic — same fields, same architecture codes. Soft rules
+   exist ONLY in 02a, not as HTML blocks.
+6. Legacy AC_STATE values (`Ground`,`Unclear`,`NonApplicable`): HTML maps to Other for display
+   while preserving raw stored values; 02a's B1 worklist is built from the RAW values. Confirm
+   the raw values survive an open-and-resave cycle in v14 (this is the subtle one — test it).
+
+## Audit D — scope discipline
+Diff v13 → v14 and the old → new notebook. List EVERY change not traceable to a spec item
+(C1–C8 / A–D). Unrequested "improvements" are findings, even if they look harmless.
+
+## Output format
+One report, grouped: CRITICAL (breaks data or violates a Hard decision) / MAJOR (spec item
+missing or wrong) / MINOR (cosmetic, naming, tooltips) / NOTES (observations, no action).
+For each finding: spec item ID, file + location, what was expected, what was found, proposed
+fix direction (description only — no code changes in this pass).
+End with the acceptance checklist as a pass/fail table and a one-line verdict:
+SAFE TO LABEL / FIX FIRST.
+
+## If anything is ambiguous — ASK
+Unsure which file is authoritative, whether something is intentional, or what a spec line means:
+ask the annotator before concluding. Do not guess, and do not mark items pass by assumption.
+
+"""
 PROMPT_D = """ """
 PROMPT_E = """ """
 PROMPT_F = """ """
