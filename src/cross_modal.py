@@ -647,8 +647,11 @@ def classify_m1_fields(
         ("Oval",        "aircraft with an oval or elliptical fuselage cross-section"),
         ("Rectangular", "aircraft with a rectangular or box-shaped fuselage"),
         ("Blended",     "aircraft with a blended wing body or lifting body fuselage merged into the wings"),
-        ("PodBoom",     "pod-and-boom fuselage: compact central body with one or two thin tail booms, "
-                         "no conventional fuselage tube"),
+        # v15.3: 'PodBoom' retired from the wizard, so it is dropped here too —
+        # a prototype for a value the labeller can no longer pick would only
+        # produce predictions that cannot be accepted. 'Other' is deliberately
+        # NOT added: it is a residual category with no coherent visual
+        # prototype, so SigLIP must never predict it. The human picks Other.
     ]
     FUS_KIN = [
         ("Fixed",    "aircraft with a conventional fixed fuselage that does not tilt or pivot"),
@@ -805,16 +808,18 @@ def classify_m3_fields(
         ("Exposed",     "non-retractable rotors permanently exposed outside the aircraft structure"),
         ("Retractable", "retractable rotors that fold or retract into the aircraft structure during cruise"),
     ]
-    # propKin (propulsor articulation kinematics) — SigLIP is deliberately
-    # restricted to a binary [Tilt, Fixed]. A static B&W patent line drawing
-    # shows a tilt mechanism explicitly (pivot/actuator/phantom-position lines),
-    # but "Vectored" (flow deflection, not drawn geometry) and "Cyclic"
-    # (swashplate, a claims-level distinction) are not visually separable from a
-    # single frame — SigLIP would only ever produce false positives on them.
-    # The full 4-value vocab [Fixed, Tilt, Vectored, Cyclic] still lives in
-    # reviewer._M3_PROPKIN_DEFS (SBERT) and vlm_extractor.py; SBERT/text is the
-    # authority for Vectored/Cyclic and merge_field_predictions() reconciles the
-    # two sides (a binary SigLIP value never blocks a text-side Vectored/Cyclic).
+    # propKin (propulsor articulation kinematics) — SigLIP is restricted to a
+    # binary [Tilt, Fixed]. A static B&W patent line drawing shows a tilt
+    # mechanism explicitly (pivot/actuator/phantom-position lines), which is
+    # exactly what this field now asks about.
+    # v15.3 retired "Vectored" (flow deflection, not drawn geometry) and
+    # "Cyclic" (swashplate, a claims-level distinction) from the taxonomy for
+    # the same reason this list never carried them: neither is visually
+    # decidable from a single frame. So this binary is now the WHOLE predictable
+    # vocab rather than a visual subset of it — reviewer._M3_PROPKIN_DEFS
+    # (SBERT) and vlm_extractor.py agree, and there is no longer a text-side
+    # value for merge_field_predictions() to reconcile against. 'Other' is not
+    # predicted by either side; it is the human's residual pick.
     PROP_KIN = [
         ("Tilt",  "a propulsor that tilts as a unit to vector thrust between hover and cruise"),
         ("Fixed", "a fixed propulsor with no articulation"),

@@ -455,9 +455,11 @@ _M1_FUS_SHAPE_DEFS = {
     "Oval":        "the aircraft has an oval or elliptical fuselage cross-section",
     "Rectangular": "the aircraft has a rectangular or box-shaped fuselage",
     "Blended":     "the aircraft has a blended wing body or lifting body fuselage merged into the wings",
-    "PodBoom":     "pod and boom fuselage: a small central pod or nacelle housing occupants or "
-                   "payload, with one or two slender structural booms extending rearward to carry the "
-                   "empennage, typical of Robinson R22-style helicopter derivatives and tandem-rotor UAVs",
+    # v15.3: 'PodBoom' retired from the wizard — a pod with a tail boom is
+    # already described by the cross-section plus the M1 boom dimensions. Its
+    # SBERT definition is dropped so the classifier cannot predict a value the
+    # labeller has no button for. 'Other' gets no definition on purpose: a
+    # residual category has no sentence to embed, so it must not be predicted.
 }
 _M1_FUS_KIN_DEFS = {
     "Fixed":    "the aircraft has a conventional fixed fuselage that does not tilt or pivot",
@@ -529,11 +531,15 @@ _M3_RMECH_DEFS = {
     "Retractable": "the rotors are retractable and fold into the aircraft structure during cruise",
 }
 # propKin (propulsor articulation kinematics) — vocab mirrors vlm_extractor.py.
+# v15.3: 'Vectored' and 'Cyclic' retired. The field now asks only whether the
+# propulsor unit pivots relative to its own mount, so thrust vectoring (already
+# captured by G1 and Thrust Kinematics) and swashplate pitch (not decidable from
+# a line drawing) no longer have their own values. Text that describes either
+# now classifies as Fixed, matching vlm_extractor._NORMALIZE. 'Other' is the
+# human's residual pick and is deliberately not defined here.
 _M3_PROPKIN_DEFS = {
     "Fixed":    "the propulsor is fixed in place with no articulation",
     "Tilt":     "the propulsor tilts as a unit to vector thrust between hover and cruise",
-    "Vectored": "the propulsor uses thrust vectoring to redirect the exhaust or slipstream",
-    "Cyclic":   "the rotor uses cyclic swashplate pitch control like a helicopter",
 }
 
 # Core M3 fields (the four/five visually-classified attribute axes) vs the

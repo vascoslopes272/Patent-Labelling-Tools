@@ -24,10 +24,15 @@ Value vocabularies
 The prompts request the canonical taxonomy values used by the pipeline. For
 M1/M2 and for M3's chord/bmech/rmech these match ``classify_m*_fields()`` exactly
 (also the option strings the HTML wizard renders). M3 additionally uses an
-``orient`` vocabulary [Horizontal, Vertical, Mixed] and a new ``propKin``
-field [Fixed, Tilt, Vectored, Cyclic] as specified for this extractor. The
+``orient`` vocabulary [Horizontal, Vertical, Mixed] and a ``propKin``
+field [Fixed, Tilt, Other] as specified for this extractor. The
 _NORMALIZE maps below also fold common synonyms into the canonical value, so a
 near-miss from the model still resolves rather than being dropped.
+
+v15.3 retired 'Vectored'/'Cyclic' (propKin) and 'PodBoom' (fusShape) from the
+HTML wizard, which is the source of truth for the taxonomy. The retired terms
+stay in _NORMALIZE as INPUT synonyms only — the model still says them, so they
+must resolve to a live value rather than being dropped as unmapped.
 
 All heavy imports (torch, transformers) are done lazily inside the functions so
 this module is always importable even in an env without them; a missing backend
@@ -69,8 +74,12 @@ _NORMALIZE = {
         "circular": "Circular", "tubular": "Circular", "cylindrical": "Circular",
         "oval": "Oval", "elliptical": "Oval", "ellipse": "Oval",
         "rectangular": "Rectangular", "box": "Rectangular", "boxy": "Rectangular",
-        "blended": "Blended", "podboom": "Blended", "pod-boom": "Blended",
-        "liftingbody": "Blended", "bwb": "Blended",
+        "blended": "Blended", "liftingbody": "Blended", "bwb": "Blended",
+        # v15.3: 'PodBoom' retired. It no longer folds into Blended — a pod with
+        # a tail boom is not a lifting body, and the codebook says such records
+        # are flagged for manual re-reading rather than auto-migrated. 'Other'
+        # forces the mandatory note in the wizard, which is that flag.
+        "other": "Other", "podboom": "Other", "pod-boom": "Other",
     },
     "fusKin": {
         "fixed": "Fixed", "rigid": "Fixed", "conventional": "Fixed",
@@ -142,8 +151,15 @@ _NORMALIZE = {
     "propKin": {
         "fixed": "Fixed", "rigid": "Fixed",
         "tilt": "Tilt", "tilting": "Tilt",
-        "vectored": "Vectored", "vector": "Vectored", "thrustvectored": "Vectored",
-        "cyclic": "Cyclic", "swashplate": "Cyclic",
+        "other": "Other",
+        # v15.3: 'Vectored'/'Cyclic' retired — both answered a different question
+        # than this field asks. propKin is now strictly "does the propulsor unit
+        # pivot relative to its own mount?". Flow deflection (vectored) and
+        # swashplate blade pitch (cyclic) both leave the unit itself unmoved, so
+        # they resolve to Fixed; a thrust direction that changes because the
+        # structure reorients is recorded in Thrust Kinematics, not here.
+        "vectored": "Fixed", "vector": "Fixed", "thrustvectored": "Fixed",
+        "cyclic": "Fixed", "swashplate": "Fixed",
     },
 }
 
@@ -325,7 +341,7 @@ _M1_QUESTION = (
     "<image>\nYou are an eVTOL patent figure analyst. Look at this single patent "
     "drawing and classify the airframe. Reply with ONLY a JSON object, no prose:\n"
     "{\n"
-    '  "fusShape": one of ["Circular","Oval","Rectangular","Blended"],\n'
+    '  "fusShape": one of ["Circular","Oval","Rectangular","Blended","Other"],\n'
     '  "fusKin":   one of ["Fixed","VarInc","TiltBody"],\n'
     '  "gearArch": one of ["Skids","FixedWheel","RetrWheel","PadsHull"],\n'
     '  "latSym":   true or false\n'
@@ -373,13 +389,15 @@ _M3_QUESTION = (
     '  "orient":  one of ["Horizontal","Vertical","Mixed"],\n'
     '  "bmech":   one of ["Open","Ducted"],\n'
     '  "rmech":   one of ["Exposed","Retractable"],\n'
-    '  "propKin": one of ["Fixed","Tilt","Vectored","Cyclic"]\n'
+    '  "propKin": one of ["Fixed","Tilt","Other"]\n'
     "}\n"
     "chord = rotors at the front/leading edge (pulling) vs back/trailing edge (pushing); "
     "orient = rotor disc orientation (Horizontal lift, Vertical cruise, or Mixed); "
     "bmech = blade housing (Open exposed blades vs Ducted/shrouded); "
     "rmech = whether rotors are permanently Exposed or Retractable/folding into the structure; "
-    "propKin = propulsor articulation (Fixed, Tilt, thrust-Vectored, or Cyclic swashplate). "
+    "propKin = whether the propulsor unit pivots relative to its own mount "
+    "(Tilt) or does not (Fixed); a thrust direction that changes only because "
+    "the structure carrying the propulsor reorients is still Fixed. "
     "If a field is not determinable from this figure, omit that key."
 )
 

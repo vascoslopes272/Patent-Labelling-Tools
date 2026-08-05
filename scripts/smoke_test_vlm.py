@@ -33,20 +33,30 @@ from src.vlm_extractor import (
 # Canonical enums — must match classify_m*_fields() in src/cross_modal.py /
 # the _M*_FIELDS DEFS in src/reviewer.py (vlm_extractor.py is the reference).
 CANONICAL_ENUMS = {
-    "fusShape": {"Circular", "Oval", "Rectangular", "Blended"},
-    "fusKin":   {"Fixed", "Variable"},
+    "fusShape": {"Circular", "Oval", "Rectangular", "Blended", "Other"},
+    # "Variable" was the human-readable word, not the canonical id — it made
+    # this check flag VarInc/TiltBody (2 of the 3 valid values) as mismatches.
+    "fusKin":   {"Fixed", "VarInc", "TiltBody"},
     "gearArch": {"Skids", "FixedWheel", "RetrWheel", "PadsHull"},
     "latSym":   {True, False},
     "wingConf": {"W", "BWB", "FW", "LB"},
+    # Full EMP_TYPE vocab as rendered by the HTML wizard. This list had gone
+    # stale by four values (BoxTail/Oth/VertFin/Y-Tail), two of which the
+    # extractor actively emits — so correct predictions were reported as
+    # mismatches. 'Oth' is the empennage residual id (not "Other").
     "empType":  {"Tailless", "Conventional", "Cruciform", "T-Tail", "V-Tail",
-                 "Inv_V-Tail", "H-Tail", "Fins"},
+                 "Inv_V-Tail", "H-Tail", "Fins", "VertFin", "Y-Tail",
+                 "BoxTail", "Oth"},
+    # empKin was retired from the wizard in v14 (replaced by the universal
+    # empTilts checkbox); the extractor still emits it and the HTML converts it
+    # on ingest, so these stay valid as an INPUT vocabulary.
     "empKin":   {"Fixed", "Tilt", "Stabilator"},
     "wCount":   {"1", "2", "3", "4"},
     "chord":    {"Front", "Back"},
     "orient":   {"Horizontal", "Vertical", "Mixed"},
     "bmech":    {"Open", "Ducted", "Folded"},
     "rmech":    {"Exposed", "Retractable"},
-    "propKin":  {"Fixed", "Tilt", "Vectored", "Cyclic"},
+    "propKin":  {"Fixed", "Tilt", "Other"},
 }
 
 
@@ -123,13 +133,43 @@ def main() -> int:
     print("Model loaded.")
 
     start = time.perf_counter()
-    run_and_report("M1 — vlm_extract_m1()", _M1_QUESTION, vlm_extract_m1, vlm_bundle, img_path)
-    run_and_report("M2 — vlm_extract_m2()", _M2_QUESTION, vlm_extract_m2, vlm_bundle, img_path)
-    run_and_report("M3 — vlm_extract_m3()", _M3_QUESTION, vlm_extract_m3, vlm_bundle, img_path)
+    parsed_sets = [
+        run_and_report("M1 — vlm_extract_m1()", _M1_QUESTION, vlm_extract_m1, vlm_bundle, img_path),
+        run_and_report("M2 — vlm_extract_m2()", _M2_QUESTION, vlm_extract_m2, vlm_bundle, img_path),
+        run_and_report("M3 — vlm_extract_m3()", _M3_QUESTION, vlm_extract_m3, vlm_bundle, img_path),
+    ]
     elapsed = time.perf_counter() - start
+
+    # A loaded model that answers nothing is a FAILED smoke test, not a passing
+    # one: every field comes back None, check_enum() calls each None
+    # "OK (None/unset)", and the run would otherwise exit 0 while having tested
+    # nothing at all (e.g. the chat call raising on every figure). Count what
+    # actually came back and fail on an empty or out-of-vocab result.
+    values    = [p.get("value") for s in parsed_sets for p in s.values()]
+    populated = [v for v in values if v is not None]
+    mismatches = [
+        (f, p.get("value"))
+        for s in parsed_sets for f, p in s.items()
+        if check_enum(f, p.get("value")) == "ENUM MISMATCH"
+    ]
 
     print(f"\n{'=' * 70}")
     print(f"Total wall-clock time for M1+M2+M3 calls: {elapsed:.2f}s")
+    print(f"Fields populated: {len(populated)}/{len(values)}   enum mismatches: {len(mismatches)}")
+
+    if not populated:
+        print("FAIL — the model loaded but returned no values at all "
+              "(every field None). The extraction path is broken.")
+        print(f"{'=' * 70}")
+        return 1
+    if mismatches:
+        print("FAIL — value(s) outside the canonical taxonomy vocabulary:")
+        for f, v in mismatches:
+            print(f"  {f} = {v!r}")
+        print(f"{'=' * 70}")
+        return 1
+
+    print("PASS — all returned values are in-vocabulary.")
     print(f"{'=' * 70}")
     return 0
 
