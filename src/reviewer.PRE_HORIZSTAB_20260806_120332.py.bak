@@ -499,8 +499,6 @@ _M2_EMP_TYPE_DEFS = {
     "Y-Tail":       "the aircraft has a Y-tail combining two dihedral surfaces and a single ventral fin",
     "H-Tail":       "the aircraft has an H-tail or twin-boom tail with two vertical fins connected by a horizontal stabilizer",
     "VertFin":      "the aircraft has one or more vertical fins only, with no horizontal stabilizer",
-    # 2026-08-06: mirror of VertFin — see the HTML EMP_TYPE note.
-    "HorizStab":    "the aircraft has a horizontal stabilizer or tailplane only, with no vertical fin or rudder",
     "Fins":         "the aircraft has minimal small stabilizing fins rather than a full tail empennage",
 }
 _M2_EMP_KIN_DEFS = {

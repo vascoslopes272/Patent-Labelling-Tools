@@ -1,20 +1,44 @@
 project:
   name: patseer_drawing_pipeline
 
+# ── Folder naming convention (renamed 2026-08-05) ────────────────────────────
+# Every data folder is now prefixed with the notebook stage that CREATES it, and
+# says whether it is PRE- or POST- HTML labelling. Rename log (with the old
+# names, for reversal):  data/Global Statistics/PIPELINE_FOLDER_RENAME_LOG.csv
+#
+#   PRE-label (feed the wizard)          POST-label (consume the wizard's export)
+#   ─────────────────────────────        ────────────────────────────────────────
+#   00a_raw_downloads/                   02b_POSTlabel_processed_518px/
+#   00a2_triage_json/                    data/02b_POSTlabel_manifests/
+#   00b2_figure_crops/                   data/03_HUMAN_wizard_exports/
+#   data/00b2_crops_and_01a_MACHINE_feed/  ARCHIVED_POSTlabel_approved_by_company/
+#
+# NOTE — two compat symlinks (matched -> 00b2_figure_crops, processed ->
+# 02b_POSTlabel_processed_518px) still sit at the OLD names on purpose: 5466
+# Image_Path cells inside reviewed_patents_Batch_01.xlsx and every src_path/
+# dst_all/dst_main in processing_manifest_Batch_01.csv are absolute paths
+# containing "/matched/" and "/processed/". Do not delete the symlinks until
+# those stored paths are rewritten.
 paths:
   base:          "/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_DS"
-  raw_images:    "{{ paths.base }}/raw"
-  matched:       "{{ paths.base }}/matched"
-  # Final destination for patents approved in the HTML human-review wizard —
-  # populated by 01_review.ipynb's "Copy approved files" cell, run only after
-  # human_review_status is set to "approved" in batches.xlsx.
-  reviewed:      "{{ paths.base }}/reviewed"
-  structured:    "{{ paths.base }}/structured"
-  text:          "{{ paths.base }}/text"
-  # Stage 02 outputs: processed/<batch>/all/ + processed/<batch>/main/,
-  # manifests under data/processed/<batch>/ (mirrors matched <-> data/matched).
-  processed:     "{{ paths.base }}/processed"
-  data_processed: "{{ paths.base }}/data/processed"
+  # PRE-label — PatSeer downloads, one dir per patent (src/patseer_downloader.py via 00a).
+  raw_images:    "{{ paths.base }}/00a_raw_downloads"
+  # PRE-label — cropped figures per batch (00b2). Wizard Image_Path cells point in here.
+  matched:       "{{ paths.base }}/00b2_figure_crops"
+  # POST-label, ARCHIVED — approved patents copied into <company>/<prototype>/<id>/.
+  # Written by notebooks/archive/01_review.ipynb cell 20 (that notebook is archived).
+  # Verified 2026-08-05: NOTHING in live code reads this key. Presentation copy only;
+  # 02b feeds off the wizard export's Image_Path (matched/), not off this folder.
+  reviewed:      "{{ paths.base }}/ARCHIVED_POSTlabel_approved_by_company"
+  # POST-label — Stage 02 outputs: <batch>/all/ + <batch>/main/ (518px, src/processor.py via 02b),
+  # manifests under data_processed (mirrors matched <-> data_matched).
+  processed:     "{{ paths.base }}/02b_POSTlabel_processed_518px"
+  data_processed: "{{ paths.base }}/data/02b_POSTlabel_manifests"
+  # DEAD KEYS (2026-08-05) — neither directory has ever existed on disk. Kept only
+  # because 00b1_grouping.ipynb cell 1 prints cfg['paths']['structured'] and would
+  # KeyError without it. Safe to delete once that print line goes.
+  structured:    "{{ paths.base }}/UNUSED_structured"
+  text:          "{{ paths.base }}/UNUSED_text"
   # IMGPATH-resolved wizard exports (after scripts/resolve_image_paths.py) —
   # Stage-02 input; one file per batch: reviewed_patents_<Batch_NN>.xlsx
   wizard_resolved_dir: "/mnt/storage_11tb/Drive_files_to_syncronize"
@@ -23,19 +47,43 @@ paths:
   # Moved into a subfolder 2026-07-06 (was data/batches.xlsx directly) —
   # every notebook reads this key rather than hardcoding "data/batches.xlsx".
   batches_xlsx:  "{{ paths.data }}/Global Statistics/batches.xlsx"
-  # Per-batch bookkeeping CSVs (crops_mapping_<Batch_NN>.csv, needs_human_review_<Batch_NN>.csv)
-  # mirror the per-batch image folders under paths.matched — named after it so the
-  # relation is obvious: data/matched/Batch_NN/ <-> matched/Batch_NN/.
-  data_matched:  "{{ paths.base }}/data/matched"
-  triage:        "{{ paths.base }}/triage"
+  # PRE-label. Two producers share this folder, hence both names in it:
+  #   00b2 writes crops_mapping_<Batch_NN>.csv   — the crop ledger: one row per cropped
+  #        figure (page image -> crop file -> OCR'd label -> matched description line).
+  #        This is the file that matters downstream.
+  #   00b2 writes needs_human_review_<Batch_NN>.csv — a ONE-TIME frozen snapshot of the
+  #        crops whose label<->description match failed, used only as a worklist by
+  #        00b2's own review UI. Nothing else reads it; it is not a wizard input.
+  #   01a  writes ml_predict_labels_<Batch_NN>.xlsx — the MACHINE-generated wizard feed
+  #        (SBERT T1 pre-labels + SigLIP duplicate rows). THIS is what you load into
+  #        the HTML. Its human counterpart comes back out under 03_HUMAN_wizard_exports.
+  data_matched:  "{{ paths.base }}/data/00b2_crops_and_01a_MACHINE_feed"
+  # PRE-label — one triage JSON per patent (src/triage_filter.py via 00a2).
+  triage:        "{{ paths.base }}/00a2_triage_json"
   # source_patents_<batch>.xlsx is written per-batch under data_matched/<batch>/
   # by run_stage01() — no fixed root-level path needed.
-  reviewed_excel: "{{ paths.base }}/reviewed_patents.xlsx"
-  # Where the wizard's reviewed_patents_<batch>.xlsx exports live (moved out
-  # of ~/Downloads 2026-07-05 — browser "(N)" suffixing made the unsuffixed
-  # name silently stale). 02a reads here and writes preprocessed/ under it.
-  html_review_exports: "{{ paths.base }}/data/reviewed xlsxs"
-  html_template: "/home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools/notebooks/UI_for_taxonomy_caracterization_10.0.html"
+  # DEAD KEY (2026-08-05) — this file has never existed; only the archived
+  # 02_taxonomy_review.ipynb reads it. Superseded by html_review_exports.
+  reviewed_excel: "{{ paths.base }}/UNUSED_reviewed_patents.xlsx"
+  # POST-label — everything the HTML wizard hands back, plus 02a's cleaned version.
+  # Moved out of ~/Downloads 2026-07-05 (browser "(N)" suffixing made the unsuffixed
+  # name silently stale); the folder's old name had a space in it, dropped 2026-08-05.
+  # Which file is which:
+  #   reviewed_patents_<batch>.xlsx        HUMAN — the raw wizard export. 02a's input.
+  #   Review_postprocess_<batch>_<ts>.xlsx MACHINE-cleaned human labels — 02a's OUTPUT,
+  #        and 02b's input. (Yes, the "postprocess" filename comes out of a notebook
+  #        called 02a_preprocessing: "pre" there means "before the embedding stage",
+  #        not "before labelling". Filename left as-is — see FOLDER_RENAME notes.)
+  html_review_exports: "{{ paths.base }}/data/03_HUMAN_wizard_exports"
+  # The labelling wizard itself. Was pointing at ...10.0.html, which has not existed
+  # since the 13_0 rename; corrected to the current version 2026-08-05.
+  # MUST track the CURRENT wizard file — the taxonomy drift guard
+  # (tests/test_taxonomy_alignment.py) reads its option arrays from here, so a
+  # stale pointer means the guard silently validates the ML files against a
+  # frozen old wizard and passes while real drift goes unnoticed. Bumped to
+  # 15_3 on 2026-08-06 (was still on 15_2 after the 15_2 -> 15_3 rename).
+  # Update this in the same commit as any wizard version bump.
+  html_template: "/home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools/notebooks/UI_for_taxonomy_caracterization_15_3.html"
   model_cache:   "/home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools/models/Qwen"
   siglip_cache:  "/home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools/models/SigLIP"
   sbert_cache:   "/home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools/models/SBERT"

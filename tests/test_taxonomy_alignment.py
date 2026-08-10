@@ -43,9 +43,27 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-HTML_PATH = REPO_ROOT / "notebooks" / "UI_for_taxonomy_caracterization_10.0.html"
 
 sys.path.insert(0, str(REPO_ROOT))
+
+# Resolved from config.yaml's paths.html_template rather than hardcoded.
+#
+# This used to be a literal "UI_for_taxonomy_caracterization_10.0.html". That file
+# stopped existing at the 13_0 rename, so every test in this module ERRORED at
+# fixture setup instead of running — and because a pytest error is not a failure,
+# the drift guard looked green-ish while guarding nothing. The v15.2 T2-vocab drift
+# fixed on 2026-08-05 (retired 'Blueprint'/'Grid/Pattern'/'Blueprint Blue' still
+# being predicted into a wizard that had no chip for them) is exactly what this
+# module was written to catch, and would have been caught at the time.
+from src.config_loader import load_config  # noqa: E402
+
+HTML_PATH = Path(load_config()["paths"]["html_template"])
+if not HTML_PATH.exists():  # fail loudly at collection, never silently error
+    raise FileNotFoundError(
+        f"paths.html_template does not exist: {HTML_PATH}\n"
+        "Point config.yaml at the current wizard HTML — this drift guard is "
+        "useless without it."
+    )
 
 from src.excel_schema import _T1_MANUAL, _G1_MANUAL, _M1_MANUAL, _WING_MANUAL, _M3_MANUAL  # noqa: E402
 from src.reviewer import (  # noqa: E402
@@ -88,6 +106,22 @@ def _extract_balanced(src: str, start: int) -> str:
                 continue
             if c == in_str:
                 in_str = None
+        # Skip // line comments and /* */ block comments (2026-08-05 fix).
+        # Without this the scan breaks on any comment containing a quote char.
+        # v15.3 added exactly that inside the array literals, e.g. TOP's
+        #     // v15.3: the "ambiguous dual-rotation mechanisms" clause is removed
+        # The bare `"` opened a phantom string, every apostrophe after it flipped
+        # parity, the array's own ']' was read as string content, and the scan ran
+        # on into the NEXT array — so extract_var_ids("TOP") returned TOP's ids
+        # PLUS WING_CONFIG's, and G1.topType reported a drift that did not exist.
+        elif c == "/" and i + 1 < len(src) and src[i + 1] == "/":
+            nl = src.find("\n", i)
+            i = len(src) if nl == -1 else nl
+            continue
+        elif c == "/" and i + 1 < len(src) and src[i + 1] == "*":
+            end = src.find("*/", i + 2)
+            i = len(src) if end == -1 else end + 2
+            continue
         elif c in ("'", '"'):
             in_str = c
         elif c == open_ch:
@@ -149,8 +183,47 @@ def _opts_for(manual_list, field_name: str) -> set[str] | None:
     raise KeyError(f"{field_name!r} not found in manual list")
 
 
+def assert_python_renderable(label: str, py_ids: set[str], html_ids: set[str],
+                             where: str) -> None:
+    """The actual contract, asserted directionally (changed 2026-08-05).
+
+    This used to be a strict `py_ids == html_ids`. That is the wrong invariant
+    and it is what made this module unusable once it started running again:
+    the two sides are NOT peers. Python's sets are the values a MODEL may
+    predict; the HTML's are the values a HUMAN may pick. The wizard deliberately
+    carries options no model should ever emit — 'Other'/'Oth' (needs a mandatory
+    free-text note), 'Unknown', 'None', and architectures like PTC/TB that SigLIP
+    has no prompt for. Under strict equality every one of those reads as drift.
+
+    What actually breaks the pipeline is one-directional: a value Python can emit
+    that the wizard has no chip for. It ingests (nothing validates on import) but
+    renders as an empty selection, so the reviewer never sees the prediction and
+    silently relabels it. That — and only that — fails here.
+
+    The reverse (wizard-only options) is reported to stdout as informational, so a
+    genuine coverage gap like "SigLIP can never predict TB" stays visible without
+    turning the suite red.
+    """
+    unrenderable = sorted(py_ids - html_ids)
+    assert not unrenderable, (
+        f"{label}: Python can emit {len(unrenderable)} value(s) the wizard cannot render.\n"
+        f"  not in {where}: {unrenderable}\n"
+        "  These ingest without error but show as an EMPTY selection in the wizard,\n"
+        "  so the prediction is lost and the reviewer relabels from scratch.\n"
+        "  Fix the Python side to match the HTML, or add the option to the wizard."
+    )
+    human_only = sorted(html_ids - py_ids)
+    if human_only:
+        print(f"  [info] {label}: wizard-only (human escape hatch / no model prompt): {human_only}")
+
+
 # ─── Comparisons: Python *_DEFS dict keys vs HTML `var X = [{id:...}]` ──────
 
+# EMP_KIN removed 2026-08-05: the 3-option Fixed/Tilt/Stabilator selector was
+# retired from the wizard in v14 (C4/PR-06) and replaced by the empTilts boolean
+# + empTiltsNote. There is no `var EMP_KIN` left to compare against, so this case
+# could only ever fail. _M2_EMP_KIN_DEFS still exists in reviewer.py to label old
+# saved records and is intentionally no longer cross-checked.
 @pytest.mark.parametrize("py_defs,html_var,label", [
     (G1_TOP_TYPES,        "TOP",         "G1.topType"),
     (_M1_FUS_SHAPE_DEFS,  "FUS_SHAPE",   "M1.fusShape"),
@@ -158,20 +231,15 @@ def _opts_for(manual_list, field_name: str) -> set[str] | None:
     (_M1_GEAR_ARCH_DEFS,  "GEAR_ARCH",   "M1.gearArch"),
     (_M2_WING_CONF_DEFS,  "WING_CONFIG", "M2.wingConf"),
     (_M2_EMP_TYPE_DEFS,   "EMP_TYPE",    "M2.empType"),
-    (_M2_EMP_KIN_DEFS,    "EMP_KIN",     "M2.empKin"),
     (_M3_CHORD_DEFS,      "CHORD",       "M3.chord"),
     (_M3_BMECH_DEFS,      "BLADE_MECH",  "M3.bmech"),
     (_M3_RMECH_DEFS,      "RETRACT_MECH", "M3.rmech"),
     (_T1_TARGET_DEFS,     "T1_TGT",      "T1.t1Target"),
 ])
 def test_defs_dict_matches_html_var(js_src, py_defs, html_var, label):
-    py_ids = set(py_defs.keys())
-    html_ids = extract_var_ids(js_src, html_var)
-    assert py_ids == html_ids, (
-        f"{label} taxonomy drift between Python and HTML:\n"
-        f"  in Python, not in HTML var {html_var}: {sorted(py_ids - html_ids)}\n"
-        f"  in HTML var {html_var}, not in Python: {sorted(html_ids - py_ids)}"
-    )
+    assert_python_renderable(label, set(py_defs.keys()),
+                             extract_var_ids(js_src, html_var),
+                             f"HTML var {html_var}")
 
 
 # ─── Comparisons: Python *_DEFS dict keys vs HTML option-list function ──────
@@ -182,13 +250,9 @@ def test_defs_dict_matches_html_var(js_src, py_defs, html_var, label):
     (_T1_FIELD_DEFS,   "t1FieldOptions",       "T1.t1Field"),
 ])
 def test_defs_dict_matches_html_function(js_src, py_defs, html_func, label):
-    py_ids = set(py_defs.keys())
-    html_ids = extract_function_ids(js_src, html_func)
-    assert py_ids == html_ids, (
-        f"{label} taxonomy drift between Python and HTML:\n"
-        f"  in Python, not in HTML function {html_func}(): {sorted(py_ids - html_ids)}\n"
-        f"  in HTML function {html_func}(), not in Python: {sorted(html_ids - py_ids)}"
-    )
+    assert_python_renderable(label, set(py_defs.keys()),
+                             extract_function_ids(js_src, html_func),
+                             f"HTML function {html_func}()")
 
 
 # ─── Comparisons: Python plain lists (cross_modal.py) vs HTML `var X = [...]` ─
@@ -202,13 +266,9 @@ def test_defs_dict_matches_html_function(js_src, py_defs, html_func, label):
     (T2_PARTS,  "T2_PARTS_DEFAULT",  "T2.parts"),
 ])
 def test_plain_list_matches_html_var(js_src, py_list, html_var, label):
-    py_ids = set(py_list)
-    html_ids = extract_var_strings(js_src, html_var)
-    assert py_ids == html_ids, (
-        f"{label} taxonomy drift between Python and HTML:\n"
-        f"  in Python, not in HTML var {html_var}: {sorted(py_ids - html_ids)}\n"
-        f"  in HTML var {html_var}, not in Python: {sorted(html_ids - py_ids)}"
-    )
+    assert_python_renderable(label, set(py_list),
+                             extract_var_strings(js_src, html_var),
+                             f"HTML var {html_var}")
 
 
 # ─── Comparisons: excel_schema.py manual Options strings vs HTML ────────────
@@ -216,24 +276,25 @@ def test_plain_list_matches_html_var(js_src, py_list, html_var, label):
 def test_wing_field_options_match_html(js_src):
     """_WING_MANUAL declares the Options string for each per-wing field
     (wTilt/wPosV/wPosL/wPlan/wRole) — cross-check each against its HTML
-    counterpart. wTilt/wRole are declared inline inside pageM2() as
-    `var tiltOpts = [...]` / `var roleOpts = [...]`, the rest are top-level
-    `var W_POS_V/W_POS_L/W_PLAN = [...]`."""
+    counterpart, all of which are now top-level `var W_* = [...]` arrays.
+
+    wTilt/wRole were previously declared inline inside pageM2() as
+    `var tiltOpts` / `var roleOpts`; both were hoisted to top-level W_TILT /
+    W_ROLE so recordToRows() could reuse the id->label pairs. The old names
+    were still referenced here and could only ever raise "could not find
+    `var tiltOpts`" — updated 2026-08-05."""
     checks = [
-        ("wTilt", "tiltOpts", extract_var_ids),
-        ("wPosV", "W_POS_V",  extract_var_ids),
-        ("wPosL", "W_POS_L",  extract_var_ids),
-        ("wPlan", "W_PLAN",   extract_var_ids),
-        ("wRole", "roleOpts", extract_var_ids),
+        ("wTilt", "W_TILT",  extract_var_ids),
+        ("wPosV", "W_POS_V", extract_var_ids),
+        ("wPosL", "W_POS_L", extract_var_ids),
+        ("wPlan", "W_PLAN",  extract_var_ids),
+        ("wRole", "W_ROLE",  extract_var_ids),
     ]
     for field, html_var, extractor in checks:
-        py_ids = _opts_for(_WING_MANUAL, field)
-        html_ids = extractor(js_src, html_var)
-        assert py_ids == html_ids, (
-            f"_WING_MANUAL[{field!r}] taxonomy drift between Python and HTML:\n"
-            f"  in Python, not in HTML var {html_var}: {sorted(py_ids - html_ids)}\n"
-            f"  in HTML var {html_var}, not in Python: {sorted(html_ids - py_ids)}"
-        )
+        assert_python_renderable(f"_WING_MANUAL[{field!r}]",
+                                 _opts_for(_WING_MANUAL, field),
+                                 extractor(js_src, html_var),
+                                 f"HTML var {html_var}")
 
 
 def test_m3_zone_field_options_match_html(js_src):
@@ -258,16 +319,20 @@ def test_m3_zone_field_options_match_html(js_src):
 
 
 def test_t1_disapprove_reason_options_match_html(js_src):
-    """_T1_MANUAL declares t1DisapproveReason's Options string — the HTML
-    renders it as a plain <select data-field="t1DisapproveReason"> rather
-    than an oc()-style option grid, so it needs its own extractor."""
-    py_ids = _opts_for(_T1_MANUAL, "t1DisapproveReason")
-    html_ids = extract_select_options(js_src, "t1DisapproveReason")
-    assert py_ids == html_ids, (
-        "T1.t1DisapproveReason taxonomy drift between Python and HTML:\n"
-        f"  in Python, not in HTML <select>: {sorted(py_ids - html_ids)}\n"
-        f"  in HTML <select>, not in Python: {sorted(html_ids - py_ids)}"
-    )
+    """_T1_MANUAL declares t1DisapproveReason's Options string — cross-check it
+    against the wizard's T1_DISAPPROVE_REASONS array.
+
+    Read from the array, not from the rendered <select> (changed 2026-08-05).
+    The <select> is built at runtime by
+        T1_DISAPPROVE_REASONS.map(function(o){ return '<option value="'+o.id+'" ...
+    so a static regex over the markup extracts the literal source fragment
+    "'+o.id+'" rather than any real id — extract_select_options() returned
+    exactly that one-element set and the comparison could never pass. The array
+    is the actual source of truth the <select> is generated from."""
+    assert_python_renderable("T1.t1DisapproveReason",
+                             _opts_for(_T1_MANUAL, "t1DisapproveReason"),
+                             extract_var_ids(js_src, "T1_DISAPPROVE_REASONS"),
+                             "HTML var T1_DISAPPROVE_REASONS")
 
 
 # ─── Boolean / numeric fields with no enumerated HTML option list ───────────

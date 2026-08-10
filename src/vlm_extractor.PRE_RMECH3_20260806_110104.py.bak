@@ -116,10 +116,6 @@ _NORMALIZE = {
         "twin-boom": "H-Tail", "twinboom": "H-Tail",
         "vertfin": "VertFin", "verticalfin": "VertFin", "vertical-fin": "VertFin",
         "finonly": "VertFin", "vertical-fins-only": "VertFin",
-        # 2026-08-06: mirror of VertFin — a tailplane with no vertical surface.
-        "horizstab": "HorizStab", "horizontalstabilizer": "HorizStab",
-        "horizontal-stabilizer": "HorizStab", "tailplane": "HorizStab",
-        "horizontal-only": "HorizStab", "horizontalstabilizeronly": "HorizStab",
         "fins": "Fins", "fin": "Fins",
     },
     "empKin": {
@@ -139,27 +135,18 @@ _NORMALIZE = {
         "tilt": "Mixed", "vectored": "Mixed",
     },
     # bmech = blade HOUSING only (Open vs Ducted). Folding/stowable is rmech
-    # (BladeFold), not a bmech value — the HTML wizard has no "Folded" housing.
+    # (Retractable), not a bmech value — the HTML wizard has no "Folded" housing.
     # A folding rotor's housing is whatever it is when deployed (usually Open),
-    # so VLM "folding/stowable" maps to Open here; the folding itself is captured
-    # by the rmech field's own "folding"->BladeFold mapping below. Both maps
-    # legitimately consume the same word for different questions.
+    # so VLM "folding/stowable" maps to Open here; its retractability is captured
+    # by the rmech field's own "stowing"->Retractable mapping below.
     "bmech": {
         "open": "Open", "openrotor": "Open", "exposed": "Open", "free": "Open",
         "folded": "Open", "folding": "Open", "stowable": "Open",
         "ducted": "Ducted", "shrouded": "Ducted", "fan": "Ducted",
     },
-    # 2026-08-06: split 2 -> 3 (HTML RETRACT_MECH). The old catch-all
-    # "retractable"/"stowing" no longer has one answer, so the free-text reply is
-    # routed by WHAT MOVES: blades -> BladeFold, the whole unit -> Retracting.
-    # Bare "retractable"/"stowing" (which names neither) falls to Retracting,
-    # matching the old label's own wording, "folds into the structure".
     "rmech": {
         "exposed": "Exposed", "nonretractable": "Exposed", "fixed": "Exposed",
-        "bladefold": "BladeFold", "bladefolding": "BladeFold", "folding": "BladeFold",
-        "folded": "BladeFold", "foldable": "BladeFold",
-        "retracting": "Retracting", "retractable": "Retracting",
-        "stowing": "Retracting", "stowable": "Retracting", "withdraws": "Retracting",
+        "retractable": "Retractable", "stowing": "Retractable",
     },
     "propKin": {
         "fixed": "Fixed", "rigid": "Fixed",
@@ -369,7 +356,7 @@ _M2_QUESTION = (
     "drawing and classify the lifting surfaces. Reply with ONLY a JSON object, no prose:\n"
     "{\n"
     '  "wingConf": one of ["W","BWB","FW","LB"],\n'
-    '  "empType":  one of ["Tailless","Conventional","Cruciform","T-Tail","V-Tail","Inv_V-Tail","Y-Tail","H-Tail","VertFin","HorizStab","Fins"],\n'
+    '  "empType":  one of ["Tailless","Conventional","Cruciform","T-Tail","V-Tail","Inv_V-Tail","Y-Tail","H-Tail","VertFin","Fins"],\n'
     '  "empKin":   one of ["Fixed","Tilt","Stabilator"],\n'
     '  "wCount":   integer number of main wing panels, 1 to 4\n'
     "}\n"
@@ -401,15 +388,13 @@ _M3_QUESTION = (
     '  "chord":   one of ["Front","Back"],\n'
     '  "orient":  one of ["Horizontal","Vertical","Mixed"],\n'
     '  "bmech":   one of ["Open","Ducted"],\n'
-    '  "rmech":   one of ["Exposed","BladeFold","Retracting"],\n'
+    '  "rmech":   one of ["Exposed","Retractable"],\n'
     '  "propKin": one of ["Fixed","Tilt","Other"]\n'
     "}\n"
     "chord = rotors at the front/leading edge (pulling) vs back/trailing edge (pushing); "
     "orient = rotor disc orientation (Horizontal lift, Vertical cruise, or Mixed); "
     "bmech = blade housing (Open exposed blades vs Ducted/shrouded); "
-    "rmech = Exposed (same configuration in every phase of flight), BladeFold "
-    "(blades fold against each other or the nacelle, unit stays in place), or "
-    "Retracting (the unit withdraws into the structure); "
+    "rmech = whether rotors are permanently Exposed or Retractable/folding into the structure; "
     "propKin = whether the propulsor unit pivots relative to its own mount "
     "(Tilt) or does not (Fixed); a thrust direction that changes only because "
     "the structure carrying the propulsor reorients is still Fixed. "

@@ -116,10 +116,6 @@ _NORMALIZE = {
         "twin-boom": "H-Tail", "twinboom": "H-Tail",
         "vertfin": "VertFin", "verticalfin": "VertFin", "vertical-fin": "VertFin",
         "finonly": "VertFin", "vertical-fins-only": "VertFin",
-        # 2026-08-06: mirror of VertFin — a tailplane with no vertical surface.
-        "horizstab": "HorizStab", "horizontalstabilizer": "HorizStab",
-        "horizontal-stabilizer": "HorizStab", "tailplane": "HorizStab",
-        "horizontal-only": "HorizStab", "horizontalstabilizeronly": "HorizStab",
         "fins": "Fins", "fin": "Fins",
     },
     "empKin": {
@@ -369,7 +365,7 @@ _M2_QUESTION = (
     "drawing and classify the lifting surfaces. Reply with ONLY a JSON object, no prose:\n"
     "{\n"
     '  "wingConf": one of ["W","BWB","FW","LB"],\n'
-    '  "empType":  one of ["Tailless","Conventional","Cruciform","T-Tail","V-Tail","Inv_V-Tail","Y-Tail","H-Tail","VertFin","HorizStab","Fins"],\n'
+    '  "empType":  one of ["Tailless","Conventional","Cruciform","T-Tail","V-Tail","Inv_V-Tail","Y-Tail","H-Tail","VertFin","Fins"],\n'
     '  "empKin":   one of ["Fixed","Tilt","Stabilator"],\n'
     '  "wCount":   integer number of main wing panels, 1 to 4\n'
     "}\n"

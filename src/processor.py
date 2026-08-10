@@ -57,6 +57,11 @@ _T2_FIELDS = ["status", "isMain", "arch", "rotation_deg", "figKey",
 
 _ARCH_SUFFIX_RE = re.compile(r"^(?P<base>.+?)_arch(?P<n>\d+)$")
 
+# "Grid/Pattern" was retired from the wizard in v15.2 and is no longer predicted
+# or selectable — kept here on purpose as READ-side legacy tolerance, since
+# Batch_01 was labelled before the retirement and still carries the value.
+# Same for "Blueprint Blue" in _bg_col_matches() below. Do not remove while any
+# pre-v15.2 batch is still being reprocessed.
 _REFLECT_BG_STY = {"Shaded/Gradient", "Grid/Pattern"}
 
 

@@ -751,10 +751,6 @@ def classify_m2_fields(
         ("Y-Tail",      "aircraft with a Y-tail combining two dihedral surfaces and a single ventral fin"),
         ("H-Tail",      "aircraft with an H-tail or twin-boom tail with two vertical fins connected by a horizontal stabilizer"),
         ("VertFin",     "aircraft with one or more vertical fins only and no horizontal stabilizer"),
-        # 2026-08-06: mirror of VertFin (HTML EMP_TYPE). Without it a horizontal-
-        # only tail scored as Conventional, asserting a vertical fin that is not
-        # drawn — common on multirotors that yaw by differential rotor thrust.
-        ("HorizStab",   "aircraft with a horizontal stabilizer or tailplane only and no vertical fin or rudder"),
         ("Fins",        "aircraft with minimal small stabilizing fins rather than a full tail empennage"),
     ]
     EMP_KIN = [
@@ -829,15 +825,9 @@ def classify_m3_fields(
         ("Open",   "open free rotor or propeller blades exposed to airflow"),
         ("Ducted", "rotors inside a duct or shroud or enclosed fan housing"),
     ]
-    # 2026-08-06: split 2 -> 3 (HTML RETRACT_MECH). 'Exposed' keeps its id (the
-    # label became "Fixed"); 'Retractable' is retired and split into BladeFold
-    # (blades fold, unit stays put) and Retracting (unit withdraws). The retired
-    # id is NOT predicted — emitting it would hand the wizard a value it only
-    # keeps for labelling legacy records.
     RETRACT_MECH = [
-        ("Exposed",    "non-retractable rotors permanently exposed outside the aircraft structure, in the same configuration in every phase of flight"),
-        ("BladeFold",  "rotor blades folded back against each other or against the nacelle, with the propulsion unit itself staying in place"),
-        ("Retracting", "a propulsion unit that withdraws or retracts bodily into the aircraft structure during cruise"),
+        ("Exposed",     "non-retractable rotors permanently exposed outside the aircraft structure"),
+        ("Retractable", "retractable rotors that fold or retract into the aircraft structure during cruise"),
     ]
     # propKin (propulsor articulation kinematics) — SigLIP is restricted to a
     # binary [Tilt, Fixed]. A static B&W patent line drawing shows a tilt

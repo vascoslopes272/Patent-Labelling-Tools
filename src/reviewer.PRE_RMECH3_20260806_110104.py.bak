@@ -499,8 +499,6 @@ _M2_EMP_TYPE_DEFS = {
     "Y-Tail":       "the aircraft has a Y-tail combining two dihedral surfaces and a single ventral fin",
     "H-Tail":       "the aircraft has an H-tail or twin-boom tail with two vertical fins connected by a horizontal stabilizer",
     "VertFin":      "the aircraft has one or more vertical fins only, with no horizontal stabilizer",
-    # 2026-08-06: mirror of VertFin — see the HTML EMP_TYPE note.
-    "HorizStab":    "the aircraft has a horizontal stabilizer or tailplane only, with no vertical fin or rudder",
     "Fins":         "the aircraft has minimal small stabilizing fins rather than a full tail empennage",
 }
 _M2_EMP_KIN_DEFS = {
@@ -528,21 +526,16 @@ _M3_ORIENT_DEFS = {
 }
 # bmech = blade HOUSING only: Open (exposed) vs Ducted (shrouded). The HTML
 # wizard's BLADE_MECH has exactly these two — folding/stowing is NOT a blade
-# housing trait, it's captured separately by rmech (BladeFold). "Folded" was
+# housing trait, it's captured separately by rmech (Retractable). "Folded" was
 # dropped here so SigLIP/SBERT/VLM can never emit a bmech value the wizard
 # can't display as selected.
 _M3_BMECH_DEFS = {
     "Open":   "the aircraft has open free rotor or propeller blades exposed to airflow",
     "Ducted": "the rotors are inside a duct, shroud, or enclosed fan housing",
 }
-# 2026-08-06: split 2 -> 3, mirroring the HTML RETRACT_MECH. 'Exposed' keeps its
-# id (label is now "Fixed"); the retired 'Retractable' is deliberately absent —
-# the wizard keeps it only to label legacy records, so predicting it would
-# re-create the ambiguity the split exists to remove.
 _M3_RMECH_DEFS = {
-    "Exposed":    "the propulsors keep the same configuration in every phase of flight, non-retractable and permanently exposed outside the aircraft structure",
-    "BladeFold":  "the rotor blades fold against each other or against the nacelle, while the propulsion unit itself stays in place",
-    "Retracting": "the propulsion unit withdraws bodily into the aircraft structure during cruise",
+    "Exposed":     "the rotors are non-retractable and permanently exposed outside the aircraft structure",
+    "Retractable": "the rotors are retractable and fold into the aircraft structure during cruise",
 }
 # propKin (propulsor articulation kinematics) — vocab mirrors vlm_extractor.py.
 # v15.3: 'Vectored' and 'Cyclic' retired. The field now asks only whether the

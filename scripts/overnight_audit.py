@@ -39,14 +39,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pandas as pd
 
-NEW_PATH = Path(
-    "/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs"
-    "/1639_DS/data/matched/Batch_02/ml_predict_labels_Batch_02.xlsx"
-)
-BACKUP_PATH = Path(
-    "/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs"
-    "/1639_DS/data/matched/Batch_02/ml_predict_labels_Batch_02.PRE_OVERNIGHT_BACKUP.xlsx"
-)
+# Derived from config rather than hardcoded (2026-08-05): data/matched/ was renamed
+# to data/00b2_crops_and_01a_MACHINE_feed/, and the absolute literal here was the one
+# place in live code that would have silently broken.
+from src.config_loader import load_config
+
+_BATCH = "Batch_02"
+_FEED_DIR = Path(load_config()["paths"]["data_matched"]) / _BATCH
+
+NEW_PATH = _FEED_DIR / f"ml_predict_labels_{_BATCH}.xlsx"
+BACKUP_PATH = _FEED_DIR / f"ml_predict_labels_{_BATCH}.PRE_OVERNIGHT_BACKUP.xlsx"
 G1_CONF_THRESHOLD = 0.45   # config.yaml confidence_routing.G1
 
 

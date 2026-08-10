@@ -68,7 +68,7 @@ def _pred_val(pred_dict: dict | None, key: str):
 
 _T1_MANUAL = [
     ("isApproved",          "T1 — Approval Status",       "true|false"),
-    ("t1DisapproveReason",  "T1 — Disapproval Reason",    "Pure UAV|Out of Domain|Unreadable|No Content|No Aircraft Image|Other"),
+    ("t1DisapproveReason",  "T1 — Disapproval Reason",    "Pure UAV|Out of Domain|Unreadable|No Aircraft Image|Other"),
     ("archCount",           "T1 — Distinct Architectures", ""),
     ("isDuplicate",         "T1 — Duplicate Flag",        "true|false"),
     ("duplicateId",         "T1 — Duplicate Of (Patent ID)", ""),
