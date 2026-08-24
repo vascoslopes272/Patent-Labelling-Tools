@@ -74,7 +74,22 @@ paths:
   #        and 02b's input. (Yes, the "postprocess" filename comes out of a notebook
   #        called 02a_preprocessing: "pre" there means "before the embedding stage",
   #        not "before labelling". Filename left as-is — see FOLDER_RENAME notes.)
+  # FROZEN as of 2026-08-18 (scripts/freeze_exports.py): once a batch is finished its
+  # reviewed_patents_<batch>.xlsx is chmod 444 and hashed into PRISTINE_MANIFEST.sha256.
+  # It is the only record of what the annotator actually clicked, so nothing writes here
+  # again — not 02a, not a fix-up script, not a hand edit in Excel.
   html_review_exports: "{{ paths.base }}/data/03_HUMAN_wizard_exports"
+  # EVERY correction made after export lands here instead, on a copy: cross-batch
+  # duplicate links, codebook conformance, physics-consistency fixes (a tilt-wing whose
+  # wings do not tilt). Same filenames as the frozen originals, so only the directory
+  # changes. THIS is what 02a reads; it falls back to the frozen export, with a printed
+  # notice, for any batch that has no copy yet. Rebuild a copy at any time with
+  #   python scripts/freeze_exports.py --copy <Batch_NN> --force
+  corrected_wizard_exports: "{{ paths.base }}/data/03c_CORRECTED_wizard_exports"
+  # 02a's OUTPUT (Review_postprocess_<batch>_<ts>.xlsx) and 02b's input. Moved out of
+  # html_review_exports 2026-08-18 so that folder holds human exports and nothing else.
+  # 02b still falls back to the old location for the runs already sitting there.
+  cleaned_label_tables: "{{ paths.base }}/data/02a_CLEANED_label_tables"
   # The labelling wizard itself. Was pointing at ...10.0.html, which has not existed
   # since the 13_0 rename; corrected to the current version 2026-08-05.
   # MUST track the CURRENT wizard file — the taxonomy drift guard

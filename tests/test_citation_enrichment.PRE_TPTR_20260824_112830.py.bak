@@ -91,9 +91,9 @@ def test_live_fetch_and_cache_hit():
 def test_g1_needs_enrichment_logic():
     assert rv.g1_needs_enrichment(None) is True
     assert rv.g1_needs_enrichment({"value": None}) is True
-    assert rv.g1_needs_enrichment({"value": "TR", "confidence": 0.9, "flagged_ambiguous": True}) is True
-    assert rv.g1_needs_enrichment({"value": "TR", "confidence": 0.30}, g1_threshold=0.45) is True
-    assert rv.g1_needs_enrichment({"value": "TR", "confidence": 0.92}, g1_threshold=0.45) is False
+    assert rv.g1_needs_enrichment({"value": "TP", "confidence": 0.9, "flagged_ambiguous": True}) is True
+    assert rv.g1_needs_enrichment({"value": "TP", "confidence": 0.30}, g1_threshold=0.45) is True
+    assert rv.g1_needs_enrichment({"value": "TP", "confidence": 0.92}, g1_threshold=0.45) is False
     print("  [4] g1_needs_enrichment threshold/flag logic  OK")
 
 
@@ -107,7 +107,7 @@ def test_enrich_no_citations_is_noop():
 
     ext._fetch_google_patents = counting
     try:
-        orig_pred = {"value": "TR", "confidence": 0.30, "flagged_ambiguous": True, "source": "sbert"}
+        orig_pred = {"value": "TP", "confidence": 0.30, "flagged_ambiguous": True, "source": "sbert"}
         out = rv.enrich_g1_with_citations(
             orig_pred, {"backward_cites": [], "forward_cites": []},
             "some kinematic text", None, "/tmp/nonexistent_cache_dir_xyz",

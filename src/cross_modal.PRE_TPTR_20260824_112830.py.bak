@@ -541,7 +541,7 @@ def classify_t2_fields(
 
 G1_TOP_TYPES = {
     "TW":  "tilt wing aircraft where the entire wing panel rotates to vector thrust",
-    "TR":  "tilt propulsors aircraft where propulsors tilt independently while the wing stays fixed",
+    "TP":  "tilt propulsors aircraft where propulsors tilt independently while the wing stays fixed",
     "DS":  "deflected slipstream aircraft with fixed propellers and large structural flaps that deflect airflow",
     "CVT": "combined aircraft with fixed lift rotors plus tilting propulsors, or ambiguous dual-rotation thrust",
     "SLC": "lift plus cruise aircraft with separate fixed hover rotors and fixed cruise propulsors, no tilting parts",
@@ -552,16 +552,16 @@ G1_TOP_TYPES = {
     "PFV": "a wearable jetpack or thrust-vectored suit strapped directly to a standing human body with no separate vehicle frame",
 }
 
-# Discriminative VISION prompts for the confusable TR/SLC/CVT trio, used only
+# Discriminative VISION prompts for the confusable TP/SLC/CVT trio, used only
 # by SigLIP (classify_g1_hint). The plain G1_TOP_TYPES defs describe the
 # architecture's *kinematics* ("propulsors tilt") — which is invisible in a
 # single static line drawing, so SigLIP collapses these three together. These
 # rewrites instead describe the DRAWN EVIDENCE that separates them in a figure:
-# a visible pivot/hinge/tilt-arrow (TR), two physically-distinct fixed rotor
+# a visible pivot/hinge/tilt-arrow (TP), two physically-distinct fixed rotor
 # sets (SLC), or a mix of fixed lift rotors and a separate tilting unit (CVT).
 # Topologies not listed here keep their G1_TOP_TYPES wording.
 G1_VISUAL_PROMPTS = {
-    "TR":  "aircraft with rotor nacelles drawn with a visible tilt pivot, hinge, "
+    "TP":  "aircraft with rotor nacelles drawn with a visible tilt pivot, hinge, "
            "rotation axis, or curved motion arrow at the wing tips or booms, "
            "showing the propulsors rotate between up and forward",
     "SLC": "aircraft with two physically separate and distinct sets of fixed "
@@ -595,10 +595,8 @@ def classify_g1_hint(
     -------
     ``{"value": str, "confidence": float, "source": "siglip"}``  or  ``None``
     if skipped.  ``value`` is one of the master HTML's G1 topology codes
-    (``TW, TR, DS, CVT, SLC, SRW, RC, MR, HB, PFV``) matching the ``topType``
-    field exactly — see the wizard named by ``paths.html_template`` (config.yaml),
-    array ``TOP``. Renamed TP -> TR 2026-08-24 to match the codebook; the id set
-    is asserted against the live HTML by tests/test_taxonomy_alignment.py.
+    (``TW, TP, DS, CVT, SLC, SRW, RC, MR, HB, PFV``) matching the ``topType``
+    field exactly — see ``UI_for_taxonomy_caracterization_10.0.html`` ``TOP``.
     """
     if nlp_confidence >= confidence_threshold:
         return None
@@ -613,7 +611,7 @@ def classify_g1_hint(
 
     ids       = list(G1_TOP_TYPES.keys())
     # Use the sharper, drawn-evidence prompts for the visually-confusable
-    # TR/SLC/CVT trio where available (G1_VISUAL_PROMPTS), else the plain def.
+    # TP/SLC/CVT trio where available (G1_VISUAL_PROMPTS), else the plain def.
     texts     = [TEMPLATE.format(G1_VISUAL_PROMPTS.get(k, G1_TOP_TYPES[k])) for k in ids]
     text_feat = _text_features(texts, model, tokenizer, device)
     scores    = (feat @ text_feat.T).squeeze(0).cpu().tolist()

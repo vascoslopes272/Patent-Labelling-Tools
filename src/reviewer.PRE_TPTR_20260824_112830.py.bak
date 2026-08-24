@@ -308,7 +308,7 @@ def classify_t1_dimensions(text: str | None, sbert_model=None) -> dict:
 
 _G1_TOP_TYPE_DEFS = {
     "TW":  "this patent describes a tilt wing aircraft where the entire wing panel rotates to vector thrust",
-    "TR":  "this patent describes tilt propulsors where propulsors tilt independently while the wing stays fixed",
+    "TP":  "this patent describes tilt propulsors where propulsors tilt independently while the wing stays fixed",
     "DS":  "this patent describes a deflected slipstream aircraft with fixed propellers and structural flaps that deflect airflow",
     "CVT": "this patent describes a combined aircraft with fixed lift rotors plus tilting propulsors",
     "SLC": "this patent describes a lift plus cruise aircraft with separate fixed hover rotors and fixed cruise propulsors",
@@ -323,7 +323,7 @@ _G1_TOP_TYPE_DEFS = {
 # whether propulsors TILT is almost always *stated* in the claims/abstract, but
 # is invisible in a single static line drawing — so these giveaway phrases pin
 # the unambiguous cases before the SBERT/SigLIP fight, which otherwise confuses
-# the visually-near-identical SLC (separate fixed lift+cruise) and TR (tilting
+# the visually-near-identical SLC (separate fixed lift+cruise) and TP (tilting
 # propulsors). Order matters: the most specific multi-word phrases are checked
 # first (see classify_g1_keyword). Phrases are matched case-insensitively as
 # substrings, with light separator tolerance (space/hyphen) applied in the
@@ -334,8 +334,8 @@ _G1_KEYWORD_RULES: list[tuple[list[str], str]] = [
     (["tiltrotor", "tilt rotor", "tilt prop", "tilting prop", "tilting rotor",
       "tiltable", "rotatable nacelle", "tiltable nacelle", "nacelle tilts",
       "nacelles tilt", "tilts to transition", "tilt mechanism",
-      "tilting mechanism", "pivoting nacelle"],                             "TR"),
-    # Lift+Cruise / independent fixed thrust — the case that was misread as TR.
+      "tilting mechanism", "pivoting nacelle"],                             "TP"),
+    # Lift+Cruise / independent fixed thrust — the case that was misread as TP.
     (["lift plus cruise", "lift and cruise", "lift+cruise", "lift cruise",
       "dedicated cruise", "separate cruise", "independent cruise",
       "separate hover", "dedicated lift rotor", "no tilting",
@@ -585,7 +585,7 @@ def _sbert_best(text: str | None, defs: dict, sbert_model) -> dict:
     best_i   = int(np.argmax(sims))
     # margin = how far the winner beats the runner-up. A tiny margin means the
     # model is effectively guessing between two near-equal options (e.g. SLC vs
-    # TR) — _margin_flag() uses this to mark the prediction for human review.
+    # TP) — _margin_flag() uses this to mark the prediction for human review.
     margin = 1.0
     if len(sims) > 1:
         srt = np.sort(sims)[::-1]
@@ -612,7 +612,7 @@ def _margin_flag(pred: "dict | None") -> "dict | None":
     prediction is a near-tie (small margin) or already low-confidence, KEEP the
     value but cap its confidence below the review threshold so the human is
     prompted to verify it — instead of letting a confident-looking wrong guess
-    (e.g. SLC misread as TR) pass silently. Keyword-sourced predictions are
+    (e.g. SLC misread as TP) pass silently. Keyword-sourced predictions are
     trusted and never flagged. Returns the (possibly modified) prediction."""
     if not pred or pred.get("value") is None:
         return pred
@@ -891,9 +891,7 @@ def m3_card_keys(top_type: str | None, wing_conf: str | None, w_count: int, emp_
     has_tail = bool(emp_type) and emp_type != "Tailless"
     if top_type in ("RC", "MR"):
         return ["core_layout"]
-    # "TP" is the pre-2026-08-24 id for TR, kept as a read-only alias so a legacy
-    # row that never went through 02a's TP -> TR rename still resolves correctly.
-    is_winged = top_type in ("TW", "TR", "TP", "DS", "CVT", "SLC", "SRW")
+    is_winged = top_type in ("TW", "TP", "DS", "CVT", "SLC", "SRW")
     if not is_winged or w_count == 0 or wing_conf in ("BWB", "FW", "LB"):
         keys = ["hull_array"] if wing_conf in ("BWB", "FW", "LB") else ["core_layout"]
         if has_tail:

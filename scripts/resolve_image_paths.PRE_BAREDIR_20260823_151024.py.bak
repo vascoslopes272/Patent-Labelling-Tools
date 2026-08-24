@@ -33,27 +33,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def find_image(matched_root: Path, patent_id: str, filename: str) -> Path | None:
-    """Look for `filename` under any matched/**/<patent_id>*/ folder.
-
-    Two folder shapes exist under matched/<batch>/ and both are real:
-      <patent_id>_<simple_family_id>/   the normal case the pipeline writes
-      <patent_id>/                      bare, no family suffix — 13 Batch_02
-                                        patents (CN1907806A, DE10028631A1,
-                                        ES2268941A1, KR20060074923A, US6367736B1,
-                                        US6622962B1, ...) are stored this way.
-    The bare form used to be handled by a `matched_root / patent_id` fallback,
-    which was one directory level too shallow — it missed the <batch>/ level, so
-    it never matched anything and those figures stayed unresolved for ever.
-    Globbing both shapes fixes it. Verified 2026-08-23: 32/32 previously
-    unresolved Batch_02 figures now resolve.
-    """
-    for pattern in (f"**/{patent_id}_*", f"**/{patent_id}"):
-        for patent_dir in matched_root.glob(pattern):
-            if not patent_dir.is_dir():
-                continue
-            hit = patent_dir / filename
-            if hit.exists():
-                return hit
+    """Look for `filename` under any matched/**/<patent_id>*/ folder."""
+    for patent_dir in matched_root.glob(f"**/{patent_id}_*"):
+        if not patent_dir.is_dir():
+            continue
+        hit = patent_dir / filename
+        if hit.exists():
+            return hit
+    # Also check a folder named exactly the bare patent_id (no record suffix).
+    direct = matched_root / patent_id / filename
+    if direct.exists():
+        return direct
     return None
 
 

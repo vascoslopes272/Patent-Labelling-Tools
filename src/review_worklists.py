@@ -1,0 +1,421 @@
+"""review_worklists.py — build the "needs a figure" decision queue for a batch.
+
+Everything deterministic is applied by rule (02a's own rules, plus 02a_legacy for the
+legacy batches). What lands here is only what a rule cannot settle: the questions whose
+answer is a fact about the drawing.
+
+Nothing in here decides anything. It produces the queue; the reviewer answers it in
+02a's Section 5, and only answered rows are written back. That is what keeps the corpus
+human-annotated and the labels eligible for the intra-annotator kappa analysis.
+
+    from src.review_worklists import build_worklist, QUESTIONS
+    items = build_worklist(df, batch="Batch_02")
+"""
+from __future__ import annotations
+
+import re
+
+import pandas as pd
+
+# ── The question catalogue ───────────────────────────────────────────────────
+# `options` are (id, prose). `field` is the export Field the decision writes to;
+# None means the decision is applied by hand-written logic (A-9 cascades, A-13
+# moves a propulsor between mount cards).
+QUESTIONS: dict[str, dict] = {
+    "A-9": dict(
+        label="L5 sole-thrust — is this really a Tilt Wing?",
+        field="topType",
+        options=[("CVT", "CVT — Combined: thrust that does not tilt with the wing"),
+                 ("TW",  "TW — stays Tilt Wing: everything tilts with it")],
+    ),
+    "A-13": dict(
+        label="Empennage or fuselage?",
+        field=None,
+        options=[("empennage", "Empennage — the tail bears stabilising surfaces"),
+                 ("fuselage",  "Fuselage — bare rear fuselage, no stabilising surface")],
+    ),
+    "bodyMotion": dict(
+        label="Body motion — what does the BODY do between hover and cruise?",
+        field="fusKin",
+        options=[("Fixed",      "Fixed / Conventional — the body holds one attitude"),
+                 ("TiltBody",   "Tilting Body — airframe reorients ~90°, cabin goes with it"),
+                 ("LevelCabin", "Variable Incidence — airframe reorients, cabin stays level")],
+    ),
+    "acState": dict(
+        label="Aircraft state in this view",
+        field="acState",
+        options=[("Hover", "Hover (VTOL)"), ("Transition", "Transition"),
+                 ("Cruise", "Cruise / Forward"), ("HoverCruise", "Invariant — no flight state shown"),
+                 ("Other", "Other")],
+    ),
+    "rmech": dict(
+        label="Retraction kinematics — 'Retractable' was split in two",
+        field=None,
+        options=[("BladeFold",  "Blade-folding — blades fold, the unit stays where it is"),
+                 ("Retracting", "Retracting — the whole unit withdraws into the structure"),
+                 ("Exposed",    "Fixed — same configuration in every phase of flight")],
+    ),
+    "propKin": dict(
+        label="Propulsor articulation — 'Cyclic'/'Vectored' were retired",
+        field=None,
+        options=[("Fixed", "Fixed — the unit does not pivot relative to its own mount"),
+                 ("Tilt",  "Tilt — the unit itself pivots relative to its mount"),
+                 ("Other", "Other — a note is mandatory")],
+    ),
+    "fusShape": dict(
+        label="Fuselage cross-section — 'Pod and Boom' was retired",
+        field="fusShape",
+        options=[("Circular", "Circular / Tubular"), ("Oval", "Oval / Elliptical"),
+                 ("Rectangular", "Rectangular / Box"), ("Blended", "Blended / Lifting Body"),
+                 ("Other", "Other")],
+    ),
+    # v15.4 — the ONLY question about disapproved patents. Every other question skips
+    # them (they never reach 02b), but this one exists precisely because the disapproval
+    # REASON is what is being corrected. 'Unreadable/Insufficient image quality' was
+    # retired in wizard v15_4 and folded into 'No Aircraft Image', whose label is now
+    # "No Usable, Sufficient, or Legible Aircraft Image". Records carrying the retired
+    # reason, plus 'Other' records whose free text says the same thing, are offered here.
+    "t1Reason": dict(
+        label="Disapproval reason — 'Unreadable/Insufficient image quality' was retired",
+        field="t1DisapproveReason",
+        options=[("No Aircraft Image", "No Usable, Sufficient, or Legible Aircraft Image"),
+                 ("No Content",        "No content available on the patent at all"),
+                 ("Out of Domain",     "Out of TD — not an eVTOL/AAM aircraft"),
+                 ("Pure UAV",          "Pure UAV — uncrewed/cargo only"),
+                 ("Other",             "Other — leave as it is, a note explains it")],
+    ),
+    "bgSty": dict(
+        label="Background style — 'Grid/Pattern' was retired",
+        field=None,
+        options=[("Solid Fill", "Solid Fill"), ("Shaded/Gradient", "Shaded/Gradient"),
+                 ("Other", "Other")],
+    ),
+}
+
+# Architectures whose figures carry no flight state — 02a Rule A1 forces acState to
+# HoverCruise on all of them, so their acState is never a question.
+FIXED_ARCHS = {"MR", "RC", "HB", "PFV", "SLC", "SRW"}
+# MR/PTC/RC hold VarInc pending the codebook's 3-option vs the wizard's 4-option
+# divergence. Nothing migrates to or from BodyPitch until that is settled, so those
+# records are excluded rather than offered a choice that cannot include the likely answer.
+BODYPITCH_ARCHS = {"MR", "PTC", "RC"}
+NON_TILT_STATIONS = ["fuselage", "emp", "hull_array", "core_layout"]
+# acState ids retired as reviewer-facing choices in v14/v15_3. They still LABEL
+# correctly, so nothing breaks, but a batch holding them is not uniform with one
+# labelled on the current wizard.
+RETIRED_AC_STATE = {"Unclear", "NonApplicable"}
+
+
+# v15.4 — free-text markers that mean "the figures do not let me determine the
+# architecture". Drawn from the actual notes on the 18 'Other' disapprovals, which is
+# why 'non-Sufficient' and the 'suficient' typo are in here alongside the tidy phrasings.
+T1_INSUFFICIENT_MARKERS = (
+    "insufficient", "not enough", "not enought", "too few", "no image", "few image",
+    "lacking", "missing image", "sufficient", "suficient", "only cruise",
+    "only a image", "only one image", "decipher", "no information",
+)
+# Reasons this question is offered for. 'Unreadable' is the retired id.
+T1_RETIRED_REASON = "Unreadable"
+
+
+# ── Patent metadata fallback for disapproved records ─────────────────────────
+# The wizard's recordToRows() truncates a DISAPPROVED patent to its verdict plus
+# reason ("everything else below would just be unreviewed ML/placeholder noise"),
+# so title / abstract / description_of_drawings never reach the export for them.
+# That is precisely the population t1Reason asks about, which left the whole
+# right-hand evidence panel reading "—" on every one of those items — while the
+# question's own text tells the reviewer to check the drawings description.
+# The 01a machine feed still carries all three, so fall back to it.
+#
+# Loaded lazily and cached per batch: nothing touches the feed unless an item is
+# actually missing metadata, and a batch with no feed yet (Batch_04) degrades to
+# the old blank panel rather than raising.
+_META_FIELDS = ("title", "abstract", "description_of_drawings")
+_ML_META_CACHE: dict[str, dict[str, dict[str, str]]] = {}
+
+
+def _ml_feed_meta(batch: str) -> dict[str, dict[str, str]]:
+    """``{base_patent_id: {field: value}}`` from ``ml_predict_labels_<batch>.xlsx``.
+
+    Returns ``{}`` when the feed is missing or unreadable — a missing fallback
+    must never break the worklist, it just leaves the panel as it was before.
+    """
+    if batch in _ML_META_CACHE:
+        return _ML_META_CACHE[batch]
+    out: dict[str, dict[str, str]] = {}
+    try:
+        from pathlib import Path
+        try:
+            from src.config_loader import load_config
+        except ImportError:
+            from config_loader import load_config
+        feed = (Path(load_config()["paths"]["data_matched"]) / batch
+                / f"ml_predict_labels_{batch}.xlsx")
+        if feed.exists():
+            d = pd.read_excel(feed, sheet_name="Review")
+            d = d[d.Field.astype(str).isin(_META_FIELDS)]
+            for _, r in d.iterrows():
+                if pd.isna(r.Value) or not str(r.Value).strip():
+                    continue
+                out.setdefault(base_id(r.Patent_ID), {}).setdefault(str(r.Field), str(r.Value))
+    except Exception:
+        out = {}
+    _ML_META_CACHE[batch] = out
+    return out
+
+
+def _crops_root(df: pd.DataFrame, batch: str):
+    """The directory holding <batch>/, derived from any Image_Path in the batch.
+
+    Disapproved patents carry almost no T2 rows, so _figures() finds nothing for them
+    and the review panel would be blank on exactly the records this question is about.
+    The crops are on disk regardless of approval, so resolve them by patent id instead.
+
+    Derived from the batch segment rather than a fixed folder name, because the batches
+    do not agree on one: Batch_02/03 point into 00b2_figure_crops/, Batch_01/05 into the
+    older matched/ compat path. Both end <root>/<Batch_NN>/<patent dir>/<file>.png.
+    """
+    from pathlib import Path
+    for p in df.Image_Path.dropna().astype(str):
+        parts = Path(p).parts
+        if batch in parts:
+            return Path(*parts[:parts.index(batch)])
+    return None
+
+
+def _disk_figures(root, batch: str, base: str) -> list[dict]:
+    """Every crop on disk for one patent, whether or not it was ever labelled."""
+    from pathlib import Path
+    if root is None:
+        return []
+    d = Path(root) / batch
+    if not d.is_dir():
+        return []
+    hits = [x for x in list(d.glob(base)) + list(d.glob(base + "_*")) if x.is_dir()]
+    figs = []
+    for folder in hits:
+        for p in sorted(folder.glob("*.png")):
+            m = re.search(r"_F([0-9]+[A-Za-z]?)\.png$", p.name)
+            figs.append(dict(fig=("FIG. " + m.group(1)) if m else p.name,
+                             url=path_to_file_url(str(p)), path=str(p)))
+    return figs
+
+
+def strip_label(v) -> str:
+    """Export Values are "ID — Label" composites. Always compare on the id: the display
+    half differs between batches for identical ids."""
+    s = str(v)
+    return s.split(" — ")[0].strip() if " — " in s else s.strip()
+
+
+def base_id(pid) -> str:
+    return re.sub(r"_arch\d+$", "", str(pid))
+
+
+def path_to_file_url(p) -> str:
+    p = str(p).replace("\\", "/")
+    return "file://" + ("" if p.startswith("/") else "/") + p
+
+
+def _figures(df: pd.DataFrame) -> dict[str, list[dict]]:
+    """Every figure of every patent, deduped, with a FIG label parsed off the filename."""
+    out: dict[str, list[dict]] = {}
+    t2 = df[df.Section == "T2"]
+    for b, g in t2.groupby("base"):
+        seen, figs = set(), []
+        for sub, ip in zip(g.Sub_Dimension.astype(str), g.Image_Path):
+            if not sub.startswith("Image: ") or pd.isna(ip) or not str(ip).strip():
+                continue
+            fname = sub[len("Image: "):]
+            # "(none available)" and "(fig N)" are placeholders for text-referenced
+            # figures with no matched image — they carry no picture to look at.
+            if fname in seen or fname == "(none available)" or re.match(r"^\(fig .+\)$", fname):
+                continue
+            seen.add(fname)
+            m = re.search(r"_F([0-9]+[A-Za-z]?)\.png$", str(ip))
+            figs.append(dict(fig=("FIG. " + m.group(1)) if m else fname,
+                             url=path_to_file_url(ip), path=str(ip)))
+        out[b] = figs
+    return out
+
+
+def build_worklist(df: pd.DataFrame, batch: str) -> list[dict]:
+    """Return the decision queue for one batch's reviewed rows."""
+    df = df.copy()
+    df["base"] = df.Patent_ID.map(base_id)
+
+    # Disapproved patents never reach 02b, so nothing about them needs deciding.
+    appr = df[df.Field == "isApproved"]
+    disapproved = set(appr.loc[appr.Value.astype(str).str.lower() == "false", "Patent_ID"].map(base_id))
+
+    figs = _figures(df)
+    top = df[df.Field == "topType"].set_index("Patent_ID").Value.map(strip_label)
+    arch_of_base = {base_id(k): v for k, v in top.items()}
+    fus = df[df.Field == "fusKin"].set_index("Patent_ID").Value.map(strip_label)
+
+    def meta(b, field):
+        r = df[(df.base == b) & (df.Field == field)]
+        if len(r):
+            v = str(r.Value.iloc[0])
+            if v.strip() and v != "nan":
+                return v
+        # A DISAPPROVED patent carries no T1 metadata in the export — and that is
+        # exactly the population t1Reason asks about, so fall back to the 01a feed.
+        if field in _META_FIELDS:
+            return _ml_feed_meta(batch).get(b, {}).get(field, "")
+        return "" if not len(r) else str(r.Value.iloc[0])
+
+    items: list[dict] = []
+
+    def add(q, pid, old, why, slot="", sub_dim=""):
+        b = base_id(pid)
+        items.append(dict(uid=f"{batch}|{pid}|{q}|{slot}", batch=batch, patent=pid, base=b,
+                          q=q, old=old, why=why, slot=slot, sub_dim=sub_dim,
+                          title=meta(b, "title"), abstract=meta(b, "abstract")[:1200],
+                          drawings=meta(b, "description_of_drawings")[:1500],
+                          figures=figs.get(b, [])))
+
+    for pid in df.Patent_ID.unique():
+        if base_id(pid) in disapproved:
+            continue
+        sub = df[df.Patent_ID == pid]
+        arch = top.get(pid)
+
+        # ── A-9 — a TW carrying thrust on a structure that does not tilt with the wing
+        if arch == "TW":
+            hits = []
+            for st in NON_TILT_STATIONS:
+                c = sub[sub.Field == f"{st}_count"]
+                n = pd.to_numeric(c.Value, errors="coerce").fillna(0).sum() if len(c) else 0
+                if n > 0:
+                    hits.append(f"{st} carries {n:.0f}")
+            for i in (1, 2, 3, 4):
+                tl, cn = sub[sub.Field == f"wing{i}_tilt"], sub[sub.Field == f"wing{i}_count"]
+                n = pd.to_numeric(cn.Value, errors="coerce").fillna(0).sum() if len(cn) else 0
+                if len(tl) and strip_label(tl.Value.iloc[0]) == "Fixed" and n > 0:
+                    hits.append(f"wing{i} does not tilt and carries {n:.0f}")
+            bc = sub[sub.Field == "boom_count"]
+            booms = pd.to_numeric(bc.Value, errors="coerce").fillna(0).sum() if len(bc) else 0
+            if hits:
+                add("A-9", pid, "TW",
+                    "Thrust on a structure that does not tilt with the wing: " + "; ".join(hits)
+                    + ". Under the tightened L5 a Tilt Wing needs EVERY propulsor to tilt with the "
+                      "wing, so this looks like CVT. ⚠ Changing topType releases propKinLock, so "
+                      "propKin must then be re-answered per station IN THE WIZARD.")
+            elif booms > 0:
+                att = sub[sub.Field.str.match(r"boom\d+_attach", na=False)].Value.map(strip_label).unique().tolist()
+                add("A-9", pid, "TW",
+                    f"{booms:.0f} boom-mounted propulsors; boom attach = {', '.join(att) or 'n/a'}. "
+                    "Does the boom tilt WITH the wing? Attached to the wing usually means yes "
+                    "(stays TW). Fixed to the fuselage means CVT.")
+
+        # ── A-13 — empennage-mounted propulsors under the new definition
+        c = sub[sub.Field == "emp_count"]
+        n = pd.to_numeric(c.Value, errors="coerce").fillna(0).sum() if len(c) else 0
+        if n > 0:
+            et = sub[sub.Field == "empType"]
+            etv = strip_label(et.Value.iloc[0]) if len(et) else "(none recorded)"
+            add("A-13", pid, "empennage",
+                f"{n:.0f} propulsor(s) recorded as empennage-mounted; empType = {etv}. An "
+                "empennage bears stabilising surfaces; a bare rear fuselage does not, and a "
+                "propulsor on it is fuselage-mounted. A named tail shape suggests the mount is "
+                "already right — but empType is not independent evidence, so check the figure.")
+
+        # ── body motion
+        v = fus.get(pid)
+        if v is not None:
+            if arch == "TB":
+                add("bodyMotion", pid, v,
+                    "TB: the airframe reorients, so Fixed is impossible. Does the CABIN go with it "
+                    "(Tilting Body) or hang on its own joint and stay level (Variable Incidence)?")
+            elif v in ("VarInc", "Variable") and arch not in BODYPITCH_ARCHS:
+                add("bodyMotion", pid, v,
+                    f"Legacy {v!r} on a {arch} architecture. 'Variable' merged two current "
+                    "categories and 'VarInc' was broader than today's Variable Incidence, so "
+                    "neither maps by rule.")
+
+        # ── the retired option values
+        for _, r in sub[sub.Field.str.endswith("_rmech", na=False)].iterrows():
+            if strip_label(r.Value) == "Retractable":
+                add("rmech", pid, "Retractable",
+                    f"{r.Field}: 'Retractable' conflated two mechanisms and was split. Do the "
+                    "BLADES fold while the unit stays put, or does the whole UNIT withdraw into "
+                    "the structure?", slot=r.Field)
+        for _, r in sub[sub.Field.str.endswith("_propKin", na=False)].iterrows():
+            if strip_label(r.Value) in ("Cyclic", "Vectored"):
+                add("propKin", pid, strip_label(r.Value),
+                    f"{r.Field}: retired v15.3. Thrust vectoring is captured by G1 and Thrust "
+                    "Kinematics, and a swashplate is not identifiable in a line drawing.",
+                    slot=r.Field)
+        for _, r in sub[sub.Field == "fusShape"].iterrows():
+            if strip_label(r.Value) == "PodBoom":
+                add("fusShape", pid, "PodBoom",
+                    "Pod-and-Boom retired. Pick the base cross-section of the POD; the boom is "
+                    "already recorded separately as a boom group.")
+
+    # ── per-figure questions (keyed by figure, not by architecture) ──────────
+    for _, r in df[df.Field == "bgSty"].iterrows():
+        if base_id(r.Patent_ID) in disapproved:
+            continue
+        if strip_label(r.Value) == "Grid/Pattern":
+            add("bgSty", r.Patent_ID, "Grid/Pattern", f"{r.Sub_Dimension}: retired v15.2.",
+                slot=str(r.Sub_Dimension), sub_dim=str(r.Sub_Dimension))
+
+    # acState: retired ids survive only on CONVERTIBLE architectures. On fixed ones
+    # Rule A1 overwrites them with HoverCruise anyway, so asking would be pointless.
+    for _, r in df[df.Field == "acState"].iterrows():
+        b = base_id(r.Patent_ID)
+        if b in disapproved or arch_of_base.get(b) in FIXED_ARCHS:
+            continue
+        if strip_label(r.Value) in RETIRED_AC_STATE:
+            add("acState", r.Patent_ID, strip_label(r.Value),
+                f"{r.Sub_Dimension}: {strip_label(r.Value)!r} was retired as a reviewer choice, "
+                f"so this batch is not uniform with one labelled on the current wizard. "
+                f"Architecture is {arch_of_base.get(b)} (convertible), so the figure does depict "
+                f"a flight state — pick it, or Other if the drawing genuinely shows none.",
+                slot=str(r.Sub_Dimension), sub_dim=str(r.Sub_Dimension))
+
+    # ── t1Reason — the retired disapproval reason, and the 'Other' notes that mean
+    # the same thing. This is the one loop that looks AT the disapproved records.
+    crops = _crops_root(df, batch)
+    notes = df[df.Field == "t1DisapproveReason_otherNote"].set_index("Patent_ID").Value
+    for _, r in df[df.Field == "t1DisapproveReason"].iterrows():
+        pid, old = r.Patent_ID, strip_label(r.Value)
+        b = base_id(pid)
+        txt = str(notes.get(pid, "") or "")
+        if old == T1_RETIRED_REASON:
+            why = ("This record carries the RETIRED reason "
+                   f"{T1_RETIRED_REASON!r}. It was folded into 'No Usable, Sufficient, or "
+                   "Legible Aircraft Image' in wizard v15_4, because it was never used for "
+                   "genuine illegibility \u2014 the figures on these records are mostly clean. "
+                   "Confirm the merge, or pick a different reason if this one is not about "
+                   "the figures at all.")
+            if txt.strip():
+                why += f"\n\nRecorded note: {txt.strip()}"
+        elif old == "Other" and any(k in txt.lower() for k in T1_INSUFFICIENT_MARKERS):
+            why = ("Disapproved as 'Other', but the note reads like the figures were "
+                   "inadequate rather than the patent being out of scope. That judgement now "
+                   "has its own reason: 'No Usable, Sufficient, or Legible Aircraft Image'. "
+                   "Reassign it, or keep 'Other' if the note means something else."
+                   f"\n\nRecorded note: {txt.strip()}")
+        else:
+            continue
+        # Figures come from the labelled T2 rows if there are any, otherwise straight
+        # off disk. If BOTH are empty there is genuinely no image anywhere for this
+        # patent, which is a different judgement from "the figures were inadequate" —
+        # say so, because a blank panel on its own looks like a loading failure.
+        pics = figs.get(b) or _disk_figures(crops, batch, b)
+        if not pics:
+            why += ("\n\n\u26a0 NO FIGURE EXISTS FOR THIS PATENT \u2014 none labelled, and nothing "
+                    "on disk under 00b2_figure_crops/. The panel is empty because there is "
+                    "nothing to show, not because it failed to load. A record with no image at "
+                    "all is normally 'No content available on the patent', NOT 'No Usable, "
+                    "Sufficient, or Legible Aircraft Image', which assumes figures exist and "
+                    "fall short. Check the drawings description on the right before deciding.")
+        items.append(dict(uid=f"{batch}|{pid}|t1Reason|", batch=batch, patent=pid, base=b,
+                          q="t1Reason", old=old, why=why, slot="", sub_dim="",
+                          title=meta(b, "title"), abstract=meta(b, "abstract")[:1200],
+                          drawings=meta(b, "description_of_drawings")[:1500],
+                          figures=pics))
+
+    return items

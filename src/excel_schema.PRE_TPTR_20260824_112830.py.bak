@@ -320,9 +320,7 @@ def build_patent_rows(patent_id: str, record: dict, patent_img_dir: "Path | None
     # ── M2 ── sanitize against wizard's option filters (mirrors the old
     # build_patent_html()'s eOpts/kOpts/physics-lock logic) ──────────────────
     m2 = record.get("M2_predictions") or {}
-    # "TP" is the pre-2026-08-24 id for TR, kept as a read-only alias so a legacy
-    # row that never went through 02a's TP -> TR rename still resolves correctly.
-    is_winged = top_type in ("TW", "TR", "TP", "DS", "CVT", "SLC", "SRW")
+    is_winged = top_type in ("TW", "TP", "DS", "CVT", "SLC", "SRW")
     g1_focus  = "winged" if is_winged else ("wingless" if top_type in ("RC", "MR") else "other")
 
     wing_conf, wing_conf_conf, wing_conf_src = _pred_val(m2, "wingConf")
@@ -390,9 +388,9 @@ def build_patent_rows(patent_id: str, record: dict, patent_img_dir: "Path | None
     bmech_v, bmech_conf, bmech_src = _pred_val(m3, "bmech")
     rmech_v, rmech_conf, rmech_src = _pred_val(m3, "rmech")
     propkin_v, propkin_conf, propkin_src = _pred_val(m3, "propKin")
-    # NOTE: TR no longer force-locks propKin=Tilt, and DS is no longer locked to
+    # NOTE: TP no longer force-locks propKin=Tilt, and DS is no longer locked to
     # Fixed either. The HTML wizard's physics matrix leaves articulation FREE for
-    # TR, CVT and DS (a deflected-slipstream patent can still articulate its
+    # TP, CVT and DS (a deflected-slipstream patent can still articulate its
     # propulsors) — while only TW/SLC/SRW/MR lock to Fixed and RC to Cyclic
     # (handled by the wizard / SBERT side). So we pass SigLIP/SBERT's predicted
     # propKin through unchanged for these and let the reviewer confirm it (it's

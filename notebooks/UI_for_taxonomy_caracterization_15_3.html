@@ -329,11 +329,11 @@ var THROUGHPUT = { figCur:'1', figTot:'18', patCur:'1', patTot:'1635' };
 
 var TOP=[
   {id:'TW', name:'Vectored Thrust \u2014 Tilt Wing', desc:'Entire wing panel rotates to redirect thrust from vertical to horizontal. Excludes a wing that tilts only for structural reasons (folding, ground clearance) \u2014 classify those by the propulsor instead.'},
-  {id:'TP', name:'Vectored Thrust \u2014 Tilt Propulsors', desc:'Propulsors tilt independently of fixed wing.'},
+  {id:'TR', name:'Vectored Thrust \u2014 Tilt Rotor', desc:'Propulsors tilt independently of fixed wing.'},
   {id:'DS', name:'Vectored Thrust \u2014 Deflected Slipstream', desc:'Fixed props, airflow deflected by large structural flaps.'},
   // v15.3: the "ambiguous dual-rotation mechanisms" clause is removed \u2014 the
   // codebook now sends ambiguity to humanUncertain so CVT keeps a single meaning.
-  {id:'CVT', name:'Vectored Thrust \u2014 Combined (CVT)', desc:'Fixed AND tilting thrust mechanisms present on the same aircraft at the same time \u2014 for example a wing that tilts alongside a second wing that does not, or a tilting wing together with fixed lift rotors on booms. NOT for aircraft that are merely hard to read: when the drawing will not settle whether the wing or the propulsors vector, pick the more likely of TW/TP and flag humanUncertain.'},
+  {id:'CVT', name:'Vectored Thrust \u2014 Combined (CVT)', desc:'Fixed AND tilting thrust mechanisms present on the same aircraft at the same time. At least one wing tilts, while at least one other source of thrust does not tilt with it \u2014 whether that is a non-tilting PROPELLED wing, or propulsors mounted on the fuselage, the empennage, or a non-tilting boom. A non-tilting wing carrying NO propulsors does not make an aircraft CVT: it is still a Tilt Wing. NOT for aircraft that are merely hard to read: when the drawing will not settle whether the wing or the propulsors vector, pick the more likely of TW/TR and flag humanUncertain.'},
   {id:'TB', name:'Vectored Thrust \u2014 Tilt Body (Tailsitter)', desc:'The whole airframe rotates between hover and cruise attitudes (tailsitters).'},
   // PTC (2026-07-02): the EASA-style "vectored thrust by body attitude" case a
   // reviewer previously had to force into MR (ignoring the wing), SLC (there is
@@ -353,7 +353,7 @@ var G1_TAXONOMY = [
   {
     key: 'winged', title:'Winged Vehicles', desc:'Aircraft with explicit lifting surfaces and wing-mediated cruise behavior.',
     subs:[
-      {title:'Vectored Thrust / Tilting Mechanisms', desc:'Tilt-wing, tilt-rotor, deflected slipstream, combined, tilt-body, and pitch-to-cruise variants.', items:['TW','TP','DS','CVT','TB','PTC']},
+      {title:'Vectored Thrust / Tilting Mechanisms', desc:'Tilt-wing, tilt-rotor, deflected slipstream, combined, tilt-body, and pitch-to-cruise variants.', items:['TW','TR','DS','CVT','TB','PTC']},
       {title:'Independent Thrust (No Tilting)', desc:'Separated hover and cruise propulsion branches.', items:['SLC','SRW']}
     ]
   },
@@ -501,8 +501,21 @@ var RETRACT_MECH_CHOICES = ['Exposed', 'BladeFold', 'Retracting'];
 var PROP_KIN = [
   {id:'Fixed', n:'Fixed (No Articulation)', d:'The propulsor unit does not pivot relative to its own mount. Its thrust direction may still change if the structure it is bolted to reorients — that is recorded in Thrust Kinematics, not here.'},
   {id:'Tilt',  n:'Tilt (Vectoring Unit)',   d:'The propulsor unit itself pivots relative to its own mount.'},
-  {id:'Other', n:'Other',                    d:'Anything else. A note is mandatory.'}
+  {id:'Other', n:'Other',                    d:'Anything else. A note is mandatory.'},
+  // RETIRED v15.3 (see FUS_KIN's note for the pattern). 7 records hold one of
+  // these. Both answered a different question than this field asks: thrust
+  // vectoring is captured by G1 + Thrust Kinematics, and a swashplate is not
+  // identifiable in most patent line drawings.
+  {id:'Cyclic',   n:'Cyclic (legacy \u2014 re-pick)'},
+  {id:'Vectored', n:'Vectored (legacy \u2014 re-pick)'}
 ];
+var PROP_KIN_CHOICES = ['Fixed', 'Tilt', 'Other'];
+
+// Legacy-aware option list: the offered choices, plus whatever retired id this
+// record currently holds. Mirrors the RETRACT_MECH filter in m3TypeBlock().
+function withLegacy(arr, choices, cur) {
+  return arr.filter(function(o){ return choices.indexOf(o.id) > -1 || o.id === cur; });
+}
 
 // Per-figure "Aircraft state in THIS view" (T2). A single patent often draws the
 // same aircraft in several configurations (hover vs cruise); these record which
@@ -677,22 +690,79 @@ var FUS_SHAPE = [
   {id:'Oval',        n:'Oval / Elliptical'},
   {id:'Rectangular', n:'Rectangular / Box'},
   {id:'Blended',     n:'Blended / Lifting Body'},
-  {id:'Other',       n:'Other'}
+  {id:'Other',       n:'Other'},
+  // RETIRED (see FUS_KIN's note for the pattern). 1 record holds it (B05). The
+  // base cross-section under the pod needs the figure, and the boom is already
+  // recorded as a boom group \u2014 so this is a re-pick, not a rename.
+  {id:'PodBoom',     n:'Pod and Boom (legacy \u2014 re-pick the base shape)'}
 ];
+var FUS_SHAPE_CHOICES = ['Circular', 'Oval', 'Rectangular', 'Blended', 'Other'];
 // v15.3: tooltips added — Variable Incidence was being read as "the wing tilts",
 // which is only one of the ways it happens; what defines it is the body staying
 // level while the lift/thrust producers change angle, whatever carries the joint.
+// v15.4 (2026-08-17) — the field was asking two different questions at once and
+// so collected two different answers under one id. It now asks exactly one:
+// WHAT DOES THE BODY DO between hover and cruise?
+//
+// 'VarInc' is RETIRED as a choice. Its old description ("whatever produces lift
+// and thrust is on a joint while the fuselage keeps its orientation") was broad
+// enough to cover every TW and TR aircraft, but in practice 26 of 27 TW and 118
+// of 121 TR records were labelled 'Fixed' — the annotator was using the field
+// narrowly, about the BODY, which is the reading kept here. The name also clashed
+// with the established aerodynamic meaning of variable incidence (a wing whose
+// incidence relative to the fuselage is adjustable in flight, cf. Vought F-8),
+// which is not what a pitching multirotor does.
+//
+// So the two situations that used to share 'VarInc' are now separate:
+//   BodyPitch  — the whole rigid vehicle pitches (multirotor, pitch-to-cruise)
+//   LevelCabin — the airframe reorients but the cabin does not (decoupled cabin)
+//
+// An old record still holding 'VarInc' loads and displays unchanged — ingestAI()
+// copies the field with no validation against this array (same pattern as every
+// other retirement in this file). It simply is not offered going forward; the
+// legacy batches are migrated in notebooks/02a_legacy_conformance.ipynb.
 var FUS_KIN = [
-  {id:'Fixed',    n:'Fixed / Conventional', d:'Nothing reorients between hover and cruise.'},
-  {id:'VarInc',   n:'Variable Incidence',   d:'Whatever produces the lift and the thrust — a wing, the propulsors, the rotors, or a whole lift assembly — is mounted on a joint and rotates relative to the fuselage, while the fuselage keeps its orientation. What matters is that the body stays level while the lift and thrust producers change angle, not which component carries the joint.'},
-  {id:'TiltBody', n:'Tilting Body',         d:'The cabin or fuselage itself reorients. A tailsitter is the extreme case, where nothing inside moves and the whole airframe rotates together. Architecture TB forces this value.'}
+  {id:'Fixed',      n:'Fixed / Conventional', d:'The body holds one attitude between hover and cruise. Anything that vectors — a tilting wing, tilting nacelles, a deflected slipstream — does so RELATIVE TO the body, which itself does not reorient. This is the normal case for SLC, TW, TR, DS, CVT and HB.'},
+  {id:'BodyPitch',  n:'Whole-Body Pitch',        d:'The entire vehicle pitches as one rigid body to generate translation or to transition. There is no joint between the cabin and the airframe — the aircraft leans and everything leans with it. The category is about the KIND of motion, not how far it goes: a multirotor that pitches a few degrees to move forward belongs here just as much as a pitch-to-cruise aircraft that rotates most of the way. Architectures MR, PTC and RC take this value (L10).'},
+  {id:'TiltBody',   n:'Tilting Body',            d:'The airframe reorients roughly 90° between hover and cruise and the cabin goes with it. The classic tailsitter: nothing moves internally, the whole aircraft rotates together.'},
+  {id:'LevelCabin', n:'Variable Incidence', d:'The airframe reorients as in Tilting Body, but the cabin sits on its own joint and stays level with the ground throughout. Look for a cabin pod carried on a pivot, gimbal or pendular mount between the rotating structures.'},
+  // RETIRED, kept for the same reason RETRACT_MECH keeps 'Retractable': a legacy
+  // record still holding one of these must render its value SELECTED and marked
+  // as needing a re-pick, otherwise it draws with nothing selected and is
+  // indistinguishable from a patent nobody ever answered. Neither is offered as
+  // a fresh choice (see FUS_KIN_CHOICES). 18 records hold 'VarInc' (B01 9, B02 3,
+  // B05 6) and 10 hold 'Variable' (B05), counted 2026-08-19.
+  //   VarInc   \u2014 pre-v15_3 "Variable Incidence", BROADER than today's LevelCabin.
+  //              Do NOT auto-map it to LevelCabin on the name; it needs the figure.
+  //   Variable \u2014 B05-era option that merged Variable Incidence AND Tilting Body
+  //              into one pick, so it cannot be split by rule either.
+  {id:'VarInc',    n:'Variable Incidence (legacy \u2014 re-pick, the meaning has narrowed)'},
+  {id:'Variable',  n:'Variable Incidence / Tilting Body (legacy \u2014 re-pick, this option was split)'}
 ];
+// Offered as fresh choices. Ids in the array but not here render only when the
+// record already holds them \u2014 same contract as RETRACT_MECH_CHOICES.
+var FUS_KIN_CHOICES = ['Fixed', 'BodyPitch', 'TiltBody', 'LevelCabin'];
+// Architectures for which the whole vehicle pitches as one body — codebook L10.
+// The reason differs by architecture and R4-01 gives both: RC is EVIDENTIAL (it
+// sits in R2-02's fixed list, so its figures carry no aircraft state and there is
+// no hover/cruise pair to compare), PTC is DEFINITIONAL (it is a convertible
+// architecture and pitching to cruise is what the code means).
+//
+// MR LEFT THIS LIST 2026-08-18. The evidential argument assumed a multirotor has
+// no way to translate except by leaning, so a figure could not show anything
+// else. Tilting-boom multirotors break that: the booms rotate, the thrust vector
+// turns with them, and the body can hold level throughout — which is Fixed, or
+// Variable Incidence if the cabin hangs on its own joint. Whole-body pitch is
+// still the normal case for MR, but it is now a reviewer judgement (unlocked in
+// pageM1, not written by applyFusKinLock) rather than an exceptionless fact.
+// Kept as a named list so applyFusKinLock() and pageM1 cannot drift apart.
+var BODYPITCH_ARCHS = ['PTC', 'RC'];
 var GEAR_ARCH = [{id:'Skids', n:'Skids / Fixed Skids'},{id:'FixedWheel', n:'Fixed Wheeled Gear'},{id:'RetrWheel', n:'Retractable Wheeled Gear'},{id:'PadsHull', n:'Pads / Hull'},{id:'Unknown', n:'Unknown'}];
 
 var T2_PER = ['Top', 'Bottom/Down', 'Front', 'Back', 'Side', 'Front-Isometric', 'Rear-Isometric', 'Generic 3D'];
 // v15.2: Blueprint (AC_STY), Grid/Pattern (BG_STY), Blueprint Blue (BG_COL)
 // retired as unused; 'Other' added to all four lists (including AC_COL,
-// confirmed with the annotator) per R-10 "never force a false categorical
+// confirmed with the annotator) per R0-02 "never force a false categorical
 // pick". Picking 'Other' anywhere requires a paired free-text note
 // (acStyOtherNote/acColOtherNote/bgStyOtherNote/bgColOtherNote — see
 // pageT2()'s rendering block and the T2 completeness blocker below). An old
@@ -871,7 +941,7 @@ function fresh(){
     t2figNum:'1', mainFigure: null, aircraftAutoJump: false,
     // Audit B-01 Fix: Centralized Figure Dictionary
     figData: {}, t2customParts:[],
-    // ── Multi-architecture support ──────────────────────────────────────────
+    // ── Multi-variant aircraft support ──────────────────────────────────────────
     // A patent can describe several distinct architectures across its figures.
     // archProfiles[i] holds the G1/M1/M2/M3 morphology snapshot for architecture
     // i+1 (same shape as captureAircraftSnapshot()); curArch is the 0-based index
@@ -1023,7 +1093,7 @@ function applyAircraftSnapshot(snap) {
   S.boomGroups = cloneBoomGroups(snap.boomGroups);
 }
 
-// ── Multi-architecture profile helpers ──────────────────────────────────────
+// ── Multi-variant aircraft profile helpers ──────────────────────────────────────
 // A "profile" is the same key-set as captureAircraftSnapshot() (G1/M1/M2/M3
 // morphology). archProfiles[] stores one per architecture; the flat S.* keys
 // mirror whichever is active (S.curArch). These swap them in/out so the page
@@ -1326,7 +1396,7 @@ function figSet(fNum, key, val) {
   if (!S.figData[fNum]) S.figData[fNum] = {}; S.figData[fNum][key] = val;
 }
 
-function isWinged() { return ['TW','TP','DS','CVT','TB','PTC','SLC','SRW'].indexOf(S.topType)>-1; }
+function isWinged() { return ['TW','TR','DS','CVT','TB','PTC','SLC','SRW'].indexOf(S.topType)>-1; }
 // v14 (C3/PR-04,05): the CONVERTIBLE/FIXED split for per-figure Aircraft State.
 // CONVERTIBLE = mechanism reorients between hover and cruise, so a figure's state
 // is a real, per-drawing question (Hover/Transition/Cruise/Other). FIXED = the
@@ -1336,7 +1406,7 @@ function isWinged() { return ['TW','TP','DS','CVT','TB','PTC','SLC','SRW'].index
 // new topType is ever added to TOP, it must be added to one list or the other or
 // pageT2's Aircraft State card will silently fall back to the provisional
 // (unknown-topType) 4-option UI, same as during T1/T2 before G1 is visited.
-function isConvertibleArch(topType) { return ['TW','TP','DS','CVT','TB','PTC'].indexOf(topType) > -1; }
+function isConvertibleArch(topType) { return ['TW','TR','DS','CVT','TB','PTC'].indexOf(topType) > -1; }
 // Novel / Other architectures (Hoverbikes, PFVs) don't map to the winged/wingless
 // structured morphology, so M1/M2/M3 render as free-text commentary instead.
 function isOtherArch() { return S.g1Focus === 'other' || ['HB','PFV'].indexOf(S.topType) > -1; }
@@ -1501,7 +1571,7 @@ function nextBlockers(){
     if (!S.fusShape) b.push('Fuselage shape');
     // v15.3: FUS_SHAPE's new 'Other' needs its paired note.
     else { var _fsOth = otherBlocker('fusShape', 'Fuselage shape'); if (_fsOth) b.push(_fsOth); }
-    if (!S.fusKin)   b.push('Fuselage kinematics');
+    if (!S.fusKin)   b.push('Body motion (what the body does between hover and cruise)');
     if (!S.gearArch) b.push('Landing gear architecture');
     return b;
   }
@@ -1562,13 +1632,13 @@ function nextBlockers(){
           // The propelled-wing half is re-checked in the m3 block below, where
           // the counts actually exist. That is the safe direction — this can
           // under-fire, never wrongly block.
-          var _tiltWings = 0, _fixedPropelled = [];
+          var _tiltWings = 0;
           for (var _wi = 1; _wi <= (S.wCount||0); _wi++) {
             if (S['wTilt' + _wi] === 'Tilt') _tiltWings++;
-            else if (m3StationCount('wing' + _wi) > 0) _fixedPropelled.push(_wi);
           }
+          var _nonTilting = twNonTiltingThrustStations();
           if (!(S.wCount||0) || !_tiltWings) b.push('Tilt Wing (TW) requires at least one wing set to Tilt');
-          else if (_fixedPropelled.length) b.push(twFixedPropelledMsg(_fixedPropelled));
+          else if (_nonTilting.length) b.push(twFixedPropelledMsg(_nonTilting));
         }
      }
      if (!S.empType) b.push('Empennage type');
@@ -1608,12 +1678,12 @@ function nextBlockers(){
     // tilting wing at all the m2 half already blocks, and adding a second message
     // for the same problem would just be noise.
     if (S.topType === 'TW') {
-      var _twTilt = 0, _twFixedProp = [];
+      var _twTilt = 0;
       for (var _twi = 1; _twi <= (S.wCount||0); _twi++) {
         if (S['wTilt' + _twi] === 'Tilt') _twTilt++;
-        else if (m3StationCount('wing' + _twi) > 0) _twFixedProp.push(_twi);
       }
-      if (_twTilt && _twFixedProp.length) b.push(twFixedPropelledMsg(_twFixedProp));
+      var _twNonTilting = twNonTiltingThrustStations();
+      if (_twTilt && _twNonTilting.length) b.push(twFixedPropelledMsg(_twNonTilting));
     }
     // v14 (C7.2): CVT ("Combined Thrust") must actually show a mix, per its own
     // G1 description — either (a) independent Fixed lift rotors AND Tilt cruise
@@ -1623,7 +1693,7 @@ function nextBlockers(){
     // one, case (b) a tilting wing instead. Checked here (not m3Ready(), which
     // just gates "propulsion fields complete") so the message is specific.
     if (S.topType === 'CVT') {
-      var _hasFixedPK = false, _hasTiltPK = false;
+      var _hasFixedPK = false, _hasTiltPK = false, _hasOtherPK = false;
       m3Blueprints().forEach(function(bp){
         var nTc = m3NTypes(bp.key);
         for (var tc = 1; tc <= nTc; tc++) {
@@ -1631,12 +1701,41 @@ function nextBlockers(){
           var pkc = m3Get(tkc, 'propKin');
           if (pkc === 'Fixed') _hasFixedPK = true;
           if (pkc === 'Tilt')  _hasTiltPK  = true;
+          if (isOtherVal(pkc)) _hasOtherPK = true;
         }
       });
       var _hasWingTilt = false;
       for (var _wic = 1; _wic <= (S.wCount||0); _wic++) { if (S['wTilt' + _wic] === 'Tilt') _hasWingTilt = true; }
-      if (!(_hasTiltPK && (_hasFixedPK || _hasWingTilt))) {
-        b.push('Combined Thrust (CVT) requires a mix: a Fixed + a Tilt propulsor across cards, OR a tilting wing combined with an independently tilting rotor/propulsor');
+      // v15.4 (L5) — THIRD accepted case. The tightened L5 pushes a tilt-wing that
+      // carries thrust anywhere off the tilting assembly out of TW and into CVT.
+      // Such an aircraft often has NO propulsor with propKin='Tilt' at all: under
+      // TW the wing units are Fixed (the wing pivots, they do not), and so are the
+      // fuselage/empennage units. Cases (a) and (b) both demand a Tilt propulsor,
+      // so without this third case those records could be neither TW nor CVT and
+      // the reviewer would be unable to save them. Case (c) is simply the new L5
+      // read from the other side: a tilting wing PLUS thrust that does not tilt
+      // with it IS the fixed/vectoring mix that defines combined thrust.
+      // 2026-08-23: a tilting BOOM is a vectoring structure exactly as a tilting
+      // wing is, and boom-borne thrust on a boom that does NOT tilt is fixed
+      // thrust exactly as a fuselage pusher is. So every question this check used
+      // to ask about wings it now asks about "any structure carrying thrust".
+      // Purely additive — each disjunct only got easier to satisfy, so nothing
+      // that saved before can start blocking.
+      var _vectoringStruct  = _hasWingTilt || hasTiltingBoomThrust();
+      var _nonTiltingThrust = twNonTiltingThrustStations().length > 0 || hasFixedBoomThrust();
+      var _cvtCaseC = _vectoringStruct && _nonTiltingThrust;
+      // v15.3 (2026-08-19): a propulsor whose articulation is 'Other' is neither
+      // Fixed nor Tilt to this check, so a record built around one — e.g. a unit
+      // that does not rotate but deflects its own flow — could satisfy no case and
+      // could not be saved at all. 'Other' already carries a MANDATORY note (see
+      // otherBlocker below), so the mechanism is described in the record even though
+      // it cannot be machine-classified into the mix; that note, not this gate, is
+      // what a later reader goes on. Accepted as the vectoring half of the mix.
+      if (!(_hasTiltPK && (_hasFixedPK || _vectoringStruct)) && !_cvtCaseC && !_hasOtherPK) {
+        b.push('Combined Thrust (CVT) requires a mix — one thrust source whose vector ROTATES, and one that does not. '
+          + 'Rotating: a propulsor set to Tilt, a wing set to Tilt that carries propulsors, or a boom group ticked "Booms tilt" that carries propulsors '
+          + '(a rotor rigid on a tilting boom still counts — the boom does the rotating, so its own articulation is correctly Fixed). '
+          + 'Not rotating: propulsors on the fuselage, empennage, hull, a non-tilting wing, or a boom group without "Booms tilt" ticked.');
       }
     }
     // v15.3: PROP_KIN's new 'Other' needs its paired note, on every declared
@@ -1699,11 +1798,11 @@ function m3Field(key, suffix) { return 'm3_' + key + '_' + suffix; }
 //   TW/DS/SLC/SRW/MR/TB/PTC/RC → Fixed (nothing articulates independently)
 //   (v15.3: RC moved into the Fixed group — the retired 'Cyclic' option it used
 //    to lock to no longer exists. See propKinLockReason('RC').)
-//   TP, CVT (and anything else) → null = reviewer is free
-// TP is intentionally NOT locked to Tilt: real tilt-propeller aircraft commonly
+//   TR, CVT (and anything else) → null = reviewer is free
+// TR is intentionally NOT locked to Tilt: real tilt-propeller aircraft commonly
 // carry a mix of tilting cruise props and fixed lift rotors, so articulation is
 // recorded per propulsor (and per propeller type) rather than forced. The wing
-// itself still stays fixed on TP — that lock lives in the M2 wing-tilt block.
+// itself still stays fixed on TR — that lock lives in the M2 wing-tilt block.
 // TB (tailsitter) is Fixed for the same reason as TW: the propulsors are bolted
 // to the airframe and never move relative to it — it's the WHOLE BODY (wing +
 // fuselage together) that reorients between hover and cruise, not the propulsor.
@@ -1732,19 +1831,33 @@ function propKinLockReason(topType){
     RC:'a helicopter main rotor sets thrust by cyclic and collective through the swashplate, but the rotor unit does not pivot relative to its mast — at drawing level it is Fixed. Note the rotor type in the comment if it is visible'
   })[topType] || '';
 }
-// v14 (C7.4): TB (tailsitter) fuselage kinematics are locked to TiltBody — the
-// whole airframe (fuselage + wing together) reorients between hover and cruise
-// as one rigid unit, which is definitionally "Tilting Body" (see FUS_KIN /
-// pageM1's Fuselage Incidence Mechanics tooltip, R-06). Mirrors applyPropKinLock
-// in shape and call sites (ingestAI G1 block + the g1-subbtn click handler) —
-// same "single source of truth, reapplied on every load/click" style, since this
-// is a physics fact, not reviewer-editable data to preserve historically.
+// v15.4 (L6) / v15.5 (L10) — REPLACES the v14 (C7.4) hard lock, which forced every TB to
+// 'TiltBody'. That was too strong: a tailsitter whose cabin hangs on its own
+// joint keeps the cabin level while the airframe reorients, which is
+// 'LevelCabin'. TB now offers both and only blocks 'Fixed'.
+//
+// What this function may and may not do:
+//   PTC/RC    -> forced to 'BodyPitch'. Exceptionless constraint (L10), the same
+//                class of statement as applyPropKinLock's matrix — a physics
+//                fact about the architecture, not reviewer data. MR was removed
+//                from this list 2026-08-18 (tilting booms) — see BODYPITCH_ARCHS.
+//   TB        -> 'Fixed' is impossible, so it is CLEARED (not rewritten) and the
+//                reviewer must choose between TiltBody and LevelCabin. Clearing
+//                rather than guessing is deliberate: rule A3 in 02a used to
+//                overwrite these silently and had to be deleted for it.
+// Any other existing value is left alone. Mirrors applyPropKinLock in shape and
+// call sites (ingestAI G1 block + the g1-subbtn click handler).
 function applyFusKinLock(){
-  if (S.topType === 'TB') S.fusKin = 'TiltBody';
+  // L10: a rotorcraft figure carries no aircraft state (R2-02), so nothing in a
+  // drawing can show the body doing anything but pitch as one unit; PTC follows
+  // the same physics by definition. MR is deliberately NOT here — see
+  // BODYPITCH_ARCHS for why a tilting-boom multirotor need not lean at all.
+  if (BODYPITCH_ARCHS.indexOf(S.topType) > -1) { S.fusKin = 'BodyPitch'; return; }
+  if (S.topType === 'TB' && S.fusKin === 'Fixed') S.fusKin = null;
 }
 // Short, human label for a topType — used by the unified physics-lock banner.
 function archShort(topType){
-  return ({TW:'Tilt Wing',TP:'Tilt Propulsors',DS:'Deflected Slipstream',CVT:'Combined Thrust',
+  return ({TW:'Tilt Wing',TR:'Tilt Rotor',DS:'Deflected Slipstream',CVT:'Combined Thrust',
     TB:'Tilt Body (Tailsitter)',PTC:'Pitch-to-Cruise (Winged Multirotor)',
     SLC:'Lift + Cruise',SRW:'Stopped Rotor',RC:'Rotorcraft',MR:'Multirotor',
     HB:'Hoverbike',PFV:'Personal Flying Vehicle'})[topType] || (topType || '');
@@ -1889,11 +2002,46 @@ function m3ZoneSpanOptions() { return [{id:'Inboard', n:'Inboard (Near Fuselage)
 // the header stays accurate when a station is overridden.
 // The TW-vs-CVT blocker text, shared by the m2 and m3 checks in nextBlockers()
 // so the reviewer reads the same sentence wherever it fires.
-function twFixedPropelledMsg(wings) {
-  var many = wings.length > 1;
-  return 'Wing ' + wings.join(', ') + (many ? ' carry' : ' carries') + ' propulsors but ' + (many ? 'are' : 'is')
-    + ' not set to Tilt — a PROPELLED wing that does not tilt (while another wing does) makes this CVT, not TW. '
-    + 'A fixed wing carrying NO propulsors is fine on a Tilt Wing.';
+function twFixedPropelledMsg(stations) {
+  var many = stations.length > 1;
+  return stations.join(', ') + (many ? ' carry' : ' carries') + ' propulsors that do not tilt with the wing — '
+    + 'a Tilt Wing is defined by the tilting wing being the ONLY source of thrust, so any propulsor that stays '
+    + 'put while the wing rotates makes this CVT, not TW. A non-tilting wing carrying NO propulsors is fine on a '
+    + 'Tilt Wing. If a BOOM carries propulsors, check whether the boom tilts with the wing (record it with "Booms tilt" '
+    + 'on the M1 boom group): if it does the aircraft is still TW, if it does not it is CVT.'
+    + (stations.indexOf('The empennage') > -1
+        ? ' If the EMPENNAGE rotates with the wing (whole aft assembly tilts), tick "Empennage tilts (exception)" '
+          + 'on M2 and describe the mechanism — that exempts it here and the aircraft stays TW.'
+        : '');
+}
+// v15.4 (L5, sole-thrust rule) — stations carrying propulsors that DO NOT tilt
+// with the wing. This is the whole of the tightened L5: the old rule only looked
+// at other wings, which was a statement about the data model rather than about
+// the aircraft. The question that actually matters is whether a given propulsor's
+// thrust vector rotates with the wing.
+//
+// Booms are deliberately EXCLUDED from this list. Nothing in the record says
+// whether a boom tilts with the wing it hangs off, so blocking on booms would
+// fire on legitimate tilt-wings. They are raised in the message text instead —
+// the same "can under-fire, never wrongly block" direction the M2/M3 split takes.
+function twNonTiltingThrustStations() {
+  var out = [];
+  for (var _i = 1; _i <= (S.wCount || 0); _i++) {
+    if (S['wTilt' + _i] !== 'Tilt' && m3StationCount('wing' + _i) > 0) out.push('Wing ' + _i);
+  }
+  var NAMES = { fuselage:'The fuselage', emp:'The empennage', hull_array:'The hull edge array', core_layout:'The airframe hub array' };
+  ['fuselage', 'emp', 'hull_array', 'core_layout'].forEach(function(k){
+    // 2026-08-18: the empennage is EXEMPT when "Empennage tilts (exception)" is
+    // ticked on M2. That checkbox records precisely the case this rule assumed
+    // away — an aft assembly that rotates with the wing — so its propulsors DO
+    // tilt with the wing and the L5 sole-thrust rule is satisfied, not broken.
+    // Without this, a genuine tilt-wing whose whole aft section rotates was
+    // unclassifiable: blocked out of TW here, and pushed into CVT by case (c)
+    // below, which reads the same list.
+    if (k === 'emp' && S.empTilts) return;
+    if (m3StationCount(k) > 0) out.push(NAMES[k]);
+  });
+  return out;
 }
 // One station's propulsor total, honouring a Quick Count Override. Extracted so
 // the TW/CVT wing lock (see nextBlockers) asks the same question the header does
@@ -1901,6 +2049,27 @@ function twFixedPropelledMsg(wings) {
 function m3StationCount(key) {
   return S[key + '_quickOverride'] ? (parseInt(S[key + '_quickCount'], 10) || 0) : m3CardCount(key);
 }
+// 2026-08-23: boom-borne thrust, split by whether the BOOM rotates. A rotor
+// mounted rigidly on a tilting boom vectors its thrust exactly as a rotor on a
+// tilting wing does — the rotation happens one level up, at the boom, so the
+// propulsor's own PROP_KIN is legitimately 'Fixed' (it has no pivot of its own)
+// and every propKin-based test misses it entirely. That gap is what made a
+// tilting-boom aircraft impossible to save as CVT: no Tilt propulsor, no tilting
+// wing, so none of the three cases could fire. Reads the M1 boom groups' `tilts`
+// flag (see m1BoomsCard).
+//
+// Both require the M3 boom card to actually carry units — a tilting boom with
+// nothing on it vectors no thrust. A group explicitly marked structural
+// (hasProps === false) is excluded; an unanswered group is not, since M1 blocks
+// until it is answered anyway.
+function boomGroupsWithThrust(wantTilting) {
+  if (!S.boomsPresent || m3StationCount('boom') <= 0) return [];
+  return (S.boomGroups || []).filter(function(g){
+    return (g.tilts === true) === wantTilting && g.hasProps !== false;
+  });
+}
+function hasTiltingBoomThrust() { return boomGroupsWithThrust(true).length > 0; }
+function hasFixedBoomThrust()   { return boomGroupsWithThrust(false).length > 0; }
 function m3TotalCount() { return m3Blueprints().reduce(function(sum, bp){ return sum + m3StationCount(bp.key); }, 0); }
 function m3DistributedFlag() {
   var total = m3TotalCount();
@@ -1971,8 +2140,8 @@ function m3TypeAttrs(bp, tkey, showCount) {
       })().map(function(o){ return oc(m3Field(tkey,'rmech'), o.id, o.n); }));
 
   // Propulsor Articulation (propKin) — locked per the architecture physics
-  // matrix (propKinLock): TW/DS/SLC/SRW/MR/TB/RC→Fixed; TP & CVT free
-  // (TP aircraft can mix tilting and fixed propulsors). The locked value is
+  // matrix (propKinLock): TW/DS/SLC/SRW/MR/TB/RC→Fixed; TR & CVT free
+  // (TR aircraft can mix tilting and fixed propulsors). The locked value is
   // shown selected+disabled, forced again in buildExport, and the unified
   // physics-lock banner explains why. NOTE: when several propeller
   // types are declared the lock is intentionally NOT applied per type — that's
@@ -1981,7 +2150,7 @@ function m3TypeAttrs(bp, tkey, showCount) {
   var pkLock = propKinLock(S.topType);
   var propKinLocked = !!pkLock;
   if (propKinLocked) h += physicsLock(S.topType, propKinLockReason(S.topType) + '.');
-  h += '<div class="m2-kv">Propulsor Articulation' + (propKinLocked ? ' (Locked)' : '') + '</div>' + grid('', PROP_KIN.map(function(o){
+  h += '<div class="m2-kv">Propulsor Articulation' + (propKinLocked ? ' (Locked)' : '') + '</div>' + grid('', withLegacy(PROP_KIN, PROP_KIN_CHOICES, m3Get(tkey,'propKin',null)).map(function(o){
     var sel = propKinLocked ? (o.id === pkLock) : (m3Get(tkey,'propKin',null) === o.id);
     return '<div class="opt' + (sel ? ' sel' : '') + (propKinLocked ? ' dis' : '') + '" data-field="' + m3Field(tkey,'propKin') + '" data-val="' + encodeURIComponent(o.id) + '" title="' + escHtml(o.d || o.n) + '"><div class="o-name">' + o.n + '</div></div>';
   }));
@@ -2273,7 +2442,7 @@ function m3Ready(){
           // Propulsor Articulation (2026-07-02 completeness enforcement): locked
           // by the physics matrix for most topologies (the render shows it
           // pre-selected+disabled and buildMorphologyObj exports the lock), but
-          // FREE on TP & CVT — where it was never required, so those two could
+          // FREE on TR & CVT — where it was never required, so those two could
           // export a null articulation. Only enforce when unlocked.
           if (!propKinLock(S.topType) && !m3Get(tk, 'propKin')) return false;
           if (bp.zoneMode) {
@@ -3054,7 +3223,7 @@ function pageT2(){
     h += '<div class="m3-card" style="margin-bottom:8px; border-color:var(--accent);">'
       + '<div class="m3-head" style="margin-bottom:10px;">Figure Validation & Assignment</div>'
       + '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">'
-        // v14 (C8.2/R-09): documents the main-figure convention for convertibles
+        // v14 (C8.2/R2-01): documents the main-figure convention for convertibles
         // (previously undocumented in the tool) — CRUISE (or isometric), not
         // hover, because a tilt aircraft's hover view is visually confusable
         // with a multirotor.
@@ -3070,16 +3239,16 @@ function pageT2(){
           })()
         + '<div style="width:1px; height:24px; background:var(--border);"></div>'
         + '<div style="display:flex; align-items:center; gap:6px;"><span class="m3-label" style="margin-bottom:0;">Assign To:</span><select class="m3-num" data-t2-arch="true" style="padding:6px 10px; min-height:0; width:140px;">'+archOptions+'</select></div>'
-        + '<button type="button" class="btn" id="btn-add-arch" style="padding:6px 10px; font-size:12px;" title="Declare another distinct architecture in this patent">+ Add architecture</button>'
-        + (nArch > 1 ? '<button type="button" class="btn" id="btn-remove-arch" style="padding:6px 10px; font-size:12px; color:var(--danger); border-color:var(--danger);" title="Remove the last architecture (Architecture '+nArch+'). Reassign any figures tagged to it first.">− Remove architecture</button>' : '')
+        + '<button type="button" class="btn" id="btn-add-arch" style="padding:6px 10px; font-size:12px;" title="Declare another distinct aircraft in this patent">+ Add variant aircraft</button>'
+        + (nArch > 1 ? '<button type="button" class="btn" id="btn-remove-arch" style="padding:6px 10px; font-size:12px; color:var(--danger); border-color:var(--danger);" title="Remove the last variant aircraft (Variant '+nArch+'). Reassign any figures tagged to it first.">− Remove variant aircraft</button>' : '')
       + '</div>'
-      + '<div class="m3-sub" style="margin-top:6px;">Convention (R-09): for convertibles, pick the CRUISE (or isometric) figure as main — a hover view of a tilt aircraft is visually confusable with a multirotor.</div>'
+      + '<div class="m3-sub" style="margin-top:6px;">Convention (R2-01): for convertibles, pick the CRUISE (or isometric) figure as main — a hover view of a tilt aircraft is visually confusable with a multirotor.</div>'
       // Live count of distinct architectures in this patent. When >1, the
       // G1/M1/M2/M3 pages repeat once per architecture (see the page loop).
       + '<div class="flag '+(nArch>1?'info':'')+'" style="margin-top:10px;">'
-        + '<span class="f-lbl">Distinct Architectures</span>'
+        + '<span class="f-lbl">Distinct Variant Aircraft</span>'
         + nArch + ' in this patent'
-        + (nArch>1 ? ' — you\'ll fill G1/M1/M2/M3 once per architecture.' : ' — assign figures above (or "+ Add architecture") if this patent shows more than one.')
+        + (nArch>1 ? ' — you\'ll fill G1/M1/M2/M3 once per variant aircraft.' : ' — assign figures above (or "+ Add architecture") if this patent shows more than one distinct aircraft.')
       + '</div></div>';
 
     // Structural Elements is SINGLE-select by default (SigLIP over-tags parts on a
@@ -3237,8 +3406,8 @@ function pageGate(){
   return head + '<div class="p-hint">Classification is driven by the most complex propulsive/structural system present. Isolate structural lifting surface traits via standard progressive disclosure blocks.</div>' + qoG1 + '<div class="g1-master-row">' + g1MasterButton('winged', 'Winged Architecture', 'Fixed or variable lifting profiles generating wing-mediated cruise lift.') + g1MasterButton('wingless', 'Wingless Architecture', 'Pure rotorborne configurations lacking standard aerodynamic wings.') + g1MasterButton('other', 'Novel / Other Forms', 'Alternative frameworks outside typical rotor-wing aerodynamic descriptions.') + '</div>' + (S.g1Focus ? g1SubPanel(S.g1Focus) : '<div class="flag skip"><span class="f-lbl">Progressive Disclosure Monitor</span>Select an structural master branch to display the underlying topological options.</div>')
 + '<div style="margin-top:16px;">' + sec('Architecture Purity')
 + '<div class="m3-sub" style="margin-bottom:8px;">Flag this patent if it does not represent a single clean architecture — e.g. it describes a hybrid, a transitional concept, or mixes incompatible propulsive strategies.</div>'
-+ '<label class="m2-check" style="font-size:14px;"><input type="checkbox" data-field="notPureArch" ' + (S.notPureArch ? 'checked' : '') + '> <strong>Not a pure architecture</strong> — hybrid / mixed / transitional concept</label>'
-+ (S.notPureArch ? '<div class="flag warn" style="margin-top:8px;"><span class="f-lbl">⚠ Impure Architecture</span>This patent has been flagged as not representing a single canonical architecture. Document the nature of the hybrid in Comments below.</div>' : '')
++ '<label class="m2-check" style="font-size:14px;"><input type="checkbox" data-field="notPureArch" ' + (S.notPureArch ? 'checked' : '') + '> <strong>Not a canonical example of its code</strong> — the code is right, the aircraft is not a textbook instance of it</label>'
++ (S.notPureArch ? '<div class="flag warn" style="margin-top:8px;"><span class="f-lbl">⚠ Non-canonical example</span>You are CONFIDENT in the code you assigned; you are recording that this aircraft does not instantiate that code\'s canonical form. This is deliberately the opposite of “uncertain”, which means the code itself could not be settled. The two flags answer different questions and may be ticked independently — or neither. Describe what departs from the canonical form in Comments below.</div>' : '')
 + '</div>'
 + huG1
 + commentsSection(); }
@@ -3308,7 +3477,7 @@ function pageM1(){
   // page in v13 (deferred to text-extraction pipeline (SBERT) \u2014 removed from human
   // review v13 / removed v13 \u2014 near-constant; exceptions go to notes). Their state
   // keys still exist and are always exported at their v10 defaults \u2014 see fresh().
-  return head + qoM1 + '<div class="m3-shell"><div class="m3-card"><div class="m3-head">Dataset Symmetry Matrix (ML Parameter Identifiers)</div><div class="m3-sub">Identify mathematical mirror planes to optimize downstream classification weights.</div><div class="m3-grid"><div><label class="m2-check" style="font-size:13px; font-weight:500;"><input type="checkbox" data-field="latSym" ' + (S.latSym ? 'checked' : '') + '> Lateral Plane Symmetry (Left-to-Right Balance)</label></div></div></div><div class="m3-card"><div class="m3-head">Fuselage Profiles &amp; Kinematics</div><div class="m3-grid"><div><div class="m3-label">Structural Cross-Section Profile</div>' + grid('', FUS_SHAPE.map(function(o){ return oc('fusShape', o.id, o.n); })) + otherNoteInput('fusShape', 'Describe the fuselage cross-section...') + '</div><div><div class="m3-label">Fuselage Incidence Mechanics</div><div class="m3-sub" style="margin:2px 0 6px;">R-06: compare hover vs cruise figures — wing rotates + cabin stays level = Variable Incidence; cabin/fuselage itself reorients (tailsitter: everything rotates, no internal joint) = Tilting Body; nothing reorients = Fixed.</div>' + (S.topType === 'TB' ? physicsLock('TB', 'the whole airframe (fuselage + wing together) reorients as one rigid unit between hover and cruise — that is definitionally Tilting Body (see R-06 above).') + grid('', [{id:'TiltBody', n:'Tilting Body'}].map(function(o){ return oc('fusKin', o.id, o.n, null, null, true); })) : grid('', FUS_KIN.map(function(o){ return oc('fusKin', o.id, o.n, o.d); }))) + '</div></div>'
+  return head + qoM1 + '<div class="m3-shell"><div class="m3-card"><div class="m3-head">Dataset Symmetry Matrix (ML Parameter Identifiers)</div><div class="m3-sub">Identify mathematical mirror planes to optimize downstream classification weights.</div><div class="m3-grid"><div><label class="m2-check" style="font-size:13px; font-weight:500;"><input type="checkbox" data-field="latSym" ' + (S.latSym ? 'checked' : '') + '> Lateral Plane Symmetry (Left-to-Right Balance)</label></div></div></div><div class="m3-card"><div class="m3-head">Fuselage Profiles &amp; Kinematics</div><div class="m3-grid"><div><div class="m3-label">Structural Cross-Section Profile</div>' + grid('', withLegacy(FUS_SHAPE, FUS_SHAPE_CHOICES, S.fusShape).map(function(o){ return oc('fusShape', o.id, o.n); })) + otherNoteInput('fusShape', 'Describe the fuselage cross-section...') + '</div><div><div class="m3-label">Body Motion</div><div class="m3-sub" style="margin:2px 0 6px;">R4-01: compare hover vs cruise figures and ask what THE BODY does. Nothing reorients, and anything that vectors does so relative to a body that stays put = Fixed. The whole rigid vehicle leans to translate or transition = Whole-Body Pitch. The airframe reorients ~90° and the cabin goes with it = Tilting Body. The airframe reorients but the cabin stays level on its own joint = Variable Incidence.</div>' + (S.topType === 'TB' ? physicsLock('TB', 'the airframe reorients between hover and cruise, so Fixed is impossible. What remains is whether the CABIN reorients with it (Tilting Body) or hangs on its own joint and stays level (Variable Incidence) — see R4-01 above.') + grid('', FUS_KIN.filter(function(o){ return o.id === 'TiltBody' || o.id === 'LevelCabin' || o.id === S.fusKin; }).map(function(o){ return oc('fusKin', o.id, o.n, o.d); })) : ([ 'RC' ].indexOf(S.topType) > -1 ? physicsLock(S.topType, 'this architecture sits in R2-02\'s fixed list, so its figures carry no aircraft state — there is no hover/cruise pair to compare and no way for a drawing to show the body doing anything else. Translating by leaning the whole vehicle IS whole-body pitch (codebook L10).') + grid('', FUS_KIN.filter(function(o){ return o.id === 'BodyPitch'; }).map(function(o){ return oc('fusKin', o.id, o.n, null, null, true); })) : (BODYPITCH_ARCHS.indexOf(S.topType) > -1 ? physicsLock(S.topType, 'the airframe and the payload volume pitch together as one rigid body to generate translation — there is no joint between cabin and airframe. That is Whole-Body Pitch by definition of the architecture (codebook L10). The category is about the kind of motion, not how far it goes.') + grid('', FUS_KIN.filter(function(o){ return o.id === 'BodyPitch'; }).map(function(o){ return oc('fusKin', o.id, o.n, null, null, true); })) : (S.topType === 'MR' ? flg('info', 'Multirotor — you pick the body motion', 'This used to be locked to Whole-Body Pitch on the R2-02 argument that a multirotor cannot translate except by leaning. A multirotor with TILTING BOOMS can: the booms rotate, the thrust vector turns with them, and the body holds level — that is Fixed, or Variable Incidence if the cabin sits on its own joint. Whole-body pitch is still the normal case, so pick it unless the figures show otherwise. Tick "Booms tilt" on the M1 boom group when they do.') + grid('', withLegacy(FUS_KIN, FUS_KIN_CHOICES, S.fusKin).map(function(o){ return oc('fusKin', o.id, o.n, o.d); })) : grid('', withLegacy(FUS_KIN, FUS_KIN_CHOICES, S.fusKin).map(function(o){ return oc('fusKin', o.id, o.n, o.d); })))))) + '</div></div>'
   + '<div class="m3-field" style="margin-top:10px;"><div class="m3-label">Fuselage Edge-Case Notes</div><textarea class="comments" style="min-height:56px;" data-field="fusNotes" placeholder="Log fuselage ambiguities here...">' + escHtml(S.fusNotes) + '</textarea></div>'
   + '</div><div class="m3-card"><div class="m3-head">Ground Contact Interface</div><div class="m3-zone">' + GEAR_ARCH.map(function(o){ return oc('gearArch', o.id, o.n); }).join('') + '</div>'
   + '<div class="m3-field" style="margin-top:10px;"><div class="m3-label">Ground Contact Edge-Case Notes</div><textarea class="comments" style="min-height:56px;" data-field="gearNotes" placeholder="Log landing gear ambiguities here...">' + escHtml(S.gearNotes) + '</textarea></div>'
@@ -3382,6 +3551,12 @@ function m1BoomsCard(){
             {id:'yes', n:'Yes — propulsors on these booms'},
             {id:'no',  n:'No — structural / unpowered booms'}
           ].map(function(o){ var selc = o.id==='yes' ? !!g.hasProps : !g.hasProps && g.hasProps!=null; return '<div class="opt'+(selc?' sel':'')+'" data-bg-idx="'+i+'" data-bg-field="hasProps" data-bg-val="'+o.id+'"><div class="o-name">'+o.n+'</div></div>'; }))
+        // 2026-08-18: booms that TILT. Opt-in, default false — an untouched
+        // group asserts nothing, exactly like empTilts on the empennage. Two
+        // rules read it: the fuselage on a tilting-boom multirotor need not
+        // pitch to translate (see pageM1's Body Motion block), and a tilting
+        // boom does not break the TW sole-thrust rule (see twFixedPropelledMsg).
+        + '<label class="m2-check" style="font-size:13px; margin-top:10px; display:inline-flex;"><input type="checkbox" data-bg-idx="' + i + '" data-bg-field="tilts" ' + (g.tilts?'checked':'') + '> Booms tilt <span class="ilbl" style="margin-left:6px;">(the booms themselves rotate — the thrust vector turns with them, the body need not lean)</span></label>'
         + '</div>';
     });
     h += '<button type="button" class="btn" data-bg-add="1" style="margin-top:10px; padding:4px 12px; font-size:12px;">+ Add boom group</button>';
@@ -3476,7 +3651,11 @@ function pageM2(){ if (isOtherArch()) return otherCommentaryPage('M2', 'Lifting 
     +otherNoteInput('empType', 'Describe the tail configuration...');
   h+='<div class="m3-field" style="margin-top:10px;"><div class="m3-label">Empennage Edge-Case Notes</div><textarea class="comments" style="min-height:56px;" data-field="empNotes" placeholder="Log weird tail configurations here...">' + escHtml(S.empNotes) + '</textarea></div>';
 
-  if(S.empType&&S.empType!='Tailless'&&S.empType!='Fins'&&S.empType!='VertFin'){
+  // 2026-08-18: Fins/VertFin normally have no articulation question worth
+  // asking, but if such a tail CARRIES PROPULSORS the TW sole-thrust rule
+  // fires on it — so the exception checkbox has to be reachable there too,
+  // otherwise the record is blocked with no way to answer the objection.
+  if(S.empType&&S.empType!='Tailless'&&(['Fins','VertFin'].indexOf(S.empType)===-1||m3StationCount('emp')>0)){
     if(S.topType=='RC'||isWinged()){
        // v14 (C4/PR-06): EMP_KIN's 3-option Fixed/Tilt/Stabilator choice retired.
        // Default assumption is Fixed (undocumented — no UI element states it,
@@ -3573,15 +3752,15 @@ function render(){
     acName || T1_META.title || 'Unnamed';
   var sid=curSID(), p=document.getElementById('panel'), content='';
   if(sid=='t1') content=pageT1(); else if(sid=='t2') content=pageT2(); else if(sid=='gate') content=pageGate(); else if(sid=='m1') content=pageM1(); else if(sid=='m2') content=pageM2(); else if(sid=='m3') content=pageM3(); else if(sid=='done'){ p.innerHTML=pageDone(); return; }
-  // Multi-architecture banner on the morphology pages (G1/M1/M2/M3): tells the
+  // Multi-variant aircraft banner on the morphology pages (G1/M1/M2/M3): tells the
   // reviewer which architecture they're filling when the patent has more than one.
   if (['gate','m1','m2','m3'].indexOf(sid) > -1) {
     var _nA = getArchCount();
     if (_nA > 1) {
       content = '<div class="flag info" style="margin-bottom:12px; border-left:4px solid var(--accent);">'
-        + '<span class="f-lbl">Architecture ' + (S.curArch + 1) + ' of ' + _nA + '</span>'
-        + 'These G1/M1/M2/M3 answers apply to architecture ' + (S.curArch + 1) + '. '
-        + (S.curArch < _nA - 1 ? 'After M3 you\'ll move to the next architecture.' : 'This is the last architecture — after M3 you\'ll reach the summary.')
+        + '<span class="f-lbl">Variant aircraft ' + (S.curArch + 1) + ' of ' + _nA + '</span>'
+        + 'These G1/M1/M2/M3 answers apply to variant aircraft ' + (S.curArch + 1) + '. '
+        + (S.curArch < _nA - 1 ? 'After M3 you\'ll move to the next variant aircraft.' : 'This is the last variant aircraft — after M3 you\'ll reach the summary.')
         + '</div>' + content;
     }
     // CHANGE 4: prepend the sticky main-figure image so the drawing stays visible
@@ -3804,12 +3983,16 @@ function ingestAI(data) {
   if (data.G1 && data.G1.humanUncertain != null) S.g1_humanUncertain = !!data.G1.humanUncertain;
   if (data.G1 && data.G1.uncertainNote  != null) S.g1_uncertainNote  = data.G1.uncertainNote;
   if (data.G1 && data.G1.topType) {
-    S.topType = data.G1.topType;
-    S.g1Focus = ['TW','TP','DS','CVT','TB','PTC','SLC','SRW'].indexOf(S.topType) > -1 ? 'winged'
+    // v15.5: architecture code 'TP' was renamed 'TR' (Tilt Rotor) to match the
+    // codebook. Records saved before the rename still hold the old code, so map
+    // it on the way IN. Nothing writes the old code on export any more — this is
+    // a read-side shim only.
+    S.topType = (data.G1.topType === 'T' + 'P') ? 'TR' : data.G1.topType;
+    S.g1Focus = ['TW','TR','DS','CVT','TB','PTC','SLC','SRW'].indexOf(S.topType) > -1 ? 'winged'
               : ['RC','MR'].indexOf(S.topType) > -1 ? 'wingless' : 'other';
-    // Apply all physics locks — mirrors Audit B-02 exactly, EXCEPT TP (v15
-    // F1 fix: TP wings CAN legitimately tilt — folding/ground-clearance —
-    // so TP is no longer force-set here; see propKinLockReason()/pageM2()).
+    // Apply all physics locks — mirrors Audit B-02 exactly, EXCEPT TR (v15
+    // F1 fix: TR wings CAN legitimately tilt — folding/ground-clearance —
+    // so TR is no longer force-set here; see propKinLockReason()/pageM2()).
     if (S.topType === 'TB' || S.topType === 'PTC') {
       // TB (tailsitter) / PTC (pitch-to-cruise): no separate wing-tilt hinge
       // — the whole body reorients as one rigid unit.
@@ -3826,7 +4009,7 @@ function ingestAI(data) {
       // rather than relying on isWinged() hiding the UI alone).
       S.wCount = 0;
     }
-    applyPropKinLock();   // propKin lock per the physics matrix (TW/DS/SLC/SRW/MR/TB/RC→Fixed; TP & CVT free)
+    applyPropKinLock();   // propKin lock per the physics matrix (TW/DS/SLC/SRW/MR/TB/RC→Fixed; TR & CVT free)
     applyFusKinLock();    // v14 (C7.4): TB → fusKin locked to TiltBody
   }
   // M1
@@ -3939,8 +4122,8 @@ function ingestAI(data) {
     });
   }
   // Re-apply TW/TB/PTC tilt locks AFTER wing data (AI might have sent wrong
-  // tilt values). TP excluded (v15 F1 fix) — TP wing-tilt is a legitimate
-  // reviewer choice now, so AI-sent TP tilt values are no longer clobbered.
+  // tilt values). TR excluded (v15 F1 fix) — TR wing-tilt is a legitimate
+  // reviewer choice now, so AI-sent TR tilt values are no longer clobbered.
   if (S.topType === 'TB' || S.topType === 'PTC') { for (var i = 1; i <= 4; i++) { S['wTilt' + i] = 'Fixed'; } }
   if (S.topType === 'TW') { S.wTilt1 = 'Tilt'; }
   // T2 per-figure
@@ -4080,7 +4263,7 @@ function ingestAI(data) {
         // independent fixed lift+cruise / stopped-rotor never vectors.
         if (['SLC','SRW'].indexOf(S.topType) > -1 && S['m3_' + key + '_orient'] === 'Mixed') { S['m3_' + key + '_orient'] = null; }
         // propKin lock per the physics matrix — force the architecture's fixed value
-        // over any stored/AI value (TW/DS/SLC/SRW/MR/TB/RC→Fixed; TP & CVT free).
+        // over any stored/AI value (TW/DS/SLC/SRW/MR/TB/RC→Fixed; TR & CVT free).
         // TW wing orient is intentionally NOT forced anymore so a saved Mixed survives.
         if (_pk) { S['m3_' + key + '_propKin'] = _pk; }
       }
@@ -4333,7 +4516,7 @@ function recordToRows(record, pid) {
     rows.push(reviewRow(pid, "T1", "scope", "scope", record.scope));
     rows.push(reviewRow(pid, "T1", "t1Field", "t1Field", record.techField));
     rows.push(reviewRow(pid, "T1", "t1Target", "t1Target", record.innovTarget));
-    rows.push(reviewRow(pid, "T1", "T1 — Distinct Architectures", "archCount", record.archCount));
+    rows.push(reviewRow(pid, "T1", "T1 — Distinct Variant Aircraft", "archCount", record.archCount));
     rows.push(reviewRow(pid, "T1", "T1 — Duplicate Flag", "isDuplicate", record.isDuplicate));
     rows.push(reviewRow(pid, "T1", "T1 — Duplicate Of (Patent ID)", "duplicateId", record.duplicateOf));
     // Extra fields buildExport() carries with no build_patent_rows() slot —
@@ -4454,7 +4637,7 @@ function recordToRows(record, pid) {
   });
 
   // ── G1/M1/M2/M3 — emitted once PER ARCHITECTURE ─────────────────────────
-  // Multi-architecture patents carry several morphologies. Each is keyed with a
+  // Multi-variant patents carry several morphologies. Each is keyed with a
   // "_arch{N}" suffix on the Patent_ID so (Patent_ID, Field) stays unique; a
   // single-architecture patent keeps the BARE Patent_ID (no suffix), exactly as
   // before — so existing exports/downstream tools are unchanged for that case.
@@ -4529,6 +4712,9 @@ function recordToRows(record, pid) {
         rows.push(reviewRow(apid, "M1", sub, "boom" + gn + "_circSym", !!g.circSymmetric));
 
       rows.push(reviewRow(apid, "M1", sub, "boom" + gn + "_hasProps", g.hasProps != null ? !!g.hasProps : null));
+      // boom<N>_tilts (2026-08-18) — new column, false on every group labelled
+      // before it existed. Plain boolean, no paired note (unlike empTilts).
+      rows.push(reviewRow(apid, "M1", sub, "boom" + gn + "_tilts", !!g.tilts));
       rows.push(reviewRow(apid, "M1", sub, "boom" + gn + "_cards",    (g.cards && g.cards.length) ? g.cards.join("|") : null));
     });
     // Section-level boom edge-case notes (one per architecture, not per group).
@@ -4586,7 +4772,7 @@ function recordToRows(record, pid) {
       };
       // Persistence fix (C6/C7): propKin + sym were captured by buildMorphologyObj()
       // but omitted from this emit list, so they were lost on save (propKin only
-      // re-derivable for TP via the physics lock; sym not at all). The reader
+      // re-derivable for TR via the physics lock; sym not at all). The reader
       // (rowsToAIData byComponent + ingestAI) already handles both once emitted.
       // Card-level (shared) fields. `count` is the card total; `ntypes` says how
       // many distinct propeller types this card holds. quickOverride/quickCount
@@ -5046,14 +5232,15 @@ function rowsToAIData(rows) {
   var byBoom = {};
   rows.forEach(function(r) {
     if (r.Section !== 'M1') return;
-    var bm = /^boom(\d+)_(attach|wingSpan|wingRel|span|long|orient|count|sym|circSym|hasProps|cards|attachOth|wingRelOth|spanOth|longOth|orientOth)$/.exec(String(r.Field || ''));
+    var bm = /^boom(\d+)_(attach|wingSpan|wingRel|span|long|orient|count|sym|circSym|tilts|hasProps|cards|attachOth|wingRelOth|spanOth|longOth|orientOth)$/.exec(String(r.Field || ''));
     if (!bm) return;
     if (r.Value === undefined || r.Value === '' || r.Value == null) return;
     var bi = parseInt(bm[1], 10), key = bm[2];
-    if (!byBoom[bi]) byBoom[bi] = { attach:null, wingSpan:null, wingRel:null, span:null, long:null, orient:null, count:0, symmetric:false, circSymmetric:false, hasProps:null, cards:[], notes:'' };
+    if (!byBoom[bi]) byBoom[bi] = { attach:null, wingSpan:null, wingRel:null, span:null, long:null, orient:null, count:0, symmetric:false, circSymmetric:false, tilts:false, hasProps:null, cards:[], notes:'' };
     if (key === 'count')        byBoom[bi].count          = xlCount(r.Value);   // rule 1: normalize True/False → 1/0
     else if (key === 'sym')     byBoom[bi].symmetric      = xlBool(r.Value);
     else if (key === 'circSym') byBoom[bi].circSymmetric  = xlBool(r.Value);
+    else if (key === 'tilts')    byBoom[bi].tilts          = xlBool(r.Value);
     else if (key === 'hasProps') byBoom[bi].hasProps       = xlBool(r.Value);
     else if (key === 'cards')   byBoom[bi].cards           = String(r.Value).split('|').filter(Boolean);
     else if (key === 'notes')   byBoom[bi].notes           = r.Value;
@@ -5270,7 +5457,7 @@ function copyMorphologyFromOriginal(originalPid) {
   // patent's own image lookup around the call so pulling the original's
   // G1/M1/M2/M3 doesn't also overwrite which images belong to THIS patent.
   var savedFilenames = FIG_FILENAMES, savedImagePaths = FIG_IMAGE_PATH, savedAttached = FIG_ATTACHED_URL;
-  // For multi-arch originals, use only arch 1's rows so the byField lookup
+  // For multi-variant originals, use only arch 1's rows so the byField lookup
   // isn't confused by arch 2+ overwriting arch 1's field values.
   var arch1Rows = rowsForArch(origRows, 1);
   var origData = rowsToAIData(arch1Rows.length ? arch1Rows : origRows);
@@ -5453,7 +5640,7 @@ function markBatchDirty() {
 // it in the exported .xlsx. Then flag it saved and clear the dirty state.
 function commitReviewedRows(pid, record) {
   // Drop every prior row for this patent — INCLUDING its "_arch{N}" morphology
-  // rows (match on the base id) — so re-saving a multi-architecture patent never
+  // rows (match on the base id) — so re-saving a multi-variant patent never
   // leaves stale architecture rows behind.
   REVIEWED_ROWS = REVIEWED_ROWS.filter(function(r){ return basePatentId(r.Patent_ID) !== pid; });
   REVIEWED_ROWS = REVIEWED_ROWS.concat(recordToRows(record, pid));
@@ -5498,7 +5685,7 @@ function normalizePatentIdForGoogle(pid) {
   return m ? (m[1] + m[2] + '0' + m[3] + m[4]) : pid;
 }
 
-// Multi-architecture exports suffix the Patent_ID with "_arch{N}" on the G1/M
+// Multi-variant exports suffix the Patent_ID with "_arch{N}" on the G1/M
 // rows (see recordToRows). These two helpers recover the base patent id and the
 // architecture number so the batch loader can regroup a reloaded reviewed file.
 function basePatentId(pid) { return String(pid == null ? '' : pid).replace(/_arch\d+$/, ''); }
@@ -5513,7 +5700,7 @@ function rowsForArch(allRows, n) {
   });
 }
 
-// Ingest one patent's rows, rebuilding S.archProfiles for multi-architecture
+// Ingest one patent's rows, rebuilding S.archProfiles for multi-variant
 // patents. Single-architecture files (bare Patent_IDs, incl. all ML exports)
 // behave exactly as the old `ingestAI(rowsToAIData(rows))` line did, just with
 // archProfiles[0] populated as a side effect.
@@ -5694,7 +5881,7 @@ document.getElementById('batch-xlsx-input').addEventListener('change', function(
       rows.forEach(function(r) {
         if (r.Patent_ID == null) return;
         // Collapse "_arch{N}"-suffixed morphology rows from a reloaded reviewed
-        // file back under their BASE patent id, so a multi-architecture patent is
+        // file back under their BASE patent id, so a multi-variant patent is
         // one entry in the batch (not one per architecture). Single-arch / ML
         // exports have no suffix, so basePatentId is a no-op for them.
         var pid = basePatentId(r.Patent_ID);
@@ -5988,7 +6175,7 @@ document.getElementById('panel').addEventListener('click', function(e){
 
   // Boom groups: add / remove (M1 "Booms / Outriggers")
   var bgAddBtn = tgt.closest('[data-bg-add]');
-  if (bgAddBtn) { S.boomGroups = S.boomGroups || []; S.boomGroups.push({ attach:null, wingSpan:null, wingRel:null, span:null, long:null, orient:null, count:0, symmetric:true, circSymmetric:false, hasProps:null, cards:[] }); markBatchDirty(); renderPreserveScroll(); return; }
+  if (bgAddBtn) { S.boomGroups = S.boomGroups || []; S.boomGroups.push({ attach:null, wingSpan:null, wingRel:null, span:null, long:null, orient:null, count:0, symmetric:true, circSymmetric:false, tilts:false, hasProps:null, cards:[] }); markBatchDirty(); renderPreserveScroll(); return; }
   var bgRemBtn = tgt.closest('[data-bg-remove]');
   if (bgRemBtn) { var rmi=parseInt(bgRemBtn.getAttribute('data-bg-idx'),10); if(S.boomGroups && S.boomGroups[rmi]!==undefined){ S.boomGroups.splice(rmi,1); markBatchDirty(); renderPreserveScroll(); } return; }
   if(tgt.id === 'btn-next' && !tgt.disabled) {
@@ -5998,7 +6185,7 @@ document.getElementById('panel').addEventListener('click', function(e){
     // the Summary (Done) page — the morphology is already filled. You can still
     // Back into the skipped steps to verify/edit. Fires only once per patent.
     // Same-name auto-jump only makes sense for a SINGLE-architecture patent
-    // (one shared morphology was copied). For a multi-architecture patent the
+    // (one shared morphology was copied). For a multi-variant patent the
     // reviewer must still fill each architecture, so fall through to the loop;
     // the copied morphology pre-fills architecture 1.
     if (S.aircraftAutoJump && sidNow === 't2' && getArchCount() === 1) {
@@ -6342,7 +6529,7 @@ document.getElementById('panel').addEventListener('click', function(e){
     S.g1Focus = g1Sub.getAttribute('data-g1-group');
 
     // Audit B-02 Fix: Apply Physics Locks here, not in render.
-    // TP excluded (v15 F1 fix) — TP wing-tilt is a legitimate reviewer
+    // TR excluded (v15 F1 fix) — TR wing-tilt is a legitimate reviewer
     // choice (folding/ground-clearance), no longer force-set on selection.
     if (S.topType === 'TB' || S.topType === 'PTC') {
         // TB (tailsitter) / PTC (pitch-to-cruise): whole airframe reorients as one rigid unit — see propKinLock().
@@ -6670,9 +6857,13 @@ document.getElementById('panel').addEventListener('change', function(e){
     // name and — critically — returns HERE, before the snapshot lookup below,
     // so it can never trigger the known-aircraft M1/M2/M3 copy that picking a
     // real existing name does.
-    if (raw === NO_NAME_AIRCRAFT) { T1_META.aircraftName = ''; S.t1NoNameConfirmed = true; S.aircraftAutoJump = false; renderPreserveScroll(); return; }
+    if (raw === NO_NAME_AIRCRAFT) { T1_META.aircraftName = ''; S.t1NoNameConfirmed = true; S.aircraftAutoJump = false; markBatchDirty(); renderPreserveScroll(); return; }
     T1_META.aircraftName = raw;
     S.t1NoNameConfirmed = false;   // a typed name replaces a prior No-name pick
+    // Without this the batch stays 'clean', so autoSaveCurrentPatent() (Prev/Next
+    // in the batch toolbar, and the Jump box) returns early and a patent whose ONLY
+    // edit was its aircraft name pages away with that name silently discarded.
+    markBatchDirty();
     S.aircraftAutoJump = false;
     // Only auto-apply a snapshot on an EXACT normalized-key match — fuzzy matches
     // are intentionally different names (e.g. "Volocopter Gmbh 1" vs "Volocopter
@@ -6738,12 +6929,13 @@ document.getElementById('panel').addEventListener('change', function(e){
     S[field] = val3; renderPreserveScroll(); return;
   }
   if (tgt.type === 'checkbox' && (field === 'latSym' || field === 'longSym')) { S[field] = tgt.checked; renderPreserveScroll(); return; }
-  if (tgt.type === 'checkbox' && field === 'boomsPresent') { S.boomsPresent = tgt.checked; if (!tgt.checked) { S.boomGroups = []; } else if (!(S.boomGroups||[]).length) { S.boomGroups = [{ attach:null, wingSpan:null, wingRel:null, span:null, long:null, orient:null, count:0, symmetric:true, circSymmetric:false, hasProps:null, cards:[] }]; } renderPreserveScroll(); return; }
+  if (tgt.type === 'checkbox' && field === 'boomsPresent') { S.boomsPresent = tgt.checked; if (!tgt.checked) { S.boomGroups = []; } else if (!(S.boomGroups||[]).length) { S.boomGroups = [{ attach:null, wingSpan:null, wingRel:null, span:null, long:null, orient:null, count:0, symmetric:true, circSymmetric:false, tilts:false, hasProps:null, cards:[] }]; } renderPreserveScroll(); return; }
   // boomXFormat checkbox retired v14 (C5) — BOOM_ORIENT's per-group 'X' option
   // supersedes it; the S.boomXFormat state key + ingest path are kept only for
   // old-save round-trip (see BOOM_ORIENT's comment), so no click handler needed.
   if (tgt.type === 'checkbox' && field === 'empTilts') { S.empTilts = tgt.checked; renderPreserveScroll(); return; }
   if (tgt.type === 'checkbox' && tgt.dataset && tgt.dataset.bgField === 'symmetric') { var sgi=parseInt(tgt.dataset.bgIdx,10); if(S.boomGroups[sgi]){ S.boomGroups[sgi].symmetric=tgt.checked; markBatchDirty(); renderPreserveScroll(); } return; }
+  if (tgt.type === 'checkbox' && tgt.dataset && tgt.dataset.bgField === 'tilts') { var tgi=parseInt(tgt.dataset.bgIdx,10); if(S.boomGroups[tgi]){ S.boomGroups[tgi].tilts=tgt.checked; markBatchDirty(); renderPreserveScroll(); } return; }
   if (tgt.type === 'checkbox' && tgt.dataset && tgt.dataset.bgField === 'circSymmetric') { var sgi2=parseInt(tgt.dataset.bgIdx,10); if(S.boomGroups[sgi2]){ S.boomGroups[sgi2].circSymmetric=tgt.checked; markBatchDirty(); renderPreserveScroll(); } return; }
   if (tgt.type === 'number' && tgt.dataset && tgt.dataset.bgField === 'count') { var cgi=parseInt(tgt.dataset.bgIdx,10); if(S.boomGroups[cgi]){ var cv=parseInt(tgt.value,10); if(isNaN(cv)||cv<0)cv=0; S.boomGroups[cgi].count=cv; markBatchDirty(); renderPreserveScroll(); } return; }
   if (field && field.indexOf('m3_') === 0 && tgt.type === 'checkbox') {
@@ -6766,7 +6958,7 @@ document.getElementById('panel').addEventListener('input', function(e){
   if (tgt && tgt.id === 't1-aircraft-name') {
     var rawImmediate = (tgt.value || '').trim();
     if (rawImmediate === NO_NAME_AIRCRAFT) {
-      T1_META.aircraftName = ''; S.t1NoNameConfirmed = true; S.aircraftAutoJump = false; renderPreserveScroll(); return;
+      T1_META.aircraftName = ''; S.t1NoNameConfirmed = true; S.aircraftAutoJump = false; markBatchDirty(); renderPreserveScroll(); return;
     }
   }
   if (tgt && tgt.hasAttribute && tgt.hasAttribute('data-fig-comment')) {

@@ -121,7 +121,7 @@ STOP and output the list (annotator expects zero — nonzero means something is 
 ## B. Directed re-pass worklists (output = list of patent/figure IDs for the human)
 
 ### B1 — AC_STATE manual worklist (PR-04)
-Figures of CONVERTIBLE patents (`topType ∈ (TW, TR, DS, CVT, TB, PTC)`) whose stored state is
+Figures of CONVERTIBLE patents (`topType ∈ (TW, TP, DS, CVT, TB, PTC)`) whose stored state is
 `Ground`, `Other`, `Unclear`, or `NonApplicable`. These get re-labelled by mechanism-wins rule.
 
 ### B2 — FUS_KIN VarInc/TiltBody re-check (R-06 reversal)
@@ -149,7 +149,7 @@ HARD (data error — must be fixed):
 - H5 `topType=TB` & `FUS_KIN≠TiltBody` (should be empty after A3 — assert)
 - H6 `topType=DS` & any propulsor `propKin≠Fixed`
 SOFT (warning — eyeball list):
-- S1 `topType=TR` & any wing `W_TILT=Tilt` (legitimate iff folding/clearance tilt per R-18 — check note exists)
+- S1 `topType=TP` & any wing `W_TILT=Tilt` (legitimate iff folding/clearance tilt per R-18 — check note exists)
 - S2 `topType=SRW` & (propulsor count high OR no central large-rotor pattern)
 
 ## D. Integrity checks
@@ -211,7 +211,7 @@ didn't ask for? Then execute the spec's acceptance checklist items and report pa
 - an old v13-format saved record loads without errors; retired fields ingest silently
 - fixed-architecture patent (SLC/SRW/RC/MR/HB/PFV): T2 shows non-interactive
   "Hover & Cruise (state-invariant)" badge; state question never asked
-- convertible patent (TW/TR/DS/CVT/TB/PTC): exactly four state options
+- convertible patent (TW/TP/DS/CVT/TB/PTC): exactly four state options
   (Hover/Transition/Cruise/Other) with the mechanism-wins tooltip
 - TB patent: FUS_KIN locked to TiltBody, non-editable
 - CVT patent with only tilting propulsors: completion blocked with a clear message
@@ -241,7 +241,7 @@ These two artifacts were generated in separate passes; verify they agree on:
 1. The exact id/string for the invariant state (`HoverCruise` vs any variant) — HTML badge,
    HTML export, and 02a's A1 must write/read the SAME token.
 2. The fixed-vs-convertible architecture sets — both must use
-   fixed = {SLC, SRW, RC, MR, HB, PFV}, convertible = {TW, TR, DS, CVT, TB, PTC}. Any deviation
+   fixed = {SLC, SRW, RC, MR, HB, PFV}, convertible = {TW, TP, DS, CVT, TB, PTC}. Any deviation
    (e.g. PTC placed in fixed somewhere) is CRITICAL.
 3. `empTilts` column name and boolean encoding identical in HTML export and 02a A2.
 4. Duplicate-type ids: HTML keeps internal 1/2/3; 02a's A4 rename maps the same ids.
