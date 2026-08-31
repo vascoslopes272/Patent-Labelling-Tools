@@ -30,6 +30,46 @@ legacy 00 → 01 flow.
 02_processing          (same as legacy path onwards)
 ```
 
+### Aircraft identity (03a) — side branch, metadata only
+
+`03a_aircraft_identity.ipynb` + `src/aircraft_identity.py` answer a different
+question from the rest of the pipeline: not *what does this drawing show*, but
+*which real aircraft is this patent about, is it electric, what are its
+numbers, and where and for what industry was it filed*.
+
+It reads `batches.xlsx` and the PatSeer export only — no images, no figure
+crops — so it runs independently of 00a/00b/01a and writes exactly one file of
+its own per batch:
+
+```
+<data_matched>/<Batch_NN>/aircraft_identity_<Batch_NN>.xlsx
+    Identity     one row per patent (join on patent_id)
+    Evidence     every candidate every signal proposed, with its context
+    LLM_Prompts  a ready-made question per patent for the chat step
+    README       column dictionary
+```
+
+Four signals per field, merged by a fixed precedence
+(`human > gazetteer > llm > sbert > keyword > regex`), each field carrying its
+own `*_source` and `*_confidence`:
+
+| Signal | Where it comes from |
+|---|---|
+| `gazetteer` | `reference/evtol_gazetteer.csv` — curated company → aircraft table, matched on canonical company + filing year. The only source precise enough to carry a spec number into the thesis. |
+| `llm` | An LLM asked "which aircraft was *company* flying around *year*?" — via exported prompts you paste into a chat (default, no API key), or the Anthropic API. |
+| `sbert` | PatentSBERTa zero-shot over the anchors in `aircraft_identity.py`, reusing `reviewer._sbert_best()`. |
+| `keyword` / `regex` | Propulsion keywords, spec numbers next to their unit, candidate model designations. |
+
+Two things about it are deliberate and worth knowing before you read the
+output: **most patents never name the aircraft** (applicants write "an aircraft
+100" on purpose), so an empty `aircraft_name` is usually the correct answer
+rather than a failure; and the **shipped gazetteer carries no spec numbers** —
+every numeric cell is blank with a `spec_source` column for you to fill from a
+citable source.
+
+Correct anything by hand in the Identity sheet and set that field's `*_source`
+to `human`; re-running the notebook backs the file up and keeps your edits.
+
 ## Setup
 
 ```bash

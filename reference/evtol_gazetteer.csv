@@ -1,0 +1,49 @@
+company_canonical,aircraft_name,aka,year_from,year_to,powertrain,mtow_kg,payload_kg,pax,cruise_speed_kmh,max_speed_kmh,range_km,endurance_min,spec_source,notes
+#,"READ ME — every numeric column below is DELIBERATELY EMPTY.",,,,,,,,,,,,,"src/aircraft_identity.py will not invent a performance figure and neither should this file. Fill a number in only when you have a citable source, and put that source in spec_source (e.g. 'Joby S-4 TCDS 2024' or a DOI). A blank cell is honest; a wrong MTOW in a thesis table is not. company_canonical MUST match a canonical name emitted by grouper._normalise_company (see COMPANY_LOOKUP in src/grouper.py) or the row will never match. year_from/year_to bracket the years the aircraft was the company's active programme; matching applies +-3 years of slack. aka is a single alternative designation searched for in the patent text as a tie-break."
+Joby Aviation,S4,JAS4-1,2015,2030,BatteryElectric,,,,,,,,,Tiltprop; four-passenger plus pilot.
+Archer Aviation,Maker,,2019,2022,BatteryElectric,,,,,,,,,Two-seat technology demonstrator; superseded by Midnight.
+Archer Aviation,Midnight,,2022,2030,BatteryElectric,,,,,,,,,Production vehicle; twelve tilt/lift rotors.
+Beta Technologies,Alia-250,A250,2017,2030,BatteryElectric,,,,,,,,,VTOL configuration.
+Beta Technologies,CX300,,2022,2030,BatteryElectric,,,,,,,,,Conventional-takeoff variant of the Alia airframe.
+Lilium,Lilium Jet,,2015,2030,BatteryElectric,,,,,,,,,Ducted electric vectored thrust.
+Volocopter,VoloCity,,2017,2030,BatteryElectric,,,,,,,,,Multirotor; two occupants.
+Volocopter,VoloDrone,,2019,2030,BatteryElectric,,,,,,,,,Cargo multirotor variant.
+EHang,EH216,,2018,2030,BatteryElectric,,,,,,,,,Autonomous multirotor; type certificated in China.
+EHang,EH184,,2016,2018,BatteryElectric,,,,,,,,,Single-seat predecessor of the EH216.
+Vertical Aerospace,VX4,,2020,2030,BatteryElectric,,,,,,,,,Tilt-rotor; prototype flight test.
+Wisk Aero,Cora,,2017,2021,BatteryElectric,,,,,,,,,Originated at Kitty Hawk; lift+cruise.
+Wisk Aero,Generation 6,Gen 6,2022,2030,BatteryElectric,,,,,,,,,Autonomous four-passenger.
+Airbus,Vahana,Alpha One,2016,2019,BatteryElectric,,,,,,,,,Single-seat tilt-wing demonstrator (A^3).
+Airbus,CityAirbus,,2016,2021,BatteryElectric,,,,,,,,,Multirotor demonstrator.
+Airbus,CityAirbus NextGen,,2021,2030,BatteryElectric,,,,,,,,,Lift+cruise with fixed wing and V-tail.
+Supernal,S-A1,,2019,2022,BatteryElectric,,,,,,,,,Unveiled under the Hyundai brand at CES 2020.
+Supernal,S-A2,,2022,2030,BatteryElectric,,,,,,,,,Successor concept to the S-A1.
+Hyundai,S-A1,,2019,2022,BatteryElectric,,,,,,,,,Same vehicle as Supernal S-A1; Hyundai-assigned filings.
+Embraer / Eve,Eve eVTOL,,2020,2030,BatteryElectric,,,,,,,,,Lift+cruise; separate lift rotors and pusher.
+AutoFlight,Prosperity I,,2020,2030,BatteryElectric,,,,,,,,,Lift+cruise passenger vehicle.
+AutoFlight,CarryAll,,2019,2030,BatteryElectric,,,,,,,,,Cargo variant.
+Overair,Butterfly,,2019,2030,BatteryElectric,,,,,,,,,Large slow-turning tilt-rotors; optimum-speed rotor lineage.
+Karem Aircraft,Butterfly,,2016,2019,BatteryElectric,,,,,,,,,Programme later carried forward by Overair.
+Kitty Hawk,Flyer,,2016,2020,BatteryElectric,,,,,,,,,Single-seat recreational multirotor.
+Kitty Hawk,Heaviside,HVSD,2019,2022,BatteryElectric,,,,,,,,,Single-seat low-noise tilt vehicle.
+Opener,BlackFly,,2014,2030,BatteryElectric,,,,,,,,,Single-seat tandem-wing personal aircraft.
+SkyDrive,SD-03,,2018,2021,BatteryElectric,,,,,,,,,Single-seat demonstrator.
+SkyDrive,SD-05,,2021,2030,BatteryElectric,,,,,,,,,Three-seat production design.
+Tetra Aviation,Mk-5,,2019,2030,BatteryElectric,,,,,,,,,Single-seat distributed-lift aircraft.
+Bell / Textron,Nexus,Bell Nexus 4EX,2018,2022,HybridElectric,,,,,,,,,"Nexus 6HX was hybrid; the later 4EX was announced as all-electric — check which one a given filing covers."
+Bell / Textron,APT,Autonomous Pod Transport,2017,2022,BatteryElectric,,,,,,,,,Tail-sitter cargo UAS.
+Boeing,Passenger Air Vehicle,PAV,2017,2020,BatteryElectric,,,,,,,,,Built with Aurora Flight Sciences.
+Aurora Flight Sciences,Passenger Air Vehicle,PAV,2017,2020,BatteryElectric,,,,,,,,,Boeing subsidiary; same programme as the Boeing PAV.
+Honda,Honda eVTOL,,2021,2030,HybridElectric,,,,,,,,,Gas-turbine hybrid range extender.
+Horizon Aircraft,Cavorite X5,,2019,2030,HybridElectric,,,,,,,,,Fan-in-wing with hybrid range extender.
+Doroni Aerospace,H1,,2021,2030,BatteryElectric,,,,,,,,,Two-seat personal eVTOL.
+Hoversurf,Hoverbike S3,,2016,2022,BatteryElectric,,,,,,,,,Single-occupant open-rotor hoverbike.
+AMSL Innovations,Vertiia,,2018,2030,HydrogenFuelCell,,,,,,,,,Announced as hydrogen-electric; earlier prototypes battery-only.
+Ascendance Flight Technologies,ATEA,,2018,2030,HybridElectric,,,,,,,,,STERNA hybrid powertrain.
+Zuri,Zuri 2.0,,2017,2030,HybridElectric,,,,,,,,,Turbine range extender with electric lift rotors.
+Wofei / Geely Aviation,AE200,,2019,2030,BatteryElectric,,,,,,,,,Tilt-rotor; Aerofugia/Volant lineage.
+CycloTech,BlackBird,,2020,2030,BatteryElectric,,,,,,,,,Cyclorotor demonstrator.
+Pipistrel,Nuuva V300,,2019,2030,HybridElectric,,,,,,,,,Cargo VTOL with combustion range extender.
+Pipistrel,Velis Electro,,2018,2030,BatteryElectric,,,,,,,,,Conventional takeoff; first type-certificated electric aircraft.
+Urban Aeronautics,CityHawk,,2016,2030,,,,,,,,,,"Fancraft lineage; turbine originally, hydrogen fuel cell announced later — confirm per filing year before setting powertrain."
+Jetoptera,J-2000,,2018,2030,,,,,,,,,,"Fluidic propulsive system driven by a gas generator — classify per filing, do not assume battery-electric."
