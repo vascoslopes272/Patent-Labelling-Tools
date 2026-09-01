@@ -32,10 +32,12 @@ legacy 00 → 01 flow.
 
 ### Aircraft identity (03a) — side branch, metadata only
 
-`03a_aircraft_identity.ipynb` + `src/aircraft_identity.py` answer a different
-question from the rest of the pipeline: not *what does this drawing show*, but
-*which real aircraft is this patent about, is it electric, what are its
-numbers, and where and for what industry was it filed*.
+`03a_aircraft_identity.ipynb` + `src/aircraft_identity.py` +
+`src/patent_scope.py` answer a different question from the rest of the
+pipeline: not *what does this drawing show*, but *what is this patent about, at
+what level, which architecture, is it tied to one real aircraft, is that
+aircraft electric, what are its numbers, and where and for what industry was it
+filed*.
 
 It reads `batches.xlsx` and the PatSeer export only — no images, no figure
 crops — so it runs independently of 00a/00b/01a and writes exactly one file of
@@ -44,10 +46,42 @@ its own per batch:
 ```
 <data_matched>/<Batch_NN>/aircraft_identity_<Batch_NN>.xlsx
     Identity     one row per patent (join on patent_id)
+    Figures      one row per figure — what KIND of view each one is
     Evidence     every candidate every signal proposed, with its context
     LLM_Prompts  a ready-made question per patent for the chat step
     README       column dictionary
 ```
+
+#### Scope, architecture and specificity (`src/patent_scope.py`)
+
+Most patents in the corpus are not about a whole aircraft — they claim a
+subsystem or a component, and their drawings put it on a throwaway airframe.
+Three columns say so, over the taxonomies the pipeline already uses
+(`reviewer._T1_SCOPE_DEFS`, `_T1_FIELD_DEFS`, `_G1_TOP_TYPE_DEFS` +
+`classify_g1_keyword`), imported rather than restated:
+
+| Column | What it says |
+|---|---|
+| `scope` | Whole Aircraft Architecture / Architectural Subsystem Enabler / Component-Level Generic |
+| `innovation_field` | Aero-structural, mechanical-kinematic, propulsion-electrical, control-avionics |
+| `architecture_primary` / `architecture_all` / `architecture_count` / `architecture_pure` | Which configuration(s) the patent represents, and how many. Several means it enumerates alternatives rather than describing one vehicle. `architecture_count` / `architecture_pure` are predicted starting values for the wizard's manual `archCount` / `notPureArch`. |
+| `specificity` | SpecificAircraft / ArchitectureGeneric / IllustrativeOnly |
+| `aircraft_link` | **Depicted** — the patent's figures show that aircraft. **CompanyAttributed** — the company makes it, but this patent is about a subsystem/component and its figures are not evidence of it. **None**. |
+
+`aircraft_link` exists because the gazetteer matches on **company**. Without it,
+a Joby patent on a motor bearing is labelled `aircraft_name = S4` at confidence
+0.95 and every statistic grouped by aircraft inherits that error. The name is
+kept — it is real evidence about the company — but the column says which kind of
+claim it is. **Filter `aircraft_link == "Depicted"` before any per-aircraft
+statistic.**
+
+`specificity` is an additive score over four named signals (granularity,
+architecture multiplicity, hedging density, and what the figures show) with two
+thresholds in `patent_scope.py`. Deliberately a stated rule rather than a
+learned classifier: it fits in four lines of a methodology chapter, every input
+is exported as its own column, and `specificity_reason` records exactly which
+signals fired and with what weight — so re-thresholding is a spreadsheet filter,
+not a re-run.
 
 Four signals per field, merged by a fixed precedence
 (`human > gazetteer > llm > sbert > keyword > regex`), each field carrying its

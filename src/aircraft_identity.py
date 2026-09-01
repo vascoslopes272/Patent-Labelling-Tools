@@ -75,6 +75,9 @@ from pathlib import Path
 # "guess but flag it" capping on a near-tie.
 from src.reviewer import _sbert_best, _margin_flag
 from src.grouper import _pub_office, _normalise_company
+# Scope/architecture/specificity live in their own module; only its column list
+# is needed here, so the two stay independently testable.
+from src.patent_scope import SCOPE_COLUMNS as _SCOPE_COLUMNS
 
 
 # ─── Provenance ordering ─────────────────────────────────────────────────────
@@ -867,6 +870,9 @@ IDENTITY_COLUMNS = [
     # Specifications
     "pax", "mtow_kg", "payload_kg", "cruise_speed_kmh", "max_speed_kmh",
     "range_km", "endurance_min", "spec_source", "spec_confidence",
+    # What the patent is about, and whether it is tied to one aircraft
+    # (src/patent_scope.py — appended by attach_scope()).
+    *_SCOPE_COLUMNS,
     # Bookkeeping
     "needs_review", "review_reason", "llm_reasoning",
     "reviewed_by", "reviewed_at", "notes",
@@ -1068,6 +1074,9 @@ def build_identity_row(
         **specs,
         "spec_source": "; ".join(sorted(set(spec_srcs))) or None,
         "spec_confidence": round(sum(spec_confs) / len(spec_confs), 4) if spec_confs else None,
+        # Filled by attach_scope() once src/patent_scope.py has run — it needs
+        # the resolved aircraft_name, so it cannot run before this point.
+        **{c: None for c in _SCOPE_COLUMNS},
         "needs_review": bool(reasons),
         "review_reason": "; ".join(reasons) or None,
         "llm_reasoning": (llm_answer.get("reasoning") or None),
@@ -1078,14 +1087,84 @@ def build_identity_row(
     return row, evidence
 
 
+def attach_scope(row: dict, scope_row: dict) -> dict:
+    """Fold src/patent_scope.build_scope_row()'s columns into an identity row.
+
+    Runs AFTER build_identity_row() because specificity depends on the resolved
+    aircraft_name and its source, and mutates `row` in place (returning it for
+    convenience). Two things change beyond adding columns:
+
+      1. `needs_review` / `review_reason` are re-derived, so a row whose name
+         is only company-attributed is flagged even when every other field is
+         confidently filled — that is exactly the row a reviewer must look at.
+      2. "no aircraft name" stops counting as a review reason for a genuinely
+         component-level patent. There is no aircraft to name, so demanding one
+         would flag most of the corpus and drown the rows that matter.
+    """
+    row.update({k: scope_row.get(k) for k in _SCOPE_COLUMNS})
+
+    reasons = [r for r in (row.get("review_reason") or "").split("; ") if r]
+    spec = scope_row.get("specificity")
+
+    if spec == "IllustrativeOnly" and "no aircraft name" in reasons:
+        reasons.remove("no aircraft name")
+        reasons.append("component/subsystem patent — no aircraft expected")
+
+    if row.get("aircraft_link") == "CompanyAttributed":
+        reasons.append("aircraft name is company-attributed, not depicted")
+    if scope_row.get("architecture_pure") is False:
+        reasons.append(f"covers {scope_row.get('architecture_count')} architectures")
+    if (scope_row.get("specificity_confidence") or 0) < NEEDS_REVIEW_BELOW:
+        reasons.append("low-confidence specificity call")
+
+    row["needs_review"] = bool(reasons)
+    row["review_reason"] = "; ".join(dict.fromkeys(reasons)) or None
+    return row
+
+
 # ─── Excel export ────────────────────────────────────────────────────────────
+
+from src.patent_scope import SCOPE_OPTIONS as _SCOPE_OPTIONS_DOC
 
 _README_ROWS = [
     ("SHEET: Identity", "One row per patent — the table to join onto your label data."),
     ("SHEET: Evidence", "Every candidate every signal proposed, with its context. "
                         "Use it to audit or override a value in Identity."),
+    ("SHEET: Figures", "One row per figure, from the Brief Description of the "
+                       "Drawings: what KIND of view each figure is. This is a "
+                       "text-level judgment — it does not look at the image."),
     ("SHEET: LLM_Prompts", "Per-patent prompt for the chat step. Paste the reply into "
                            "llm_answer, then re-run the notebook's ingest cell."),
+    ("", ""),
+    ("scope", "Granularity of the disclosure: " + _SCOPE_OPTIONS_DOC),
+    ("architecture_primary", "eVTOL configuration class (wizard G1 code); "
+                             "architecture_primary_label is the readable name."),
+    ("architecture_all", "EVERY architecture the patent represents. More than one "
+                         "means the patent enumerates alternatives rather than "
+                         "describing a single vehicle."),
+    ("architecture_count / architecture_pure",
+     "Predicted counterparts of the wizard's manual archCount / notPureArch. "
+     "When architecture_pure is FALSE, architecture_primary is whichever one "
+     "the keyword pass hit first and is NOT meaningful on its own — read "
+     "architecture_all instead, and exclude those rows from any chart that "
+     "counts patents per architecture."),
+    ("specificity", "SpecificAircraft = the disclosure is one whole-aircraft "
+                    "architecture whose figures show complete vehicles. "
+                    "ArchitectureGeneric = tied to a configuration class but not "
+                    "to a particular aircraft. IllustrativeOnly = a subsystem or "
+                    "component idea; the airframe in the drawings is a carrier, "
+                    "not the subject."),
+    ("specificity_reason", "Every signal that fired, with its weight. The verdict "
+                           "is an additive rule over these — re-threshold in the "
+                           "thesis without re-running anything."),
+    ("aircraft_link", "Depicted = this patent's figures show that aircraft. "
+                      "CompanyAttributed = the company makes it, but this patent "
+                      "is about a subsystem/component and its figures are NOT "
+                      "evidence of that aircraft. Filter on this before any "
+                      "per-aircraft statistic."),
+    ("figures_whole_aircraft", "How many figures show a complete aircraft. Zero, "
+                               "with figures present, is the strongest single "
+                               "signal that the drawings are illustrative."),
     ("", ""),
     ("aircraft_name", "Best guess at the real aircraft. Empty = unknown, which is the "
                       "expected outcome for most patents."),
@@ -1182,8 +1261,11 @@ def export_identity_excel(
     prompts: list[dict],
     out_path: "str | Path",
     preserve_human: bool = True,
+    figures: list[dict] | None = None,
 ) -> Path:
-    """Write aircraft_identity_<batch>.xlsx (Identity / Evidence / LLM_Prompts / README).
+    """Write aircraft_identity_<batch>.xlsx.
+
+    Sheets: Identity / Figures / Evidence / LLM_Prompts / README.
 
     Backs up any existing file first, then merges human edits forward, so this
     is safe to re-run over a sheet you have already been editing.
@@ -1208,11 +1290,14 @@ def export_identity_excel(
         except (ValueError, KeyError):
             pass
 
+    from src.patent_scope import FIGURE_COLUMNS
+    fig_df = pd.DataFrame(figures or [], columns=FIGURE_COLUMNS)
     readme_df = pd.DataFrame(_README_ROWS, columns=["Item", "Meaning"])
 
     _backup(out_path)
     with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
         ident_df.to_excel(writer, sheet_name="Identity", index=False)
+        fig_df.to_excel(writer, sheet_name="Figures", index=False)
         ev_df.to_excel(writer, sheet_name="Evidence", index=False)
         pr_df.to_excel(writer, sheet_name="LLM_Prompts", index=False)
         readme_df.to_excel(writer, sheet_name="README", index=False)
