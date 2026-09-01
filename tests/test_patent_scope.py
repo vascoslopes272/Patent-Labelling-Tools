@@ -83,6 +83,20 @@ def test_scope_method_claim_is_subsystem():
     assert ps.classify_scope(text, None)["value"] == "Architectural Subsystem Enabler"
 
 
+@pytest.mark.parametrize("text", [
+    "A multirotor aircraft comprising a fuselage and eighteen rotors.",
+    "A tiltrotor aircraft with a battery pack and three-bladed proprotors.",
+    "An electric vertical takeoff aircraft having a fuselage and a wing.",
+])
+def test_scope_whole_aircraft_tolerates_real_preamble_shapes(text):
+    """Each of these produced a BLANK scope before: an adjective between the
+    article and the noun ("A MULTIROTOR aircraft"), a verb other than
+    "comprising" ("... WITH a battery pack"), and a multirotor that has rotors
+    but no wing. All three are common, and a blank scope silently drops the row
+    out of every scope-based statistic."""
+    assert ps.classify_scope(text, None)["value"] == "Whole Aircraft Architecture"
+
+
 def test_scope_component_rule_beats_whole_aircraft_rule():
     """A component claim almost always also names the aircraft it goes in, so
     the ordering in _SCOPE_KEYWORD_RULES is what stops a false whole-aircraft

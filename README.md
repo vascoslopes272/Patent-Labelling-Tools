@@ -33,11 +33,11 @@ legacy 00 → 01 flow.
 ### Aircraft identity (03a) — side branch, metadata only
 
 `03a_aircraft_identity.ipynb` + `src/aircraft_identity.py` +
-`src/patent_scope.py` answer a different question from the rest of the
+`src/patent_scope.py` + `src/patent_maturity.py` answer a different question from the rest of the
 pipeline: not *what does this drawing show*, but *what is this patent about, at
 what level, which architecture, is it tied to one real aircraft, is that
-aircraft electric, what are its numbers, and where and for what industry was it
-filed*.
+aircraft electric, what are its numbers, how many blades its propellers have,
+how far along the patent is, and where and for what industry it was filed*.
 
 It reads `batches.xlsx` and the PatSeer export only — no images, no figure
 crops — so it runs independently of 00a/00b/01a and writes exactly one file of
@@ -74,6 +74,22 @@ a Joby patent on a motor bearing is labelled `aircraft_name = S4` at confidence
 kept — it is real evidence about the company — but the column says which kind of
 claim it is. **Filter `aircraft_link == "Depicted"` before any per-aircraft
 statistic.**
+
+#### Blade counts and maturity
+
+| Column | What it says |
+|---|---|
+| `blades_primary` / `blades_all` | Blades per propulsor from the patent text. `blades_all` keeps the per-role detail (`5 (Lift); 3 (Cruise)`) because differing lift and cruise propulsors are the interesting case. Empty is common — "a plurality of blades" is a deliberate non-commitment, and counting blades off a drawing is the image pipeline's job. |
+| `legal_stage` | **Granted** vs **Application** — was it accepted, or only filed. From a Legal Status column when the export has one, else from the publication number's kind code (`US…B2` granted, `US…A1` application, any `WO` number is an application by definition). `legal_stage_source` says which. |
+| `right_active` | FALSE when the status says lapsed/expired/withdrawn. Separate from `legal_stage`: a lapsed patent still cleared examination. |
+| `forward_citations_per_year` | **Rank on this, not the raw count.** A 2015 patent has had a decade to be cited and a 2023 one has not, and eVTOL filing volume rose steeply over that window — raw counts sort the corpus by age and call it impact. |
+| `in_corpus_forward_share` | Share of forward citations landing inside this eVTOL corpus. Low means another field is using the patent. |
+| `self_citations_in_corpus` | Backward cites to the same canonical company — a sustained programme. A floor, not a total. |
+| `impact_tier` / `maturity_tier` | `legal_stage` × citation percentile. **Established** = granted and cited, **Granted** = cleared examination but not built on, **Active** = still an application yet already cited, **Filed** = application, uncited. |
+
+Percentiles are computed over the **cited** rows only — in a corpus where most
+patents are never cited, including the zeros puts the median inside a block of
+zeros and "Medium impact" quietly comes to mean "cited once".
 
 `specificity` is an additive score over four named signals (granularity,
 architecture multiplicity, hedging density, and what the figures show) with two

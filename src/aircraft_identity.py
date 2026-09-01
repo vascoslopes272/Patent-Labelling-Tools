@@ -78,6 +78,7 @@ from src.grouper import _pub_office, _normalise_company
 # Scope/architecture/specificity live in their own module; only its column list
 # is needed here, so the two stay independently testable.
 from src.patent_scope import SCOPE_COLUMNS as _SCOPE_COLUMNS
+from src.patent_maturity import MATURITY_COLUMNS as _MATURITY_COLUMNS
 
 
 # ─── Provenance ordering ─────────────────────────────────────────────────────
@@ -574,6 +575,201 @@ def extract_spec_hints(text: str | None) -> dict[str, dict]:
     return out
 
 
+# ─── Blade count per propulsor ───────────────────────────────────────────────
+# Patents state blade counts far more often than they state performance, because
+# the count is structural and gets claimed ("a three-bladed proprotor"). Two
+# false-positive classes have to be kept out:
+#
+#   1. Reference numerals — "the blade 12". Handled by requiring the number to
+#      be BOUND to the word (hyphen, or immediately preceding "blades"), never
+#      just nearby.
+#   2. Non-count uses — "blade pitch", "blade element momentum", "blade root".
+#      Handled by requiring a plural/participle form after the number.
+#
+# An eVTOL commonly has DIFFERENT counts on different propulsor groups (five-
+# blade lift rotors, three-blade cruise propeller), so each hit records the role
+# it was found next to rather than collapsing to one number.
+
+_BLADE_WORD_NUM = {
+    "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+    "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+}
+_BLADE_NUM = r"(\d{1,2}|" + "|".join(_BLADE_WORD_NUM) + r")"
+
+_BLADE_PATTERNS = [
+    # "three-bladed propeller", "5-blade rotor", "two bladed proprotor"
+    rf"\b{_BLADE_NUM}[-\s]blade[ds]?\b",
+    # "propellers each having three blades", "rotor with five blades"
+    rf"\b(?:propeller|rotor|proprotor|fan|propulsor|blade\s+assembly)s?\b[^.;]{{0,40}}?"
+    rf"\b(?:having|with|comprising|includes?|carries|carrying|defines?)\b[^.;]{{0,20}}?"
+    rf"\b{_BLADE_NUM}\s+blades\b",
+    # "three blades per propeller", "five blades on each rotor"
+    rf"\b{_BLADE_NUM}\s+blades\s+(?:per|on\s+each|for\s+each|of\s+each)\b",
+    # "a plurality of blades, namely four blades"
+    rf"\bnamely\s+{_BLADE_NUM}\s+blades\b",
+]
+
+# Role of the propulsor group a count was found next to. Ordered most-specific
+# first; searched in a window around the match.
+_BLADE_ROLE_RULES = [
+    (r"\b(?:lift|hover|vertical\s+lift|vtol)\s*(?:rotor|fan|propeller|propulsor|unit)s?\b"
+     r"|\blift\s+rotor", "Lift"),
+    (r"\b(?:cruise|forward\s+flight|pusher|tractor|propulsion)\s*"
+     r"(?:propeller|rotor|propulsor|fan)s?\b", "Cruise"),
+    (r"\b(?:main|primary)\s+rotor\b", "Main"),
+    (r"\b(?:tail|anti[-\s]?torque)\s+rotor\b", "Tail"),
+    (r"\bproprotors?\b|\btilt(?:ing)?[-\s]?(?:rotor|prop|propulsor)s?\b", "Tilt"),
+]
+
+# Blade counts outside this range are almost always a misparse (a reference
+# numeral that slipped through, or a turbine stage count).
+_BLADE_MIN, _BLADE_MAX = 2, 12
+
+_BLADE_CONF = 0.65   # above the spec-hint floor: a claimed blade count is a
+                     # structural fact, not an illustrative performance figure
+
+
+def _blade_int(raw: str) -> "int | None":
+    raw = str(raw).strip().lower()
+    if raw in _BLADE_WORD_NUM:
+        return _BLADE_WORD_NUM[raw]
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+# A count's propulsor group sits on one side or the other depending on the
+# grammatical form, and the search must not cross into the next clause — these
+# are the boundaries it stops at.
+_CLAUSE_BREAK_RE = re.compile(r"[.;,]|\band\b|\bwhile\b|\bwhereas\b", re.IGNORECASE)
+
+# "five-bladed rotor" is adjectival: the noun follows. "the rotor has five
+# blades" is predicative: the noun precedes.
+_BLADE_ADJECTIVAL_RE = re.compile(r"[-\s]blade[d]\b", re.IGNORECASE)
+
+
+def _blade_role(text: str, start: int, end: int, matched: str) -> str:
+    """Which propulsor group a blade count belongs to.
+
+    Direction is decided by the grammatical form, and both searches stop at a
+    clause boundary. Getting either wrong silently mislabels the data rather
+    than failing: "five-bladed lift rotors and a three-bladed cruise propeller"
+    tagged both as Lift when the search was direction-blind, and "the lift
+    rotors each have five blades, while the pusher propeller has three blades"
+    tagged the five as Cruise when it was clause-blind.
+    """
+    def _clause_start(pos: int) -> int:
+        breaks = [m.end() for m in _CLAUSE_BREAK_RE.finditer(text[:pos])]
+        return breaks[-1] if breaks else 0
+
+    def _clause_end(pos: int) -> int:
+        m = _CLAUSE_BREAK_RE.search(text, pos)
+        return m.start() if m else len(text)
+
+    def _nearest(lo: int, hi: int) -> "str | None":
+        if lo >= hi:
+            return None
+        best, best_dist = None, None
+        for pattern, role in _BLADE_ROLE_RULES:
+            for m in re.finditer(pattern, text[lo:hi], re.IGNORECASE):
+                pos = lo + m.start()
+                dist = 0 if start <= pos <= end else min(abs(pos - end), abs(pos - start))
+                if best_dist is None or dist < best_dist:
+                    best, best_dist = role, dist
+        return best
+
+    # A role noun inside the match itself always wins — the longer patterns span
+    # it ("propellers each having three blades").
+    role = _nearest(start, end)
+    if role:
+        return role
+
+    adjectival = bool(_BLADE_ADJECTIVAL_RE.search(matched))
+    windows = ([(end, _clause_end(end)), (_clause_start(start), start)]
+               if adjectival else
+               [(_clause_start(start), start), (end, _clause_end(end))])
+    for lo, hi in windows:
+        role = _nearest(lo, hi)
+        if role:
+            return role
+    return "Unspecified"
+
+
+def extract_blade_counts(text: str | None) -> list[dict]:
+    """Blade counts stated in the patent text, one entry per distinct
+    (count, role) pair.
+
+    Returns [{"count", "role", "confidence", "source", "context"}, ...] sorted
+    by count. Returns [] when nothing is stated, which is common — a patent that
+    claims "a plurality of blades" deliberately avoids committing to a number,
+    and inventing one from the drawing is the image pipeline's job, not this one's.
+    """
+    if not text or not str(text).strip():
+        return []
+    text = str(text)
+
+    seen: dict[tuple, dict] = {}
+    for pattern in _BLADE_PATTERNS:
+        for m in re.finditer(pattern, text, re.IGNORECASE):
+            count = _blade_int(m.group(1))
+            if count is None or not (_BLADE_MIN <= count <= _BLADE_MAX):
+                continue
+            role = _blade_role(text, m.start(), m.end(), m.group(0))
+            key = (count, role)
+            if key in seen:
+                continue
+            lo, hi = max(0, m.start() - 50), min(len(text), m.end() + 50)
+            seen[key] = {
+                "count": count, "role": role, "confidence": _BLADE_CONF,
+                "source": "regex", "context": " ".join(text[lo:hi].split()),
+            }
+
+    # A count found with a role supersedes the same count found without one:
+    # "three-bladed" early in the abstract and "three-bladed lift rotors" later
+    # are one fact, and the roled version is the informative one.
+    roled = {c["count"] for c in seen.values() if c["role"] != "Unspecified"}
+    out = [c for k, c in seen.items()
+           if c["role"] != "Unspecified" or c["count"] not in roled]
+    return sorted(out, key=lambda c: (c["count"], c["role"]))
+
+
+def summarise_blade_counts(blades: list[dict]) -> dict:
+    """Flatten blade hits into sheet columns.
+
+    `blades_all` keeps the per-role detail ("5 (Lift); 3 (Cruise)") because an
+    eVTOL with different lift and cruise propulsors is the interesting case, and
+    a single `blades_primary` number would erase exactly that.
+    """
+    if not blades:
+        return {"blades_primary": None, "blades_all": None, "blades_min": None,
+                "blades_max": None, "blades_distinct": 0,
+                "blade_count_source": None, "blade_count_confidence": None}
+
+    counts = [b["count"] for b in blades]
+    # Primary = the count on the lift/main group when one is identified (that is
+    # the rotor an eVTOL is characterised by), else the most common count.
+    primary = next((b["count"] for b in blades if b["role"] in ("Lift", "Main", "Tilt")), None)
+    if primary is None:
+        primary = max(set(counts), key=counts.count)
+
+    return {
+        "blades_primary": primary,
+        "blades_all": "; ".join(
+            f"{b['count']}" + (f" ({b['role']})" if b["role"] != "Unspecified" else "")
+            for b in blades),
+        "blades_min": min(counts),
+        "blades_max": max(counts),
+        "blades_distinct": len(blades),
+        "blade_count_source": "regex",
+        "blade_count_confidence": _BLADE_CONF,
+    }
+
+
+BLADE_COLUMNS = ["blades_primary", "blades_all", "blades_min", "blades_max",
+                 "blades_distinct", "blade_count_source", "blade_count_confidence"]
+
+
 # ─── Gazetteer ───────────────────────────────────────────────────────────────
 
 GAZETTEER_COLUMNS = [
@@ -870,9 +1066,15 @@ IDENTITY_COLUMNS = [
     # Specifications
     "pax", "mtow_kg", "payload_kg", "cruise_speed_kmh", "max_speed_kmh",
     "range_km", "endurance_min", "spec_source", "spec_confidence",
+    # Blade counts — structural, so kept with the specs rather than in the
+    # maturity block (see extract_blade_counts()).
+    *BLADE_COLUMNS,
     # What the patent is about, and whether it is tied to one aircraft
     # (src/patent_scope.py — appended by attach_scope()).
     *_SCOPE_COLUMNS,
+    # How far along the patent is (src/patent_maturity.py — appended by
+    # attach_maturity()).
+    *_MATURITY_COLUMNS,
     # Bookkeeping
     "needs_review", "review_reason", "llm_reasoning",
     "reviewed_by", "reviewed_at", "notes",
@@ -920,6 +1122,7 @@ def build_identity_row(
     industry_pred: dict | None = None,
     name_candidates: list[dict] | None = None,
     spec_hints: dict | None = None,
+    blade_hits: list[dict] | None = None,
     llm_answer: dict | None = None,
 ) -> tuple[dict, list[dict]]:
     """Merge every signal for one patent into (identity_row, evidence_rows).
@@ -935,6 +1138,7 @@ def build_identity_row(
     llm_answer = llm_answer or {}
     spec_hints = spec_hints or {}
     name_candidates = name_candidates or []
+    blade_hits = blade_hits or []
     evidence: list[dict] = []
 
     def _ev(field, value, source, conf, context=""):
@@ -1033,6 +1237,15 @@ def build_identity_row(
             if conf is not None:
                 spec_confs.append(float(conf))
 
+    # ── blade counts ─────────────────────────────────────────────────────────
+    # Not merged through _pick(): the gazetteer has no blade column and the LLM
+    # is not asked for one, so text is the only source and there is nothing to
+    # outrank. Each hit still lands in Evidence with the sentence it came from.
+    for hit in blade_hits:
+        _ev(f"blades[{hit['role']}]", hit["count"], hit["source"],
+            hit["confidence"], hit.get("context", ""))
+    blade_cols = summarise_blade_counts(blade_hits)
+
     # ── review routing ───────────────────────────────────────────────────────
     reasons: list[str] = []
     if not name:
@@ -1074,9 +1287,12 @@ def build_identity_row(
         **specs,
         "spec_source": "; ".join(sorted(set(spec_srcs))) or None,
         "spec_confidence": round(sum(spec_confs) / len(spec_confs), 4) if spec_confs else None,
+        **blade_cols,
         # Filled by attach_scope() once src/patent_scope.py has run — it needs
         # the resolved aircraft_name, so it cannot run before this point.
         **{c: None for c in _SCOPE_COLUMNS},
+        # Filled by attach_maturity().
+        **{c: None for c in _MATURITY_COLUMNS},
         "needs_review": bool(reasons),
         "review_reason": "; ".join(reasons) or None,
         "llm_reasoning": (llm_answer.get("reasoning") or None),
@@ -1085,6 +1301,18 @@ def build_identity_row(
         "notes": None,
     }
     return row, evidence
+
+
+def attach_maturity(row: dict, maturity_row: dict) -> dict:
+    """Fold src/patent_maturity.build_maturity_row()'s columns into a row.
+
+    Order-independent of attach_scope(): maturity depends only on the patent's
+    own bibliographic data, not on anything the other two modules resolve. It
+    adds no review reasons — a patent being young or uncited is a fact about it,
+    not something a reviewer can fix.
+    """
+    row.update({c: maturity_row.get(c) for c in _MATURITY_COLUMNS})
+    return row
 
 
 def attach_scope(row: dict, scope_row: dict) -> dict:
@@ -1165,6 +1393,40 @@ _README_ROWS = [
     ("figures_whole_aircraft", "How many figures show a complete aircraft. Zero, "
                                "with figures present, is the strongest single "
                                "signal that the drawings are illustrative."),
+    ("", ""),
+    ("blades_primary / blades_all",
+     "Blades per propulsor, from the patent text. blades_all keeps the per-role "
+     "detail ('5 (Lift); 3 (Cruise)') because differing lift and cruise "
+     "propulsors are the interesting case. Empty is common — a patent claiming "
+     "'a plurality of blades' is deliberately not committing to a number, and "
+     "counting them off the drawing is the image pipeline's job, not this one's."),
+    ("legal_stage", "Granted vs Application — the answer to 'was it accepted, "
+                    "not just filed'. Read from a Legal Status column when the "
+                    "export has one (legal_stage_source = legal_status), else "
+                    "from the publication number's kind code (US...B2 granted, "
+                    "US...A1 application, any WO number is an application)."),
+    ("right_active", "FALSE when the status says lapsed/expired/withdrawn. Kept "
+                     "separate from legal_stage: a lapsed patent still cleared "
+                     "examination."),
+    ("forward_citations_per_year",
+     "Forward citations divided by years since publication. RANK ON THIS, not "
+     "on the raw count — a 2015 patent has had a decade to accumulate citations "
+     "and a 2023 patent has not, and eVTOL filing volume rose steeply over that "
+     "window, so raw counts order the corpus by age and call it impact."),
+    ("in_corpus_forward_share",
+     "Share of forward citations that land inside this eVTOL corpus. Low means "
+     "the patent is being used by a different field."),
+    ("self_citations_in_corpus",
+     "Backward citations to the same canonical company — a company building on "
+     "its own filings. A floor, not a total: only computable for cites that are "
+     "themselves in the corpus."),
+    ("impact_tier", "Corpus-relative percentile band of forward_citations_per_year. "
+                    "Percentiles are computed over CITED rows only, so 'Medium' "
+                    "does not collapse to 'cited once'."),
+    ("maturity_tier", "legal_stage x impact_tier. Established = granted and "
+                      "cited. Granted = cleared examination, not yet built on. "
+                      "Active = still an application but already cited — a live, "
+                      "watched filing. Filed = application, uncited."),
     ("", ""),
     ("aircraft_name", "Best guess at the real aircraft. Empty = unknown, which is the "
                       "expected outcome for most patents."),

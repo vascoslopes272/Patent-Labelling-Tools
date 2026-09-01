@@ -134,9 +134,19 @@ _SCOPE_KEYWORD_RULES: list[tuple[str, str]] = [
      _SCOPE_SUBSYS),
     # Whole-vehicle claim preamble: "An aircraft comprising ..." with the
     # airframe nouns that only appear when the whole vehicle is being claimed.
-    (r"^\s*(?:an?\s+)?(?:aircraft|air\s+vehicle|rotorcraft|eVTOL|flying\s+vehicle|"
-     r"aerial\s+vehicle)\b[\w\s\-,]{0,80}?\bcompris\w+\b[\w\s\-,]{0,120}?"
-     r"\b(?:fuselage|wing|airframe|empennage)\b", _SCOPE_WHOLE),
+    # Three things this has to tolerate, all of which appear constantly and each
+    # of which silently produced a blank scope before:
+    #   - an adjective between article and noun ("A MULTIROTOR aircraft ...")
+    #   - verbs other than "comprising" ("... WITH a battery pack and ...")
+    #   - a multirotor having no wing, so rotors/propulsors count as the
+    #     whole-vehicle noun alongside fuselage/wing/airframe/empennage
+    # The component rule above runs first, so "a rotor hub for an aircraft
+    # comprising ... rotor" is already claimed by it and cannot reach here.
+    (r"^\s*(?:an?\s+)?(?:[\w-]+\s+){0,3}?"
+     r"(?:aircraft|air\s+vehicle|rotorcraft|eVTOL|flying\s+vehicle|aerial\s+vehicle)\b"
+     r"[\w\s\-,]{0,80}?\b(?:compris\w+|with|having|includ\w+)\b[\w\s\-,]{0,120}?"
+     r"\b(?:fuselage|wing|airframe|empennage|rotors?|proprotors?|propulsors?)\b",
+     _SCOPE_WHOLE),
 ]
 
 
