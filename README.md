@@ -32,8 +32,8 @@ legacy 00 → 01 flow.
 
 ### Aircraft identity (03a) — side branch, metadata only
 
-`03a_aircraft_identity.ipynb` + `src/aircraft_identity.py` +
-`src/patent_scope.py` + `src/patent_maturity.py` answer a different question from the rest of the
+`03a_aircraft_identity.ipynb` (a ~100-line recipe; all the logic lives in
+`src/`) answers a different question from the rest of the
 pipeline: not *what does this drawing show*, but *what is this patent about, at
 what level, which architecture, is it tied to one real aircraft, is that
 aircraft electric, what are its numbers, how many blades its propellers have,
@@ -51,6 +51,26 @@ its own per batch:
     LLM_Prompts  a ready-made question per patent for the chat step
     README       column dictionary
 ```
+
+#### Where the code lives
+
+The notebook is a recipe over `src/identity_pipeline.py`; every signal is its
+own small module, so you can read or change one without touching the rest.
+
+| Module | Job |
+|---|---|
+| `identity_pipeline.py` | The runner: load → analyse → export → report. What the notebook calls. |
+| `aircraft_identity.py` | The **merge** — combines every signal into one row by a fixed precedence. Re-exports the rest, so the notebook needs one import. |
+| `identity_schema.py` | Column order, source precedence, confidence constants. |
+| `patent_geography.py` | Applicant country, publication office, region. |
+| `aircraft_naming.py` | Candidate aircraft names mined from the text. |
+| `aircraft_specs.py` | Powertrain, industry, performance figures, blade counts. |
+| `aircraft_gazetteer.py` | The curated company → aircraft table. |
+| `identity_llm.py` | Prompts, answer parsing, the Anthropic API path. |
+| `patent_scope.py` | Scope, architecture, specificity, `aircraft_link`. |
+| `figure_views.py` | What kind of view each figure is. |
+| `patent_maturity.py` | Granted vs filed, citations, maturity tier. |
+| `identity_excel.py` | The workbook writer and the human-edit merge. |
 
 #### Scope, architecture and specificity (`src/patent_scope.py`)
 
