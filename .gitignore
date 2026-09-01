@@ -219,4 +219,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
-src/patseer_drawings/
+src/patseer_drawings/__pycache__/
+*.pyc
+.pytest_cache/

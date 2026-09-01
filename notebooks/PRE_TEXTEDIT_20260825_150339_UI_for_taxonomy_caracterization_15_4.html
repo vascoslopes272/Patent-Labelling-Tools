@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>eVTOL Taxonomy Wizard v15.4</title>
+<title>eVTOL Taxonomy Wizard v15.3</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
 *{box-sizing:border-box;margin:0;padding:0;}
@@ -249,8 +249,7 @@ details.m3-readonly[open] summary::after { content: '\2212'; }
 </head>
 <body>
 <aside id="side-rail">
-  <!-- v15.4: the brand read "Builder v15.0" while the file was already 15.4. -->
-  <div class="rail-brand">eVTOL Taxonomy<br>Builder v15.4</div>
+  <div class="rail-brand">eVTOL Taxonomy<br>Builder v15.0</div>
   <div id="batch-load-bar" class="side-toolbar" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--accent-bg);border:1px solid var(--accent-bdr);border-radius:var(--r);flex-wrap:wrap;">
     <span style="font-size:11px;font-family:var(--mono);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--accent-text);">Load Batch</span>
     <input type="file" id="batch-xlsx-input" accept=".xlsx" style="font-size:12px;color:var(--text2);">
@@ -274,13 +273,8 @@ details.m3-readonly[open] summary::after { content: '\2212'; }
     </span>
     <button type="button" id="btn-width-toggle" class="btn" style="padding:4px 10px;font-size:12px;margin-left:8px;" title="Cycle the wizard width: Compact (820px) / Wide (1200px) / Full (96% of the window)">&#8596; Width: Wide</button>
   </div>
-  <!-- v15.4: title/subtitle rewritten at the user's request — the old copy
-       ("Full Morphological Tree Classifier" / "Audit Patches: Dictionary Data
-       Architecture, Throughput Decoupling, JSON Export, and Keyboard
-       Navigation.") described the tool's implementation history, not what it
-       is for a labeller. -->
-  <div class="wiz-h">Morphological taxonomy tree</div>
-  <div class="wiz-sub">eVTOL Taxonomy Builder - eVTOL Morphological Taxonomy</div>
+  <div class="wiz-h">Full Morphological Tree Classifier</div>
+  <div class="wiz-sub">Audit Patches: Dictionary Data Architecture, Throughput Decoupling, JSON Export, and Keyboard Navigation.</div>
   <div id="throughput" class="progress-tracker"></div>
   <div class="rail-label">Workflow — click to jump</div>
   <div class="stepper" id="stepper"></div>
@@ -340,12 +334,7 @@ var TOP=[
   // v15.3: the "ambiguous dual-rotation mechanisms" clause is removed \u2014 the
   // codebook now sends ambiguity to humanUncertain so CVT keeps a single meaning.
   {id:'CVT', name:'Vectored Thrust \u2014 Combined (CVT)', desc:'Fixed AND tilting thrust mechanisms present on the same aircraft at the same time. At least one wing tilts, while at least one other source of thrust does not tilt with it \u2014 whether that is a non-tilting PROPELLED wing, or propulsors mounted on the fuselage, the empennage, or a non-tilting boom. A non-tilting wing carrying NO propulsors does not make an aircraft CVT: it is still a Tilt Wing. NOT for aircraft that are merely hard to read: when the drawing will not settle whether the wing or the propulsors vector, pick the more likely of TW/TR and flag humanUncertain.'},
-  // v15.4: "(Tailsitter)" moved out of the NAME and into the description as the
-  // example it always was. A tailsitter is the classic instance of Tilt Body,
-  // not the definition of it \u2014 the test is that the whole airframe rotates
-  // between hover and cruise, however far it rotates and whatever the aircraft
-  // is called. Id unchanged.
-  {id:'TB', name:'Vectored Thrust \u2014 Tilt Body', desc:'The whole airframe rotates between hover and cruise attitudes, so every propulsor vectors with it. There is no tilting wing and no tilting propulsor mount \u2014 the body IS the mechanism. Tailsitters are the common example, but the test is the rotating airframe, not the name.'},
+  {id:'TB', name:'Vectored Thrust \u2014 Tilt Body (Tailsitter)', desc:'The whole airframe rotates between hover and cruise attitudes (tailsitters).'},
   // PTC (2026-07-02): the EASA-style "vectored thrust by body attitude" case a
   // reviewer previously had to force into MR (ignoring the wing), SLC (there is
   // no cruise unit) or TB (it is not a 90\u00b0 tailsitter). Winged, so it lives on
@@ -893,11 +882,8 @@ var T1_EDGE_TAGS = [
 
 // v15.3: t1/t2 relabelled to the stage names used in the codebook and the thesis
 // ("Triage"), since these are the first words a labeller reads. Ids unchanged.
-// v15.4: G1/M1/M2/M3 given their full codebook names instead of the abbreviated
-// "Arch / Struct / Aero / Prop". The sidebar rail is a vertical column, so the
-// longer labels fit. Ids unchanged — only `lbl` is display text.
 var STEPS=[
-  {id:'t1',lbl:'T1 Patent Triage'},{id:'t2',lbl:'T2 Figure Triage'},{id:'gate',lbl:'G1 Global Architecture'},{id:'m1',lbl:'M1 Structural Morphology'},{id:'m2',lbl:'M2 Aerodynamics Morphology'},{id:'m3',lbl:'M3 Propulsive Morphology'},{id:'done',lbl:'Summary'}
+  {id:'t1',lbl:'T1 Patent Triage'},{id:'t2',lbl:'T2 Figure Triage'},{id:'gate',lbl:'G1 Arch'},{id:'m1',lbl:'M1 Struct'},{id:'m2',lbl:'M2 Aero'},{id:'m3',lbl:'M3 Prop'},{id:'done',lbl:'Summary'}
 ];
 
 function fresh(){
@@ -1149,7 +1135,7 @@ function applyAircraftSnapshot(snap) {
 function getArchCount() {
   var maxTag = 1;
   Object.keys(S.figData || {}).forEach(function(f){
-    var a = normArch((S.figData[f] || {}).arch);
+    var a = parseInt((S.figData[f] || {}).arch, 10);
     if (a > maxTag) maxTag = a;
   });
   return Math.max(1, maxTag, S.archProfiles ? S.archProfiles.length : 1, S.archCount || 1);
@@ -1161,13 +1147,7 @@ function getArchCount() {
 // its 1-based architecture tag (figData[fNum].arch), so "main of architecture N"
 // is the figure tagged N that has isMain set. This replaces the old single
 // patent-level S.mainFigure.
-// Coerces a figure's architecture tag to a 1-based integer. Boolean true is
-// the one value worth calling out: a scripted xlsx edit can store architecture
-// 1 as a real Excel boolean, and without this it would parse to NaN and fall
-// back to 1 anyway — but only by accident, and getArchCount() above would
-// still skip it. Everything unparseable maps to architecture 1.
-function normArch(v){ if (v === true) return 1; var a = parseInt(v, 10); return (isNaN(a) || a < 1) ? 1 : a; }
-function figArchOf(fNum){ return normArch(figGet(fNum, 'arch', '1')); }
+function figArchOf(fNum){ var a = parseInt(figGet(fNum, 'arch', '1'), 10); return isNaN(a) ? 1 : a; }
 // v14 (C3): the topType of a given 1-based architecture number, for T2's
 // Aircraft State card — T2 (step 1) is visited BEFORE G1 (step 2), so most of
 // the time no architecture has a topType yet (returns null, handled by the
@@ -1456,13 +1436,7 @@ function isWinged() { return ['TW','TR','DS','CVT','TB','PTC','SLC','SRW'].index
 // new topType is ever added to TOP, it must be added to one list or the other or
 // pageT2's Aircraft State card will silently fall back to the provisional
 // (unknown-topType) 4-option UI, same as during T1/T2 before G1 is visited.
-// v15.4 (2026-08-30): membership re-decided on one test — does the aircraft's
-// GEOMETRY change between hover and cruise? SRW joins ('hover units stop/lock to
-// provide cruise lift' is a configuration change); TB and PTC leave (the whole
-// airframe rotates or pitches, but nothing moves relative to anything else —
-// attitude is not a configuration). Must stay in sync with FIXED_ARCH_TYPES /
-// CONVERTIBLE_ARCH_TYPES in 02a_preprocessing.ipynb.
-function isConvertibleArch(topType) { return ['TW','TR','DS','CVT','SRW'].indexOf(topType) > -1; }
+function isConvertibleArch(topType) { return ['TW','TR','DS','CVT','TB','PTC'].indexOf(topType) > -1; }
 // Novel / Other architectures (Hoverbikes, PFVs) don't map to the winged/wingless
 // structured morphology, so M1/M2/M3 render as free-text commentary instead.
 function isOtherArch() { return S.g1Focus === 'other' || ['HB','PFV'].indexOf(S.topType) > -1; }
@@ -1530,9 +1504,7 @@ function nextBlockers(){
         if (!fdA.bgSty) miss.push('Background Style');
         if (!fdA.bgCol) miss.push('Background Color');
         if (!(fdA.parts || []).length) miss.push('Structural Elements');
-        // v15.4: named after the card, since the "Flight configuration shown"
-        // sub-label it used to quote was removed from the UI.
-        if (!fdA.acState) miss.push('Aircraft State in this View');
+        if (!fdA.acState) miss.push('Flight configuration shown');
         // v15.2: categorical "Other" pattern — a paired free-text note is
         // mandatory whenever "Other" is picked (same rule as t1DisapproveOther/
         // wPlanOth elsewhere in the wizard).
@@ -1554,10 +1526,7 @@ function nextBlockers(){
     }
     if (noDino.length) {
       b.push((getArchCount() > 1 ? ('Architecture ' + noDino.join(', ') + ': ') : '')
-        // v15.4: reworded to match the card, which is no longer called
-        // "Projected Recognition Sufficiency" — a blocker naming a card that
-        // does not exist sends the reviewer hunting.
-        + 'rate how well the figures show it');
+        + 'rate the Projected Recognition Sufficiency');
     }
     // Every architecture must have a designated main image before leaving T2 —
     // the morphology pages (and the export) anchor each architecture to its main
@@ -1919,7 +1888,7 @@ function applyFusKinLock(){
 // Short, human label for a topType — used by the unified physics-lock banner.
 function archShort(topType){
   return ({TW:'Tilt Wing',TR:'Tilt Rotor',DS:'Deflected Slipstream',CVT:'Combined Thrust',
-    TB:'Tilt Body',PTC:'Pitch-to-Cruise (Winged Multirotor)',   // v15.4: "(Tailsitter)" dropped — see the TOP entry for TB
+    TB:'Tilt Body (Tailsitter)',PTC:'Pitch-to-Cruise (Winged Multirotor)',
     SLC:'Lift + Cruise',SRW:'Stopped Rotor',RC:'Rotorcraft',MR:'Multirotor',
     HB:'Hoverbike',PFV:'Personal Flying Vehicle'})[topType] || (topType || '');
 }
@@ -2048,13 +2017,7 @@ function m3OrientationOptions() {
   // orient vocab [Horizontal, Vertical, Mixed] — identical across the stack
   // (vlm_extractor.py / cross_modal.py / reviewer.py / excel_schema.py).
   // Independent fixed lift+cruise thrust never tilts, so it omits "Mixed".
-  // v15.4 (2026-08-31): "Cruise Pusher" -> "Cruise Engine". This field records the
-  // AXIS the thrust acts along, not which side of its mount the propulsor sits on —
-  // that is `chord` (Front / Puller-Tractor vs Back / Pusher), and on a lift+cruise
-  // aircraft the cruise unit is a PULLER more often than not. The old label asserted
-  // the opposite and read as a contradiction next to chord=Front. Display only: the
-  // id stays 'Horizontal', so every saved value is untouched.
-  if (isIndependentThrust()) return [{id:'Vertical', n:'Vertical / Lift Engine'},{id:'Horizontal', n:'Horizontal / Cruise Engine'}];
+  if (isIndependentThrust()) return [{id:'Vertical', n:'Vertical / Lift Engine'},{id:'Horizontal', n:'Horizontal / Cruise Pusher'}];
   return [{id:'Horizontal', n:'Horizontal (Cruise)'},{id:'Vertical', n:'Vertical (Hover)'},{id:'Mixed', n:'Mixed (Vectoring / Tilting)'}];
 }
 function m3ZoneOptions(bp) {
@@ -2648,23 +2611,8 @@ var _SHOW_DUP_IMGS = false;
 // Works on a figure-data object, so recordToRows() can use it for ANY patent's
 // record — not just the one currently in S.figData.
 function fdIsDupImage(fd) {
-  // RETIRED 2026-08-31 — always false, so no figure is ever hidden from the grid
-  // or dropped from the export for being "a duplicate image".
-  //
-  // Why: duplication is a property of the PATENT, not of a figure. A D2 duplicate
-  // is the same aircraft with the same drawings; a D1 is the same aircraft with
-  // different ones. Either way the figure belongs to the patent it is filed under
-  // and keeps the approved/disapproved status the reviewer gave it. Hiding it
-  // silently removed it from review AND from the dataset — on Batch_01 that cost
-  // US2023067713A1 four figures, two of them its per-architecture MAIN figures,
-  // and left a patent whose remaining figures were then re-answered wrongly
-  // because the real ones were invisible.
-  //
-  // The dupOfPatent/dupOfFig keys and the 01a siglip detector are left alone: the
-  // cross-reference dropdown and applyDuplicateFigureLabels() still use them to
-  // COPY labels between identical drawings, which is useful. Only the hiding and
-  // the export drop are gone.
-  return false;
+  if (!fd || fd.dupConfirmed !== true) return false;
+  return !!(String(fd.dupOfPatent || '').trim() || String(fd.dupOfFig || '').trim());
 }
 function figIsDupImage(fNum) { return fdIsDupImage(S.figData[fNum]); }
 // The figures the reviewer actually works with. t2AllFigNums() is left untouched
@@ -2699,7 +2647,7 @@ function figGridCard(fNum) {
   var dotColor = status==='approved' ? 'var(--ok)' : status==='disapproved' ? 'var(--danger)' : 'var(--text3)';
   var qFlag = figGet(fNum,'qualityFlag',null);
   var qBadge = (qFlag && qFlag !== 'clean') ? '<span style="font-size:9px;font-family:var(--mono);text-transform:uppercase;background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-bdr);border-radius:3px;padding:1px 5px;">'+escHtml(qFlag)+'</span>' : '';
-  var dupOfPatent = null;   // 2026-08-31: no DUP IMG badge — see fdIsDupImage()
+  var dupOfPatent = figGet(fNum,'dupOfPatent',null);
   var dupBadge = dupOfPatent ? '<span title="Same image as ' + escHtml(dupOfPatent) + (figGet(fNum,'dupOfFig',null) ? (' FIG.' + escHtml(figGet(fNum,'dupOfFig',null))) : '') + '" style="font-size:9px;font-family:var(--mono);text-transform:uppercase;background:var(--accent-bg,#eef);color:var(--accent);border:1px solid var(--accent);border-radius:3px;padding:1px 5px;">DUP IMG</span>' : '';
   var per = figGet(fNum,'per','—'), sym = figGet(fNum,'sym','—'), acSty = figGet(fNum,'acSty','—');
   var active = (S.t2figNum === fNum);
@@ -3082,11 +3030,11 @@ function pageT1(){
           // the copy commits the duplicate for export. Type 3: the copy is only
           // a pre-fill — remind the reviewer to edit the small changes. Keep a
           // re-copy button in case the original's labels were edited after.
-          return '<div class="flag info" style="margin-top:10px;"><span class="f-lbl">✓ Labels copied</span>G1/M1/M2/M3 labels copied from <b>' + escHtml(_did) + '</b>'
+          return '<div class="flag info" style="margin-top:10px;"><span class="f-lbl">✓ Morphology Copied</span>M1–M3 (+G1) copied from <b>' + escHtml(_did) + '</b>'
             + (_isT1 ? ' — this type-1 duplicate is committed for export.' : ' as a starting point — now edit the labels covering the small changes.') + '</div>'
-            + '<div style="margin-top:10px;"><button type="button" class="btn" id="btn-copy-morphology">⟲ Re-copy labels from ' + escHtml(_did) + '</button></div>';
+            + '<div style="margin-top:10px;"><button type="button" class="btn" id="btn-copy-morphology">⟲ Re-copy M1–M3 (+G1) from ' + escHtml(_did) + '</button></div>';
         }
-        return '<div style="margin-top:10px;"><button type="button" class="btn pri" id="btn-copy-morphology">⟲ Copy labels from ' + escHtml(_did) + '</button>'
+        return '<div style="margin-top:10px;"><button type="button" class="btn pri" id="btn-copy-morphology">⟲ Copy M1–M3 (+G1) from ' + escHtml(_did) + '</button>'
         + '<div style="font-size:11px; color:var(--text3); margin-top:6px;">Copies automatically once the flag, type and ID are set — IF that patent was already reviewed &amp; exported earlier in this batch session. Not copied yet: review the original first, then press this button — it pulls its structural/aero/propulsion labels into this patent'
         + (_isT1 ? ', since it’s the same aircraft.' : ' as a starting point for the small changes.') + '</div></div>';
       })() : '')
@@ -3256,21 +3204,33 @@ function pageT2(){
   h += '<div class="t2-col t2-col-thumbs">' + figGrid() + '</div>';
 
   if (fNum) {
-    // COL 3 — tag group 1: A. Projection + B. Rendering.
-    //
-    // v15.4: the "Duplicate Image Cross-Reference" card was REMOVED from this
-    // column at the user's request. Only the rendered card is gone — none of the
-    // underlying duplicate-image machinery was touched:
-    //   - the figData keys (dupOfPatent / dupOfFig / dupConfirmed) still exist,
-    //     still round-trip through save/load, and still gate both the hidden-in-
-    //     grid rule and the T2 `dupOf` export row;
-    //   - 01a_wizard_feed's image matcher still writes dupOfPatent/dupOfFig, and
-    //     those still arrive on load;
-    //   - the #btn-fig-dup-set / -clear / -sync click handlers are left in place
-    //     (now unreachable) so re-adding the card is a one-block revert.
-    // What is gone is the ability to flag, clear or re-sync a duplicate IMAGE by
-    // hand. The patent-level duplicate flag on T1 (D1/D2/D3) is unaffected.
+    // COL 3 — tag group 1: Duplicate cross-reference + A. Projection + B. Rendering.
     h += '<div class="t2-col t2-col-tags">';
+    h += (function(){
+      var dupOfPatent = figGet(fNum, 'dupOfPatent', '');
+      var dupOfFig    = figGet(fNum, 'dupOfFig', '');
+      var prefillPatent = dupOfPatent || (S.isDuplicate && S.duplicateType === '1' ? (S.duplicateId||'') : '');
+      return '<div class="m3-card" style="margin-bottom:8px; padding:12px;">'
+        + '<div class="m3-head" style="display:flex; justify-content:space-between; align-items:center;">Duplicate Image Cross-Reference'
+        + (dupOfPatent ? '<button type="button" class="btn" id="btn-fig-dup-clear" style="padding:4px 10px; font-size:11px;">Clear</button>' : '')
+        + '</div>'
+        + '<div class="m3-sub">Flag when this exact drawing is the same image used in another patent (e.g. continuations/same-aircraft filings reusing the same main figure).</div>'
+        + (dupOfPatent
+          ? '<div class="flag warn" style="margin-top:8px;"><span class="f-lbl">🔁 Flagged Duplicate</span>Same image as <b>' + escHtml(dupOfPatent) + '</b>' + (dupOfFig ? (' FIG. ' + escHtml(dupOfFig)) : '') + '.</div>'
+            // On-demand re-copy: pull the original figure's labels onto THIS figure
+            // now. Useful when the original was labeled AFTER this one was flagged
+            // (the flag-time copy would otherwise be stale). Only shown when a
+            // specific source FIG. is known.
+            + (dupOfFig
+              ? '<button type="button" class="btn pri" id="btn-fig-dup-sync" style="margin-top:8px; padding:6px 12px; font-size:12px;" title="Copy all image labels from FIG. ' + escHtml(dupOfFig) + ' onto this figure">⟲ Copy labels from FIG. ' + escHtml(dupOfFig) + '</button>'
+              : '')
+          : '<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px;">'
+            + '<input type="text" class="m3-num" id="t2-dup-patent-input" style="width:200px;" placeholder="Original Patent ID" value="' + escHtml(prefillPatent) + '">'
+            + '<input type="text" class="m3-num" id="t2-dup-fig-input" style="width:90px;" placeholder="FIG. #" value="' + escHtml(dupOfFig) + '">'
+            + '<button type="button" class="btn" id="btn-fig-dup-set">Flag as Duplicate Image</button>'
+            + '</div>')
+        + '</div>';
+    })();
 
     h += '<div class="m3-card" style="margin-bottom:8px; padding:12px;"><div class="m3-head">A. Projection Coordinates</div>'
        + sec('Perspective / Camera Angle') + grid('n',T2_PER.map(function(p){return ocFig('per',p,p);}))
@@ -3311,11 +3271,7 @@ function pageT2(){
         + '<button type="button" class="btn" id="btn-add-arch" style="padding:6px 10px; font-size:12px;" title="Declare another distinct aircraft in this patent">+ Add variant aircraft</button>'
         + (nArch > 1 ? '<button type="button" class="btn" id="btn-remove-arch" style="padding:6px 10px; font-size:12px; color:var(--danger); border-color:var(--danger);" title="Remove the last variant aircraft (Variant '+nArch+'). Reassign any figures tagged to it first.">− Remove variant aircraft</button>' : '')
       + '</div>'
-      // v15.4: the spelled-out R2-01 convention was replaced by a pointer to the
-      // codebook (user request) — the codebook is the authority, and restating
-      // one rule here invites the two drifting apart. The full wording survives
-      // in the "Set as Main Figure" button's tooltip above.
-      + '<div class="m3-sub" style="margin-top:6px;">Follow the rules of the codebook.</div>'
+      + '<div class="m3-sub" style="margin-top:6px;">Convention (R2-01): for convertibles, pick the CRUISE (or isometric) figure as main — a hover view of a tilt aircraft is visually confusable with a multirotor.</div>'
       // Live count of distinct architectures in this patent. When >1, the
       // G1/M1/M2/M3 pages repeat once per architecture (see the page loop).
       + '<div class="flag '+(nArch>1?'info':'')+'" style="margin-top:10px;">'
@@ -3328,7 +3284,7 @@ function pageT2(){
     // single layout figure; the human should normally pick exactly one token). The
     // per-figure partsMulti flag opts into legacy multi-select for genuine edge cases.
     var partsMulti = figGet(fNum, 'partsMulti', false);
-    h += '<div class="m3-card" style="margin-bottom:8px; padding:12px;"><div class="m3-head" style="display:flex; justify-content:space-between; align-items:center;">C. Structural Elements Visible in this Figure'
+    h += '<div class="m3-card" style="margin-bottom:8px; padding:12px;"><div class="m3-head" style="display:flex; justify-content:space-between; align-items:center;">C. Present Structural Elements (Visual Tokens)'
        + '<button type="button" class="btn ' + (partsMulti ? 'danger' : '') + '" id="btn-parts-multi-toggle" style="padding:4px 10px; font-size:11px;">' + (partsMulti ? 'Back to single' : 'Allow multiple (edge case)') + '</button></div>'
        + '<div class="m3-sub" style="margin-bottom:6px;">' + (partsMulti ? 'MULTI-SELECT (edge case) — pick all structural tokens that apply.' : 'SINGLE-SELECT — pick exactly one structural token. Click it again to clear.') + '</div>'
        + grid('n',(T2_PARTS_DEFAULT.concat(PART_TOKENS||[]).concat(S.t2customParts||[]).filter(function(v,i,a){return a.indexOf(v)===i;})).map(function(p){return ocArrFig('parts',p,p);}))
@@ -3361,10 +3317,8 @@ function pageT2(){
     // reconciles every figure of that architecture — forcing HoverCruise if it
     // turned out FIXED, or clearing a stale HoverCruise if it turned out
     // CONVERTIBLE. TILTED_IN_VIEW retired v14 (C1) — removed entirely.
-    // v15.4: the long explanatory .m3-sub that stood here ("Describe the
-    // configuration shown in THIS drawing, not the aircraft in general …") was
-    // removed at the user's request. The card title already says "in this View".
     h += '<div class="m3-card" style="margin-bottom:8px; padding:12px;"><div class="m3-head">Aircraft State in this View</div>'
+       + '<div class="m3-sub" style="margin-bottom:6px;">Describe the configuration shown in <b>THIS drawing</b>, not the aircraft in general — e.g. hover with the wing/rotors tilted up, or cruise with everything horizontal. The same aircraft often appears in several states across a patent’s figures, so set this per image.</div>'
        + (function(){
            var _arch1 = figArchOf(fNum), _tt = topTypeOfArch(_arch1), _fixed = (_tt != null) && !isConvertibleArch(_tt);
            if (_fixed) {
@@ -3374,10 +3328,8 @@ function pageT2(){
              // figure that got added/reassigned to this architecture AFTER the
              // G1 click handler's sweep already ran for the rest.
              if (figGet(fNum, 'acState') == null) figSet(fNum, 'acState', 'HoverCruise');
-             // v15.4: the "Flight configuration shown" sub-label was dropped —
-             // the card head already names the field and it is the only field
-             // in the card.
-             return '<div class="opt sel dis" data-figfield="acState" data-val="HoverCruise" title="Fixed architectures never change shape; hover and cruise are the same drawing."><div class="o-name">Invariant</div></div>';
+             return '<div class="m2-kv">Flight configuration shown</div>'
+                  + '<div class="opt sel dis" data-figfield="acState" data-val="HoverCruise" title="Fixed architectures never change shape; hover and cruise are the same drawing."><div class="o-name">Invariant</div></div>';
            }
            // v15.3: 'Invariant' (id 'HoverCruise') is now ALSO a manual pick on a
            // convertible architecture. A convertible aircraft can change shape, but
@@ -3395,11 +3347,9 @@ function pageT2(){
            ];
            var _rawAc = figGet(fNum, 'acState'), _dispAc = ['Ground','Unclear','NonApplicable'].indexOf(_rawAc) > -1 ? 'Other' : _rawAc;
            var _acTip = 'Decide by the MECHANISM ANGLE drawn — mechanism state wins even if the aircraft is drawn on the ground. Invariant = the drawing is identical in hover and cruise, so it commits to no state. Other = figure shows no flight configuration (exploded, unclear, N/A).';
-           // v15.4: the "Flight configuration shown" sub-label and the visible
-           // _acTip paragraph were removed at the user's request. _acTip is kept
-           // as the per-option tooltip below, so the mechanism-angle rule is
-           // still one hover away instead of occupying the card.
-           return grid('n', _acOpts.map(function(o){
+           return '<div class="m2-kv">Flight configuration shown</div>'
+                + '<div class="m3-sub" style="margin:2px 0 6px;">' + _acTip + '</div>'
+                + grid('n', _acOpts.map(function(o){
                     var sel = _dispAc === o.id, enc = encodeURIComponent(o.id), tip = o.t || _acTip;
                     return '<div class="opt'+(sel?' sel':'')+'" data-figfield="acState" data-val="'+enc+'" title="'+tip.replace(/"/g,'&quot;')+'"><div class="o-name">'+o.n+'</div></div>';
                   }));
@@ -3480,16 +3430,9 @@ function pageT2(){
 function pageGate(){
   var qoG1 = quickOverrideToggle('g1');
   var huG1 = humanUncertainToggle('g1');
-  // v15.4: the page name now sits in .p-q (the 17px heading) and the stage id +
-  // a plain description of what the page asks sits in the .p-module eyebrow.
-  var head = '<div class="p-module">Level 1 &middot; G1 &middot; Primary Physics &amp; Thrust Configuration</div><div class="p-q">Global Architecture</div>';
+  var head = '<div class="p-module">Level 1 &middot; G1 Architecture Split</div><div class="p-q">Primary Physics &amp; Thrust Configuration</div>';
   if (S.g1_quickOverride) return head + qoG1 + huG1 + commentsSection();
-  // v15.4: the old .p-hint here ("Classification is driven by the most complex
-  // propulsive/structural system present. Isolate structural lifting surface
-  // traits via standard progressive disclosure blocks.") was removed — it told
-  // the labeller nothing actionable, it described the UI's own disclosure
-  // mechanism. Replaced with the actual rule for picking the branch.
-  return head + '<div class="p-hint">Pick the branch that matches the aircraft, then the architecture code inside it. Where an aircraft could read as more than one code, classify by the most complex propulsive/structural system it actually shows. Follow the rules of the codebook.</div>' + qoG1 + '<div class="g1-master-row">' + g1MasterButton('winged', 'Winged Architecture', 'Has a wing that carries the aircraft in cruise.') + g1MasterButton('wingless', 'Wingless Architecture', 'No wing — rotors carry the aircraft in every phase of flight.') + g1MasterButton('other', 'Novel / Other Forms', 'Neither of the above: hoverbikes, jetpacks, wearable and standing platforms.') + '</div>' + (S.g1Focus ? g1SubPanel(S.g1Focus) : '<div class="flag skip"><span class="f-lbl">Pick a branch</span>Select a branch above to show the architecture codes inside it.</div>')
+  return head + '<div class="p-hint">Classification is driven by the most complex propulsive/structural system present. Isolate structural lifting surface traits via standard progressive disclosure blocks.</div>' + qoG1 + '<div class="g1-master-row">' + g1MasterButton('winged', 'Winged Architecture', 'Fixed or variable lifting profiles generating wing-mediated cruise lift.') + g1MasterButton('wingless', 'Wingless Architecture', 'Pure rotorborne configurations lacking standard aerodynamic wings.') + g1MasterButton('other', 'Novel / Other Forms', 'Alternative frameworks outside typical rotor-wing aerodynamic descriptions.') + '</div>' + (S.g1Focus ? g1SubPanel(S.g1Focus) : '<div class="flag skip"><span class="f-lbl">Progressive Disclosure Monitor</span>Select an structural master branch to display the underlying topological options.</div>')
 + '<div style="margin-top:16px;">' + sec('Architecture Purity')
 + '<div class="m3-sub" style="margin-bottom:8px;">Flag this patent if it does not represent a single clean architecture — e.g. it describes a hybrid, a transitional concept, or mixes incompatible propulsive strategies.</div>'
 + '<label class="m2-check" style="font-size:14px;"><input type="checkbox" data-field="notPureArch" ' + (S.notPureArch ? 'checked' : '') + '> <strong>Not a canonical example of its code</strong> — the code is right, the aircraft is not a textbook instance of it</label>'
@@ -3512,7 +3455,7 @@ function archDinoUnderstandingCard(fNum) {
   var arch = figArchOf(fNum);
   var cur  = (S.archDinoUnderstanding || {})[arch];
   return '<div class="m3-card" style="margin-bottom:8px; padding:12px;">'
-       + '<div class="m3-head">How well do the figures show Architecture ' + arch + '?</div>'
+       + '<div class="m3-head">Projected Recognition Sufficiency — Architecture ' + arch + '</div>'
        + '<div class="m3-sub" style="margin-bottom:6px;">Rates how much of Architecture ' + arch + '\'s recognizability comes from the figures alone, as a whole — not just this one image.</div>'
        + grid('n', DINO_UNDERSTANDING.map(function(o){
            var sel = cur === o.id, tt = (o.d||o.n).replace(/"/g, '&quot;');
@@ -3555,10 +3498,7 @@ function pageM1(){
 
   var qoM1 = quickOverrideToggle('m1');
   var huM1 = humanUncertainToggle('m1');
-  // v15.4: page name into .p-q; the old .p-q ("Airframe Geometric Footprint &
-  // Symmetry Tokens") named nothing a labeller could act on, and the footprint
-  // fields it referred to were removed back in v13 (see the note below).
-  var head = '<div class="p-module">Module M1 &middot; Fuselage, Ground Contact &amp; Booms</div><div class="p-q">Structural Morphology</div>';
+  var head = '<div class="p-module">Module M1 &middot; Structural Dimensions &amp; Airframe Kinematics</div><div class="p-q">Airframe Geometric Footprint &amp; Symmetry Tokens</div>';
   if (S.m1_quickOverride) return head + qoM1 + huM1 + commentsSection();
 
   // Airframe Exterior Bounding Box (footLen/footWid/footHgt/footAmbiguous) and the
@@ -3566,7 +3506,7 @@ function pageM1(){
   // page in v13 (deferred to text-extraction pipeline (SBERT) \u2014 removed from human
   // review v13 / removed v13 \u2014 near-constant; exceptions go to notes). Their state
   // keys still exist and are always exported at their v10 defaults \u2014 see fresh().
-  return head + qoM1 + '<div class="m3-shell"><div class="m3-card"><div class="m3-head">Symmetry</div><div class="m3-sub">Tick if the left half of the aircraft mirrors the right half.</div><div class="m3-grid"><div><label class="m2-check" style="font-size:13px; font-weight:500;"><input type="checkbox" data-field="latSym" ' + (S.latSym ? 'checked' : '') + '> Symmetric left-to-right</label></div></div></div><div class="m3-card"><div class="m3-head">Fuselage Profiles &amp; Kinematics</div><div class="m3-grid"><div><div class="m3-label">Structural Cross-Section Profile</div>' + grid('', withLegacy(FUS_SHAPE, FUS_SHAPE_CHOICES, S.fusShape).map(function(o){ return oc('fusShape', o.id, o.n); })) + otherNoteInput('fusShape', 'Describe the fuselage cross-section...') + '</div><div><div class="m3-label">Body Motion</div><div class="m3-sub" style="margin:2px 0 6px;">R4-01: compare hover vs cruise figures and ask what THE BODY does. Nothing reorients, and anything that vectors does so relative to a body that stays put = Fixed. The whole rigid vehicle leans to translate or transition = Whole-Body Pitch. The airframe reorients ~90° and the cabin goes with it = Tilting Body. The airframe reorients but the cabin stays level on its own joint = Variable Incidence.</div>' + (S.topType === 'TB' ? physicsLock('TB', 'the airframe reorients between hover and cruise, so Fixed is impossible. What remains is whether the CABIN reorients with it (Tilting Body) or hangs on its own joint and stays level (Variable Incidence) — see R4-01 above.') + grid('', FUS_KIN.filter(function(o){ return o.id === 'TiltBody' || o.id === 'LevelCabin' || o.id === S.fusKin; }).map(function(o){ return oc('fusKin', o.id, o.n, o.d); })) : ([ 'RC' ].indexOf(S.topType) > -1 ? physicsLock(S.topType, 'this architecture sits in R2-02\'s fixed list, so its figures carry no aircraft state — there is no hover/cruise pair to compare and no way for a drawing to show the body doing anything else. Translating by leaning the whole vehicle IS whole-body pitch (codebook L10).') + grid('', FUS_KIN.filter(function(o){ return o.id === 'BodyPitch'; }).map(function(o){ return oc('fusKin', o.id, o.n, null, null, true); })) : (BODYPITCH_ARCHS.indexOf(S.topType) > -1 ? physicsLock(S.topType, 'the airframe and the payload volume pitch together as one rigid body to generate translation — there is no joint between cabin and airframe. That is Whole-Body Pitch by definition of the architecture (codebook L10). The category is about the kind of motion, not how far it goes.') + grid('', FUS_KIN.filter(function(o){ return o.id === 'BodyPitch'; }).map(function(o){ return oc('fusKin', o.id, o.n, null, null, true); })) : (S.topType === 'MR' ? flg('info', 'Multirotor — you pick the body motion', 'This used to be locked to Whole-Body Pitch on the R2-02 argument that a multirotor cannot translate except by leaning. A multirotor with TILTING BOOMS can: the booms rotate, the thrust vector turns with them, and the body holds level — that is Fixed, or Variable Incidence if the cabin sits on its own joint. Whole-body pitch is still the normal case, so pick it unless the figures show otherwise. Tick "Booms tilt" on the M1 boom group when they do.') + grid('', withLegacy(FUS_KIN, FUS_KIN_CHOICES, S.fusKin).map(function(o){ return oc('fusKin', o.id, o.n, o.d); })) : grid('', withLegacy(FUS_KIN, FUS_KIN_CHOICES, S.fusKin).map(function(o){ return oc('fusKin', o.id, o.n, o.d); })))))) + '</div></div>'
+  return head + qoM1 + '<div class="m3-shell"><div class="m3-card"><div class="m3-head">Dataset Symmetry Matrix (ML Parameter Identifiers)</div><div class="m3-sub">Identify mathematical mirror planes to optimize downstream classification weights.</div><div class="m3-grid"><div><label class="m2-check" style="font-size:13px; font-weight:500;"><input type="checkbox" data-field="latSym" ' + (S.latSym ? 'checked' : '') + '> Lateral Plane Symmetry (Left-to-Right Balance)</label></div></div></div><div class="m3-card"><div class="m3-head">Fuselage Profiles &amp; Kinematics</div><div class="m3-grid"><div><div class="m3-label">Structural Cross-Section Profile</div>' + grid('', withLegacy(FUS_SHAPE, FUS_SHAPE_CHOICES, S.fusShape).map(function(o){ return oc('fusShape', o.id, o.n); })) + otherNoteInput('fusShape', 'Describe the fuselage cross-section...') + '</div><div><div class="m3-label">Body Motion</div><div class="m3-sub" style="margin:2px 0 6px;">R4-01: compare hover vs cruise figures and ask what THE BODY does. Nothing reorients, and anything that vectors does so relative to a body that stays put = Fixed. The whole rigid vehicle leans to translate or transition = Whole-Body Pitch. The airframe reorients ~90° and the cabin goes with it = Tilting Body. The airframe reorients but the cabin stays level on its own joint = Variable Incidence.</div>' + (S.topType === 'TB' ? physicsLock('TB', 'the airframe reorients between hover and cruise, so Fixed is impossible. What remains is whether the CABIN reorients with it (Tilting Body) or hangs on its own joint and stays level (Variable Incidence) — see R4-01 above.') + grid('', FUS_KIN.filter(function(o){ return o.id === 'TiltBody' || o.id === 'LevelCabin' || o.id === S.fusKin; }).map(function(o){ return oc('fusKin', o.id, o.n, o.d); })) : ([ 'RC' ].indexOf(S.topType) > -1 ? physicsLock(S.topType, 'this architecture sits in R2-02\'s fixed list, so its figures carry no aircraft state — there is no hover/cruise pair to compare and no way for a drawing to show the body doing anything else. Translating by leaning the whole vehicle IS whole-body pitch (codebook L10).') + grid('', FUS_KIN.filter(function(o){ return o.id === 'BodyPitch'; }).map(function(o){ return oc('fusKin', o.id, o.n, null, null, true); })) : (BODYPITCH_ARCHS.indexOf(S.topType) > -1 ? physicsLock(S.topType, 'the airframe and the payload volume pitch together as one rigid body to generate translation — there is no joint between cabin and airframe. That is Whole-Body Pitch by definition of the architecture (codebook L10). The category is about the kind of motion, not how far it goes.') + grid('', FUS_KIN.filter(function(o){ return o.id === 'BodyPitch'; }).map(function(o){ return oc('fusKin', o.id, o.n, null, null, true); })) : (S.topType === 'MR' ? flg('info', 'Multirotor — you pick the body motion', 'This used to be locked to Whole-Body Pitch on the R2-02 argument that a multirotor cannot translate except by leaning. A multirotor with TILTING BOOMS can: the booms rotate, the thrust vector turns with them, and the body holds level — that is Fixed, or Variable Incidence if the cabin sits on its own joint. Whole-body pitch is still the normal case, so pick it unless the figures show otherwise. Tick "Booms tilt" on the M1 boom group when they do.') + grid('', withLegacy(FUS_KIN, FUS_KIN_CHOICES, S.fusKin).map(function(o){ return oc('fusKin', o.id, o.n, o.d); })) : grid('', withLegacy(FUS_KIN, FUS_KIN_CHOICES, S.fusKin).map(function(o){ return oc('fusKin', o.id, o.n, o.d); })))))) + '</div></div>'
   + '<div class="m3-field" style="margin-top:10px;"><div class="m3-label">Fuselage Edge-Case Notes</div><textarea class="comments" style="min-height:56px;" data-field="fusNotes" placeholder="Log fuselage ambiguities here...">' + escHtml(S.fusNotes) + '</textarea></div>'
   + '</div><div class="m3-card"><div class="m3-head">Ground Contact Interface</div><div class="m3-zone">' + GEAR_ARCH.map(function(o){ return oc('gearArch', o.id, o.n); }).join('') + '</div>'
   + '<div class="m3-field" style="margin-top:10px;"><div class="m3-label">Ground Contact Edge-Case Notes</div><textarea class="comments" style="min-height:56px;" data-field="gearNotes" placeholder="Log landing gear ambiguities here...">' + escHtml(S.gearNotes) + '</textarea></div>'
@@ -3660,8 +3600,8 @@ function m1BoomsCard(){
 function pageM2(){ if (isOtherArch()) return otherCommentaryPage('M2', 'Lifting Surfaces &amp; Stabilizers', 'wingNotes', _OTHER_M2_GUIDE);
   var qoM2 = quickOverrideToggle('m2');
   var huM2 = humanUncertainToggle('m2');
-  if (S.m2_quickOverride) return '<div class="p-module">Module M2 &middot; Lifting Surfaces &amp; Stabilizers</div><div class="p-q">Aerodynamics Morphology</div>' + qoM2 + huM2 + commentsSection();
-  var h='<div class="p-module">Module M2 &middot; Lifting Surfaces &amp; Stabilizers</div><div class="p-q">Aerodynamics Morphology</div>' + qoM2;
+  if (S.m2_quickOverride) return '<div class="p-module">Module M2 &middot; Aerodynamic Features</div><div class="p-q">Lifting Surfaces &amp; Stabilizers</div>' + qoM2 + huM2 + commentsSection();
+  var h='<div class="p-module">Module M2 &middot; Aerodynamic Features</div><div class="p-q">Lifting Surfaces &amp; Stabilizers</div>' + qoM2;
   if(isWinged()){ h+=sec('Wing Architecture')+grid('',WING_CONFIG.map(function(c){return oc('wingConf',c.id,c.n,c.d);}))+otherNoteInput('wingConf', 'Describe the wing architecture...');
   if(S.wingConf=='W' || S.wingConf=='Oth' || S.wingConf=='Unknown'){
       // 'Unknown' shares the panelled path: not being able to CLASSIFY the wing
@@ -3674,7 +3614,7 @@ function pageM2(){ if (isOtherArch()) return otherCommentaryPage('M2', 'Lifting 
         h+=flg('info','Wing Architecture Not Readable','The drawings do not settle WHICH architecture this is — this is a statement about the figures, not a claim that the aircraft has no wing. Everything below is optional: count the panels you can actually see and fill in only the details the figures support.');
       }
       h+=sec('Lifting Lines Grid')+ic('wCount',S.wCount,0,4,'Distinct Wing Panels');
-      h+='<div class="m3-sub" style="margin-top:4px;">Count lifting/wing panels here — any surface sized to carry a meaningful share of the aircraft’s weight in cruise (main wing, canard, tandem wing, strake, and an aft panel large enough to lift). A surface sized for trim and stability rather than lift — a tailplane, a horizontal/longitudinal stabilizer, a fin — is <b>empennage</b>, not a wing: classify those in the Empennage section below. The test is functional (does it lift, or does it stabilise?); relative size is how you read that off a drawing, not the test itself. An aft panel that genuinely lifts is a wing — give it the role “Aft Stabilizer (Tailplane)” or “Tandem” and set the empennage type to match whatever separate stabilising surfaces remain.</div>';
+      h+='<div class="m3-sub" style="margin-top:4px;">Count only lifting/wing panels here (main wing, canard, tandem wing, strake…). Empennage surfaces — horizontal/longitudinal stabilizers, tailplanes and fins — are <b>not</b> wings; classify those in the Empennage section below.</div>';
       h+='<div class="m3-field" style="margin-top:10px; margin-bottom:15px;"><div class="m3-label">Lifting Surfaces Edge-Case Notes</div><textarea class="comments" style="min-height:56px;" data-field="wingNotes" placeholder="Log wing ambiguities here...">' + escHtml(S.wingNotes) + '</textarea></div>';
       
       if(S.wCount>0){ 
@@ -3764,10 +3704,7 @@ function pageM2(){ if (isOtherArch()) return otherCommentaryPage('M2', 'Lifting 
 }
 
 function pageM3(){ if (isOtherArch()) return otherCommentaryPage('M3', 'Propulsion', 'empNotes', _OTHER_M3_GUIDE);
-  // v15.4: page name into .p-q; "Thruster Allocation & Localization Matrix" and
-  // "Total Propulsive Core Count ... units mapped" were dataset-speak for
-  // "which propulsors, how many, and where".
-  var flag=m3DistributedFlag(), h='<div class="p-module">Module M3 &middot; Propulsors, Counts &amp; Placement</div><div class="p-q">Propulsive Morphology</div><div class="m2-meta"><div class="flag '+flag.cls+'"><span class="f-lbl">Architecture</span>'+flag.text+'</div><div class="flag info"><span class="f-lbl">Total propulsors</span>'+m3TotalCount()+' counted.</div></div><div class="m2-shell">'; m3Blueprints().forEach(function(bp){ h+=m3Card(bp); }); return h+'</div>'+humanUncertainToggle('m3')+commentsSection(); }
+  var flag=m3DistributedFlag(), h='<div class="p-module">Module M3 &middot; Propulsive Subsystems</div><div class="p-q">Thruster Allocation &amp; Localization Matrix</div><div class="m2-meta"><div class="flag '+flag.cls+'"><span class="f-lbl">Classification Token</span>'+flag.text+'</div><div class="flag info"><span class="f-lbl">Total Propulsive Core Count</span>'+m3TotalCount()+' units mapped.</div></div><div class="m2-shell">'; m3Blueprints().forEach(function(bp){ h+=m3Card(bp); }); return h+'</div>'+humanUncertainToggle('m3')+commentsSection(); }
 
 function pageDone(){
   // Button label reflects what the click ACTUALLY does: in batch mode it saves
@@ -4717,7 +4654,7 @@ function recordToRows(record, pid) {
     rows.push(reviewRow(pid, "T2", subDim, "edgeTags", Array.isArray(fd.edgeTags) ? fd.edgeTags.join("|") : (fd.edgeTags || null), null, "human", imgPath));
     // arch's "1" default is now resolved once in buildExport()'s figures
     // reduce (same fix as qualityFlag above), so fd.arch is always populated.
-    rows.push(reviewRow(pid, "T2", subDim, "arch", fd.arch != null ? String(normArch(fd.arch)) : null, null, "human", imgPath));
+    rows.push(reviewRow(pid, "T2", subDim, "arch", fd.arch != null ? fd.arch : null, null, "human", imgPath));
     // Per-architecture main-figure flag (replaces the single patent-level mainFigure).
     rows.push(reviewRow(pid, "T2", subDim, "isMain", fd.isMain != null ? fd.isMain : null, null, "human", imgPath));
     // partsMulti: persists whether the reviewer opted this figure into multi-select
@@ -5417,13 +5354,6 @@ function rowsToAIData(rows) {
     });
     if (rec.qualityFlag != null) entry.qualityFlag = stripLabel(rec.qualityFlag);
     if (rec.acState != null) entry.acState = stripLabel(rec.acState);
-    // arch is an architecture *number*, never a flag. A cell written by a
-    // script can land in the xlsx as a real Excel boolean (data_type "b"),
-    // which then survives every save because entry.arch is copied verbatim
-    // above — and a figure whose arch is `true` matches no architecture in
-    // figArchOf(), so it silently drops out of its variant. Normalize on the
-    // way in, mirroring figArchOf()'s "unparseable → 1" default.
-    if (entry.arch != null && entry.arch !== '') entry.arch = String(normArch(entry.arch));
     // Combined single-row duplicate reference "<patent> FIG. <fig>" (new reviewed
     // exports). Split it back into dupOfPatent + dupOfFig — but never override the
     // separate two-field form if that's what the file used (ML files / older
@@ -5682,11 +5612,8 @@ function renderCopyMorph() {
   var show = BATCH && ['t2','gate','m1','m2','m3'].indexOf(curSID()) > -1;
   if (!show) { el.innerHTML = ''; _copyMorphOpen = false; return; }
 
-  // v15.4: "Copy morphology" → "Copy labels" throughout the visible text. The
-  // internal names (_copyMorph*, renderCopyMorph, #copy-morph-rail, the
-  // data-copy-morph-idx attribute) are unchanged — only display strings.
-  var h = '<div class="rail-label" style="margin-top:6px;">Copy labels</div>'
-        + '<button type="button" id="btn-copy-morph-toggle" class="btn" title="Copy the G1/M1/M2/M3 labels from another architecture or the previous patent into Architecture ' + (S.curArch + 1) + '">⧉ Copy labels into Arch ' + (S.curArch + 1) + (_copyMorphOpen ? ' ▲' : ' ▼') + '</button>';
+  var h = '<div class="rail-label" style="margin-top:6px;">Copy morphology</div>'
+        + '<button type="button" id="btn-copy-morph-toggle" class="btn" title="Copy G1/M1/M2/M3 from another architecture or the previous patent into Architecture ' + (S.curArch + 1) + '">⧉ Copy M1–M3 into Arch ' + (S.curArch + 1) + (_copyMorphOpen ? ' ▲' : ' ▼') + '</button>';
   if (_copyMorphOpen) {
     if (!_copyMorphSources.length) {
       h += '<div class="m3-sub" style="margin-top:6px;">No sources yet — another architecture in this patent, or review the previous patent first.</div>';
@@ -6671,20 +6598,7 @@ document.getElementById('panel').addEventListener('click', function(e){
         var _wasFixed = (_prevTopType != null) && !isConvertibleArch(_prevTopType);
         Object.keys(S.figData || {}).forEach(function(f){
           if (figArchOf(f) !== _arch1) return;
-          if (_fixedNow) {
-            // v15.4 (2026-08-30): normalise only the NON-STATES. This used to write
-            // HoverCruise over EVERY figure of the architecture, so a single re-click
-            // of a topType button wiped every Hover/Cruise/Transition the reviewer had
-            // recorded — 47 such rows exist on TB and PTC patents alone, and those two
-            // codes joined the fixed set the same day, which put them in reach of this
-            // sweep for the first time. The card above is still a locked Invariant
-            // badge on a fixed architecture; this only stops the badge's default from
-            // being retro-applied over a real observation.
-            var _curAc = figGet(f, 'acState');
-            if (_curAc == null || ['Ground','Unclear','NonApplicable'].indexOf(_curAc) > -1) {
-              figSet(f, 'acState', 'HoverCruise');
-            }
-          }
+          if (_fixedNow) { figSet(f, 'acState', 'HoverCruise'); }
           else if (_wasFixed && figGet(f, 'acState') === 'HoverCruise') { figSet(f, 'acState', null); }
         });
       })();

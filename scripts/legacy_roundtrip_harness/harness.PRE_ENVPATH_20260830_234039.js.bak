@@ -2,10 +2,7 @@
 // -> recordToRows -> compare. Runs the wizard's own inline <script> in a vm with a
 // permissive DOM mock. Nothing is written to disk by the wizard code.
 const fs=require('fs'), vm=require('vm'), path=require('path');
-// The wizard file is whatever config.yaml's paths.html_template points at. Callers
-// pass it via WIZARD_HTML so the harness can never drift onto a stale version —
-// it was pinned to 15_3 by hand and silently stayed there after 15_4 shipped.
-const HTML=process.env.WIZARD_HTML || "/home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools/notebooks/UI_for_taxonomy_caracterization_15_4.html";
+const HTML="/home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools/notebooks/UI_for_taxonomy_caracterization_15_3.html";
 let src=fs.readFileSync(HTML,"utf8");
 
 // --- pull every inline <script> that is not src= ---

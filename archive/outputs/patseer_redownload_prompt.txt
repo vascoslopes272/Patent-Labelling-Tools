@@ -1,0 +1,4 @@
+# PatSeer PNC Query — 0 NEEDS REDOWNLOAD only families (0 terms)
+# Split into 0 chunk(s) of up to 350 terms each
+#
+# Quarantine the existing folder via 00a Cell 1b before using this query.

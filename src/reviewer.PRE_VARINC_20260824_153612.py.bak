@@ -468,13 +468,10 @@ _M1_FUS_SHAPE_DEFS = {
     # labeller has no button for. 'Other' gets no definition on purpose: a
     # residual category has no sentence to embed, so it must not be predicted.
 }
-# CHANGELIST M-3, applied 2026-08-24 — see the note on cross_modal.FUS_KIN.
-# 'VarInc' retired as a reviewer choice -> 'LevelCabin' (Variable Incidence, narrowed).
-# 'BodyPitch' withheld while the codebook (3 options) and the wizard (4) disagree.
 _M1_FUS_KIN_DEFS = {
-    "Fixed":      "the aircraft has a conventional fixed fuselage that does not tilt or pivot",
-    "TiltBody":   "the aircraft has a tilting fuselage body that rotates or pitches forward during transition to vectored flight",
-    "LevelCabin": "the aircraft has an airframe that reorients for transition while the cabin sits on its own joint and stays level with the ground",
+    "Fixed":    "the aircraft has a conventional fixed fuselage that does not tilt or pivot",
+    "VarInc":   "the aircraft has a variable incidence wing or surface that pivots relative to the fuselage to change angle of attack during transition",
+    "TiltBody": "the aircraft has a tilting fuselage body that rotates or pitches forward during transition to vectored flight",
 }
 _M1_GEAR_ARCH_DEFS = {
     "Skids":      "the aircraft has fixed skid-type landing gear or runners",

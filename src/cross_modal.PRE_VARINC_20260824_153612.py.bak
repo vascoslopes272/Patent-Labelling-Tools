@@ -676,20 +676,10 @@ def classify_m1_fields(
         # NOT added: it is a residual category with no coherent visual
         # prototype, so SigLIP must never predict it. The human picks Other.
     ]
-    # v15.3 (CHANGELIST M-1, applied 2026-08-24): 'VarInc' retired as a reviewer
-    # choice and replaced by 'LevelCabin' (Variable Incidence, narrowed). It still
-    # LOADS in the wizard so legacy records open, which is why the taxonomy drift
-    # guard could not catch this — the guard asserts model ⊆ wizard, and the wizard
-    # deliberately keeps the legacy id. A prediction of 'VarInc' would seed a value
-    # the labeller can no longer pick and turn into a bodyMotion worklist item.
-    # 'BodyPitch' is deliberately NOT offered: the codebook has 3 Fuselage-Kinematics
-    # options and the wizard has 4, that divergence is still open, and the
-    # reviewer-facing worklist (review_worklists.QUESTIONS["bodyMotion"]) excludes it
-    # for the same reason. Mirror that here rather than pre-empt the decision.
     FUS_KIN = [
-        ("Fixed",      "aircraft with a conventional fixed fuselage that does not tilt or pivot"),
-        ("TiltBody",   "aircraft with a tilting fuselage body that pitches forward or rotates during transition to vectored flight"),
-        ("LevelCabin", "aircraft whose airframe reorients for transition while a cabin pod carried on a pivot, gimbal or pendular mount stays level with the ground"),
+        ("Fixed",    "aircraft with a conventional fixed fuselage that does not tilt or pivot"),
+        ("VarInc",   "aircraft with a variable incidence wing or surface that pivots relative to the fuselage during transition"),
+        ("TiltBody", "aircraft with a tilting fuselage body that pitches forward or rotates during transition to vectored flight"),
     ]
     GEAR_ARCH = [
         ("Skids",      "aircraft with fixed skid-type landing gear or runners underneath"),

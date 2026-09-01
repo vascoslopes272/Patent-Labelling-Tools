@@ -1149,7 +1149,7 @@ function applyAircraftSnapshot(snap) {
 function getArchCount() {
   var maxTag = 1;
   Object.keys(S.figData || {}).forEach(function(f){
-    var a = normArch((S.figData[f] || {}).arch);
+    var a = parseInt((S.figData[f] || {}).arch, 10);
     if (a > maxTag) maxTag = a;
   });
   return Math.max(1, maxTag, S.archProfiles ? S.archProfiles.length : 1, S.archCount || 1);
@@ -1161,13 +1161,7 @@ function getArchCount() {
 // its 1-based architecture tag (figData[fNum].arch), so "main of architecture N"
 // is the figure tagged N that has isMain set. This replaces the old single
 // patent-level S.mainFigure.
-// Coerces a figure's architecture tag to a 1-based integer. Boolean true is
-// the one value worth calling out: a scripted xlsx edit can store architecture
-// 1 as a real Excel boolean, and without this it would parse to NaN and fall
-// back to 1 anyway — but only by accident, and getArchCount() above would
-// still skip it. Everything unparseable maps to architecture 1.
-function normArch(v){ if (v === true) return 1; var a = parseInt(v, 10); return (isNaN(a) || a < 1) ? 1 : a; }
-function figArchOf(fNum){ return normArch(figGet(fNum, 'arch', '1')); }
+function figArchOf(fNum){ var a = parseInt(figGet(fNum, 'arch', '1'), 10); return isNaN(a) ? 1 : a; }
 // v14 (C3): the topType of a given 1-based architecture number, for T2's
 // Aircraft State card — T2 (step 1) is visited BEFORE G1 (step 2), so most of
 // the time no architecture has a topType yet (returns null, handled by the
@@ -2048,13 +2042,7 @@ function m3OrientationOptions() {
   // orient vocab [Horizontal, Vertical, Mixed] — identical across the stack
   // (vlm_extractor.py / cross_modal.py / reviewer.py / excel_schema.py).
   // Independent fixed lift+cruise thrust never tilts, so it omits "Mixed".
-  // v15.4 (2026-08-31): "Cruise Pusher" -> "Cruise Engine". This field records the
-  // AXIS the thrust acts along, not which side of its mount the propulsor sits on —
-  // that is `chord` (Front / Puller-Tractor vs Back / Pusher), and on a lift+cruise
-  // aircraft the cruise unit is a PULLER more often than not. The old label asserted
-  // the opposite and read as a contradiction next to chord=Front. Display only: the
-  // id stays 'Horizontal', so every saved value is untouched.
-  if (isIndependentThrust()) return [{id:'Vertical', n:'Vertical / Lift Engine'},{id:'Horizontal', n:'Horizontal / Cruise Engine'}];
+  if (isIndependentThrust()) return [{id:'Vertical', n:'Vertical / Lift Engine'},{id:'Horizontal', n:'Horizontal / Cruise Pusher'}];
   return [{id:'Horizontal', n:'Horizontal (Cruise)'},{id:'Vertical', n:'Vertical (Hover)'},{id:'Mixed', n:'Mixed (Vectoring / Tilting)'}];
 }
 function m3ZoneOptions(bp) {
@@ -2648,23 +2636,8 @@ var _SHOW_DUP_IMGS = false;
 // Works on a figure-data object, so recordToRows() can use it for ANY patent's
 // record — not just the one currently in S.figData.
 function fdIsDupImage(fd) {
-  // RETIRED 2026-08-31 — always false, so no figure is ever hidden from the grid
-  // or dropped from the export for being "a duplicate image".
-  //
-  // Why: duplication is a property of the PATENT, not of a figure. A D2 duplicate
-  // is the same aircraft with the same drawings; a D1 is the same aircraft with
-  // different ones. Either way the figure belongs to the patent it is filed under
-  // and keeps the approved/disapproved status the reviewer gave it. Hiding it
-  // silently removed it from review AND from the dataset — on Batch_01 that cost
-  // US2023067713A1 four figures, two of them its per-architecture MAIN figures,
-  // and left a patent whose remaining figures were then re-answered wrongly
-  // because the real ones were invisible.
-  //
-  // The dupOfPatent/dupOfFig keys and the 01a siglip detector are left alone: the
-  // cross-reference dropdown and applyDuplicateFigureLabels() still use them to
-  // COPY labels between identical drawings, which is useful. Only the hiding and
-  // the export drop are gone.
-  return false;
+  if (!fd || fd.dupConfirmed !== true) return false;
+  return !!(String(fd.dupOfPatent || '').trim() || String(fd.dupOfFig || '').trim());
 }
 function figIsDupImage(fNum) { return fdIsDupImage(S.figData[fNum]); }
 // The figures the reviewer actually works with. t2AllFigNums() is left untouched
@@ -2699,7 +2672,7 @@ function figGridCard(fNum) {
   var dotColor = status==='approved' ? 'var(--ok)' : status==='disapproved' ? 'var(--danger)' : 'var(--text3)';
   var qFlag = figGet(fNum,'qualityFlag',null);
   var qBadge = (qFlag && qFlag !== 'clean') ? '<span style="font-size:9px;font-family:var(--mono);text-transform:uppercase;background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-bdr);border-radius:3px;padding:1px 5px;">'+escHtml(qFlag)+'</span>' : '';
-  var dupOfPatent = null;   // 2026-08-31: no DUP IMG badge — see fdIsDupImage()
+  var dupOfPatent = figGet(fNum,'dupOfPatent',null);
   var dupBadge = dupOfPatent ? '<span title="Same image as ' + escHtml(dupOfPatent) + (figGet(fNum,'dupOfFig',null) ? (' FIG.' + escHtml(figGet(fNum,'dupOfFig',null))) : '') + '" style="font-size:9px;font-family:var(--mono);text-transform:uppercase;background:var(--accent-bg,#eef);color:var(--accent);border:1px solid var(--accent);border-radius:3px;padding:1px 5px;">DUP IMG</span>' : '';
   var per = figGet(fNum,'per','—'), sym = figGet(fNum,'sym','—'), acSty = figGet(fNum,'acSty','—');
   var active = (S.t2figNum === fNum);
@@ -4717,7 +4690,7 @@ function recordToRows(record, pid) {
     rows.push(reviewRow(pid, "T2", subDim, "edgeTags", Array.isArray(fd.edgeTags) ? fd.edgeTags.join("|") : (fd.edgeTags || null), null, "human", imgPath));
     // arch's "1" default is now resolved once in buildExport()'s figures
     // reduce (same fix as qualityFlag above), so fd.arch is always populated.
-    rows.push(reviewRow(pid, "T2", subDim, "arch", fd.arch != null ? String(normArch(fd.arch)) : null, null, "human", imgPath));
+    rows.push(reviewRow(pid, "T2", subDim, "arch", fd.arch != null ? fd.arch : null, null, "human", imgPath));
     // Per-architecture main-figure flag (replaces the single patent-level mainFigure).
     rows.push(reviewRow(pid, "T2", subDim, "isMain", fd.isMain != null ? fd.isMain : null, null, "human", imgPath));
     // partsMulti: persists whether the reviewer opted this figure into multi-select
@@ -5417,13 +5390,6 @@ function rowsToAIData(rows) {
     });
     if (rec.qualityFlag != null) entry.qualityFlag = stripLabel(rec.qualityFlag);
     if (rec.acState != null) entry.acState = stripLabel(rec.acState);
-    // arch is an architecture *number*, never a flag. A cell written by a
-    // script can land in the xlsx as a real Excel boolean (data_type "b"),
-    // which then survives every save because entry.arch is copied verbatim
-    // above — and a figure whose arch is `true` matches no architecture in
-    // figArchOf(), so it silently drops out of its variant. Normalize on the
-    // way in, mirroring figArchOf()'s "unparseable → 1" default.
-    if (entry.arch != null && entry.arch !== '') entry.arch = String(normArch(entry.arch));
     // Combined single-row duplicate reference "<patent> FIG. <fig>" (new reviewed
     // exports). Split it back into dupOfPatent + dupOfFig — but never override the
     // separate two-field form if that's what the file used (ML files / older

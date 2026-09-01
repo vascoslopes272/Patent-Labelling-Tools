@@ -81,15 +81,9 @@ _NORMALIZE = {
         # forces the mandatory note in the wizard, which is that flag.
         "other": "Other", "podboom": "Other", "pod-boom": "Other",
     },
-    # CHANGELIST M-2, applied 2026-08-24 — 'VarInc' retired, 'LevelCabin' is the
-    # narrowed replacement. Bare "variable" is dropped: the legacy 'Variable' option
-    # merged Tilting Body and Variable Incidence, so the word alone does not decide
-    # between them and guessing would seed the exact ambiguity that was split apart.
     "fusKin": {
         "fixed": "Fixed", "rigid": "Fixed", "conventional": "Fixed",
-        "articulated": "TiltBody", "tilting": "TiltBody",
-        "incidence": "LevelCabin", "variable incidence": "LevelCabin",
-        "gimbal": "LevelCabin", "pendular": "LevelCabin", "level cabin": "LevelCabin",
+        "variable": "VarInc", "articulated": "TiltBody", "tilting": "TiltBody", "incidence": "VarInc",
     },
     "gearArch": {
         "skids": "Skids", "skid": "Skids", "runners": "Skids",
@@ -361,7 +355,7 @@ _M1_QUESTION = (
     "drawing and classify the airframe. Reply with ONLY a JSON object, no prose:\n"
     "{\n"
     '  "fusShape": one of ["Circular","Oval","Rectangular","Blended","Other"],\n'
-    '  "fusKin":   one of ["Fixed","TiltBody","LevelCabin"],\n'
+    '  "fusKin":   one of ["Fixed","VarInc","TiltBody"],\n'
     '  "gearArch": one of ["Skids","FixedWheel","RetrWheel","PadsHull"],\n'
     '  "latSym":   true or false\n'
     "}\n"

@@ -98,7 +98,7 @@ paths:
   # frozen old wizard and passes while real drift goes unnoticed. Bumped to
   # 15_3 on 2026-08-06 (was still on 15_2 after the 15_2 -> 15_3 rename).
   # Update this in the same commit as any wizard version bump.
-  html_template: "/home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools/notebooks/UI_for_taxonomy_caracterization_15_3.html"
+  html_template: "/home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools/notebooks/UI_for_taxonomy_caracterization_15_4.html"
   model_cache:   "/home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools/models/Qwen"
   siglip_cache:  "/home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools/models/SigLIP"
   sbert_cache:   "/home/vasco/Vasco Workspace/Tese_Vasco_Lnx/Patent-Labelling-Tools/models/SBERT"

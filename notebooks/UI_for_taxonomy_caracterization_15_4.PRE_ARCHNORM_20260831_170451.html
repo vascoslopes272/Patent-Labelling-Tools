@@ -1149,7 +1149,7 @@ function applyAircraftSnapshot(snap) {
 function getArchCount() {
   var maxTag = 1;
   Object.keys(S.figData || {}).forEach(function(f){
-    var a = normArch((S.figData[f] || {}).arch);
+    var a = parseInt((S.figData[f] || {}).arch, 10);
     if (a > maxTag) maxTag = a;
   });
   return Math.max(1, maxTag, S.archProfiles ? S.archProfiles.length : 1, S.archCount || 1);
@@ -1161,13 +1161,7 @@ function getArchCount() {
 // its 1-based architecture tag (figData[fNum].arch), so "main of architecture N"
 // is the figure tagged N that has isMain set. This replaces the old single
 // patent-level S.mainFigure.
-// Coerces a figure's architecture tag to a 1-based integer. Boolean true is
-// the one value worth calling out: a scripted xlsx edit can store architecture
-// 1 as a real Excel boolean, and without this it would parse to NaN and fall
-// back to 1 anyway — but only by accident, and getArchCount() above would
-// still skip it. Everything unparseable maps to architecture 1.
-function normArch(v){ if (v === true) return 1; var a = parseInt(v, 10); return (isNaN(a) || a < 1) ? 1 : a; }
-function figArchOf(fNum){ return normArch(figGet(fNum, 'arch', '1')); }
+function figArchOf(fNum){ var a = parseInt(figGet(fNum, 'arch', '1'), 10); return isNaN(a) ? 1 : a; }
 // v14 (C3): the topType of a given 1-based architecture number, for T2's
 // Aircraft State card — T2 (step 1) is visited BEFORE G1 (step 2), so most of
 // the time no architecture has a topType yet (returns null, handled by the
@@ -4717,7 +4711,7 @@ function recordToRows(record, pid) {
     rows.push(reviewRow(pid, "T2", subDim, "edgeTags", Array.isArray(fd.edgeTags) ? fd.edgeTags.join("|") : (fd.edgeTags || null), null, "human", imgPath));
     // arch's "1" default is now resolved once in buildExport()'s figures
     // reduce (same fix as qualityFlag above), so fd.arch is always populated.
-    rows.push(reviewRow(pid, "T2", subDim, "arch", fd.arch != null ? String(normArch(fd.arch)) : null, null, "human", imgPath));
+    rows.push(reviewRow(pid, "T2", subDim, "arch", fd.arch != null ? fd.arch : null, null, "human", imgPath));
     // Per-architecture main-figure flag (replaces the single patent-level mainFigure).
     rows.push(reviewRow(pid, "T2", subDim, "isMain", fd.isMain != null ? fd.isMain : null, null, "human", imgPath));
     // partsMulti: persists whether the reviewer opted this figure into multi-select
@@ -5417,13 +5411,6 @@ function rowsToAIData(rows) {
     });
     if (rec.qualityFlag != null) entry.qualityFlag = stripLabel(rec.qualityFlag);
     if (rec.acState != null) entry.acState = stripLabel(rec.acState);
-    // arch is an architecture *number*, never a flag. A cell written by a
-    // script can land in the xlsx as a real Excel boolean (data_type "b"),
-    // which then survives every save because entry.arch is copied verbatim
-    // above — and a figure whose arch is `true` matches no architecture in
-    // figArchOf(), so it silently drops out of its variant. Normalize on the
-    // way in, mirroring figArchOf()'s "unparseable → 1" default.
-    if (entry.arch != null && entry.arch !== '') entry.arch = String(normArch(entry.arch));
     // Combined single-row duplicate reference "<patent> FIG. <fig>" (new reviewed
     // exports). Split it back into dupOfPatent + dupOfFig — but never override the
     // separate two-field form if that's what the file used (ML files / older
