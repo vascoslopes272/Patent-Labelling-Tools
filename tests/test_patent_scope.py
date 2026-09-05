@@ -118,8 +118,8 @@ def test_scope_empty_and_no_sbert():
 def test_architecture_single_named():
     arch = ps.architectures_present(
         "A tiltrotor aircraft in which the nacelles tilt to transition.", None)
-    assert arch["primary"] == "TP"
-    assert arch["primary_label"] == "Tilt-Propulsor"
+    assert arch["primary"] == "TR"
+    assert arch["primary_label"] == "Tilt-Rotor"
     assert arch["count"] == 1
     assert arch["pure"] is True
 
@@ -132,7 +132,7 @@ def test_architecture_enumeration_is_detected():
     arch = ps.architectures_present(text, None)
     assert arch["count"] >= ps.ARCH_COUNT_GENERIC
     assert arch["pure"] is False
-    assert set(arch["all"]) >= {"MR", "TP", "SLC"}
+    assert set(arch["all"]) >= {"MR", "TR", "SLC"}
 
 
 def test_architecture_primary_is_first_in_all():
@@ -396,7 +396,7 @@ def test_build_scope_row_whole_aircraft_end_to_end():
     assert row["scope"] == "Whole Aircraft Architecture"
     assert row["specificity"] == "SpecificAircraft"
     assert row["aircraft_link"] == "Depicted"
-    assert row["architecture_primary"] == "TP"
+    assert row["architecture_primary"] == "TR"
 
 
 # ─── Integration with aircraft_identity ──────────────────────────────────────

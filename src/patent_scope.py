@@ -92,7 +92,11 @@ ARCH_OPTIONS  = "|".join(ARCHITECTURE_DEFS)
 # two-letter codes are unreadable in a thesis table.
 ARCHITECTURE_LABELS = {
     "TW":  "Tilt-Wing",
-    "TP":  "Tilt-Propulsor",
+    # TR, not TP: this line renamed the id in reviewer._G1_TOP_TYPE_DEFS. The
+    # concept is unchanged (propulsors tilt, the wing stays fixed) — only the
+    # code letter moved, and test_every_architecture_code_has_a_readable_label
+    # is what catches it if it moves again.
+    "TR":  "Tilt-Rotor",
     "DS":  "Deflected Slipstream",
     "CVT": "Combined (fixed lift + tilting cruise)",
     "SLC": "Lift + Cruise",
@@ -271,7 +275,9 @@ def architectures_present(text: str | None, sbert_model=None) -> dict:
 
     return {
         "primary": primary,
-        "primary_label": ARCHITECTURE_LABELS.get(primary),
+        # .get(primary, primary), not .get(primary): an unmapped id shows its
+        # raw code rather than an empty cell, so a rename degrades visibly.
+        "primary_label": ARCHITECTURE_LABELS.get(primary, primary),
         "all": present,
         "all_labels": [ARCHITECTURE_LABELS.get(a, a) for a in present],
         "count": len(present),
