@@ -1,0 +1,165 @@
+BATCH XLSX INTEGRITY AUDIT — 2026-09-05
+====================================================================================
+
+A · WHICH FILE IS LIVE, AND IS IT THE NEWEST
+
+  Batch_01
+    03_HUMAN  frozen pass1  b6a43ca9   25585 rows  393 pat  2026-07-06 13:21
+    03d_PASS2 frozen pass2  88184c52   25966 rows  394 pat  2026-09-05 16:06 [newest]
+    03c       LIVE          476b1797   25802 rows  394 pat  2026-09-05 15:33  <-- LIVE
+    ~/Downloads/REVIEWED2   49a823cc   25794 rows  394 pat  2026-09-03 08:38
+    ~/Downloads/LOAD_THIS   49a823cc   25794 rows  394 pat  2026-09-03 08:38
+    *FAIL* the LIVE file is the newest copy            a newer copy exists elsewhere
+
+  Batch_02
+    03_HUMAN  frozen pass1  f5f552cf   35095 rows  449 pat  2026-08-17 21:49
+    03c       LIVE          3cf28b2f   35088 rows  449 pat  2026-09-05 16:19 [newest]  <-- LIVE
+    PASS   the LIVE file is the newest copy            
+
+  Batch_03
+    03_HUMAN  frozen pass1  d9184940   31606 rows  424 pat  2026-08-23 20:49
+    03c       LIVE          43eaaf30   31613 rows  424 pat  2026-09-05 16:19 [newest]  <-- LIVE
+    PASS   the LIVE file is the newest copy            
+
+  Batch_04
+    ~/Downloads             90e4cf59   20738 rows  260 pat  2026-09-05 16:23 [newest]  <-- LIVE
+    PASS   the LIVE file is the newest copy            
+
+  Batch_05
+    03d_PASS2 frozen pass2  99515c99   15937 rows  236 pat  2026-09-05 16:06 [newest]
+    03c       LIVE          0f64508d   15937 rows  236 pat  2026-09-05 15:44  <-- LIVE
+    ~/Downloads/REVIEWED2   dc847cb7   15934 rows  236 pat  2026-09-03 09:44
+    ~/Downloads/LOAD_THIS   1f74f7c8   15984 rows  237 pat  2026-09-02 17:25
+    *FAIL* the LIVE file is the newest copy            a newer copy exists elsewhere
+
+
+B · IS EVERY CHANGE WE MADE PRESENT
+
+  Batch_01  476b1797
+    PASS   spanwise cleared on non-wing booms          0 stray
+    PASS   longitudinal cleared on wing booms          0 stray
+    PASS   no Retractable Wheeled Gear left            0 left
+    (info)  tip-joined recorded: 8
+
+  Batch_02  3cf28b2f
+    PASS   spanwise cleared on non-wing booms          0 stray
+    PASS   longitudinal cleared on wing booms          0 stray
+    PASS   no Retractable Wheeled Gear left            0 left
+    (info)  tip-joined recorded: 6
+
+  Batch_03  43eaaf30
+    PASS   spanwise cleared on non-wing booms          0 stray
+    PASS   longitudinal cleared on wing booms          0 stray
+    PASS   no Retractable Wheeled Gear left            0 left
+    (info)  tip-joined recorded: 7
+
+  Batch_05  0f64508d
+    PASS   spanwise cleared on non-wing booms          0 stray
+    PASS   longitudinal cleared on wing booms          0 stray
+    PASS   no Retractable Wheeled Gear left            0 left
+    (info)  tip-joined recorded: 3
+
+  Batch_04  90e4cf59   (still being labelled — migrations not expected)
+    (info)  pending for B04: 48 spanwise · 0 longitudinal · 1 RetrWheel
+    (info)  tip-joined recorded: 0
+
+
+C · STRUCTURAL INTEGRITY
+
+  Batch_01
+    PASS   sheet named 'Review'                        
+    PASS   no duplicate rows                           0
+    PASS   all 7 columns present                       
+    PASS   no null Patent_ID / Field                   
+    PASS   approved records all have an architecture   0 unexplained (duplicates/overrides excluded)
+    (info)  394 patents · 259 approved · 149 with an architecture
+
+  Batch_02
+    PASS   sheet named 'Review'                        
+    PASS   no duplicate rows                           0
+    PASS   all 7 columns present                       
+    PASS   no null Patent_ID / Field                   
+    PASS   approved records all have an architecture   0 unexplained (duplicates/overrides excluded)
+    (info)  449 patents · 259 approved · 213 with an architecture
+
+  Batch_03
+    PASS   sheet named 'Review'                        
+    PASS   no duplicate rows                           0
+    PASS   all 7 columns present                       
+    PASS   no null Patent_ID / Field                   
+    PASS   approved records all have an architecture   0 unexplained (duplicates/overrides excluded)
+    (info)  424 patents · 239 approved · 176 with an architecture
+
+  Batch_05
+    PASS   sheet named 'Review'                        
+    PASS   no duplicate rows                           0
+    PASS   all 7 columns present                       
+    PASS   no null Patent_ID / Field                   
+    PASS   approved records all have an architecture   0 unexplained (duplicates/overrides excluded)
+    (info)  236 patents · 118 approved · 108 with an architecture
+
+  Batch_04
+    PASS   sheet named 'Review'                        
+    PASS   no duplicate rows                           0
+    PASS   all 7 columns present                       
+    PASS   no null Patent_ID / Field                   
+    PASS   approved records all have an architecture   0 unexplained (duplicates/overrides excluded)
+    (info)  260 patents · 147 approved · 160 with an architecture
+
+
+D · WORKING COPY vs FROZEN HUMAN RECORD
+
+  Batch_01
+    PASS   no RetrWheel in either                      03d=0 03c=0
+    PASS   tip-joined count matches                    03d=8 03c=8
+
+  Batch_05
+    PASS   no RetrWheel in either                      03d=0 03c=0
+    PASS   tip-joined count matches                    03d=3 03c=3
+
+
+E · BACKUPS TAKEN TODAY
+
+  Batch_01: 1
+      reviewed_patents_Batch_01.PRE_V156_20260905_163301.xlsx
+  Batch_02: 2
+      reviewed_patents_Batch_02.PRE_BOOMLONG_20260905_171905.xlsx
+      reviewed_patents_Batch_02.PRE_V156_20260905_163306.xlsx
+  Batch_03: 2
+      reviewed_patents_Batch_03.PRE_BOOMLONG_20260905_171905.xlsx
+      reviewed_patents_Batch_03.PRE_V156_20260905_163310.xlsx
+  Batch_05: 5
+      reviewed_patents_Batch_05.PRE_BOOMLONG_20260905_162750.xlsx
+      reviewed_patents_Batch_05.PRE_PROMOTE_20260905_162749.xlsx
+      reviewed_patents_Batch_05.PRE_REFRESH_20260905_162750.xlsx
+      reviewed_patents_Batch_05.PRE_V156_20260905_163314.xlsx
+      reviewed_patents_Batch_05.PRE_V156_20260905_164442.xlsx
+
+====================================================================================
+RESULT — 2 failure(s)
+  ! Batch_01 · the LIVE file is the newest copy · a newer copy exists elsewhere
+  ! Batch_05 · the LIVE file is the newest copy · a newer copy exists elsewhere
+====================================================================================
+
+================================================================================
+POST-AUDIT FIXES APPLIED 2026-09-05 17:26
+================================================================================
+The audit found ONE real gap: 03d_HUMAN_PASS2/Batch_01 had never received the
+September boom_long migration or the retired-field strip, so it lagged 03c.
+
+  Batch_01 03d : 43 boomN_long cleared on wing booms
+                 166 imgApparentArch rows stripped (retired field)
+                 backup reviewed_patents_Batch_01.PRE_SYNC_20260905_172637.xlsx
+                 re-locked 444, PRISTINE_MANIFEST.sha256 re-hashed
+
+FINAL RECONCILIATION — 03d vs 03c
+  Batch_05 : 0 rows differ, 0 values differ.  Identical.
+  Batch_01 : 3 cells differ, ALL on US2022306292A1, ALL deliberate:
+               status        -> approved   (logged correction)
+               acState       -> Hover      (logged correction)
+               boom1_wingIdx -> W1         (logged correction)
+             These are the two manual corrections the wizard would not persist,
+             recorded in CORRECTIONS_LOG.csv with their evidence. Expected.
+
+The two "LIVE file is not the newest" flags are timestamp artefacts only: 03d was
+edited after 03c this afternoon. Content is reconciled as above.

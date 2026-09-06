@@ -1,0 +1,146 @@
+#!/usr/bin/env python3
+"""Promote a wizard export you just downloaded, WITHOUT losing machine corrections.
+
+The workflow is: relabel in the wizard, download, copy onto the drive. The trap is
+that a raw copy over 03c_CORRECTED throws away every correction applied there
+since the last download — on 2026-09-02 a straight copy would have silently
+restored 76 boomN_long values the v15.5 migration had cleared.
+
+The order that does not lose anything:
+
+  1. your download becomes the frozen human record (03d_HUMAN_PASS2, re-hashed)
+  2. 03c is rebuilt from it, so it starts as an exact copy of what you labelled
+  3. every registered machine correction is re-applied on top
+  4. both halves are verified
+
+Your labelling always wins; the machine steps are re-derived rather than merged,
+so they can never overwrite a human answer that changed underneath them.
+
+    python scripts/conformance/promote_download.py Batch_05
+    python scripts/conformance/promote_download.py Batch_05 --file ~/Downloads/x.xlsx
+    python scripts/conformance/promote_download.py Batch_05 --dry-run
+"""
+from __future__ import annotations
+import argparse, hashlib, os, shutil, subprocess, sys
+from datetime import datetime
+from pathlib import Path
+
+import pandas as pd
+
+REPO = Path(__file__).resolve().parents[2]
+DATA = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & "
+            "Labelling Outputs/1639_DS/data")
+D3D = DATA / "03d_HUMAN_PASS2_wizard_exports"
+D3C = DATA / "03c_CORRECTED_wizard_exports"
+DOWNLOADS = [Path.home() / "Downloads" / "REVIEWED2", Path.home() / "Downloads"]
+
+# Machine corrections that must be re-applied after every promotion, in order.
+# Add a step here the moment you write one, or the next download silently drops it.
+STEPS = [["python", str(REPO / "scripts/conformance/migrate_boom_long.py"), "--apply"],
+         ["python", str(REPO / "scripts/conformance/strip_retired_fields.py"), "--apply"],
+         ["python", str(REPO / "scripts/conformance/clear_emp_tilt_note.py"), "--apply"],
+         # v15.6 (2026-09-05): boomN_span cleared on non-wing booms, RetrWheel -> Wheeled
+         # Gear, wingN_tipJoin back-filled, wingN_plan Oth -> Trap. Registered the same
+         # day it was written — without this line the next promotion would rebuild 03c
+         # from the download and silently drop all 209 of those cells.
+         ["python", str(REPO / "scripts/conformance/migrate_v156.py"), "--apply"],
+         # TP -> TR id rename (2026-09-05). Same category, renamed after v13; the
+         # Python side was renamed 2026-08-24 but the exports never were.
+         ["python", str(REPO / "scripts/conformance/migrate_tp_to_tr.py"), "--apply"]]
+
+
+def md5(p: Path) -> str:
+    return hashlib.md5(p.read_bytes()).hexdigest()[:8]
+
+
+def newest_download(batch: str) -> Path | None:
+    cands = [q for d in DOWNLOADS if d.is_dir()
+             for q in d.glob(f"reviewed_patents_{batch}*.xlsx")
+             if "PRE_" not in q.name and ".PRIOR" not in q.name]
+    return max(cands, key=lambda q: q.stat().st_mtime) if cands else None
+
+
+def run(cmd: list[str]) -> None:
+    r = subprocess.run(cmd, capture_output=True, text=True, cwd=REPO)
+    print("      " + (r.stdout or r.stderr).strip().replace("\n", "\n      ")[:600])
+    if r.returncode:
+        sys.exit(f"  step failed: {' '.join(cmd)}")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("batch")
+    ap.add_argument("--file", type=Path, help="the download (default: newest matching one)")
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--force", action="store_true",
+                    help="promote even if the download holds far fewer patents than the record")
+    a = ap.parse_args()
+
+    src = a.file or newest_download(a.batch)
+    if not src or not src.exists():
+        sys.exit(f"no download found for {a.batch} in {[str(d) for d in DOWNLOADS]}")
+    cur3d, cur3c = D3D / f"reviewed_patents_{a.batch}.xlsx", D3C / f"reviewed_patents_{a.batch}.xlsx"
+
+    print(f"  download : {src}")
+    print(f"             md5 {md5(src)}  {datetime.fromtimestamp(src.stat().st_mtime):%F %H:%M}")
+    for lbl, p in (("03d frozen", cur3d), ("03c working", cur3c)):
+        if p.exists():
+            print(f"  {lbl:<12}: md5 {md5(p)}  "
+                  f"{datetime.fromtimestamp(p.stat().st_mtime):%F %H:%M}")
+    if cur3d.exists() and md5(src) == md5(cur3d):
+        print("\n  the download is already the frozen record — nothing to promote.")
+        return
+    # A partial export is the trap this guard exists for. The wizard's "Export
+    # batch" writes only the patents it currently has SAVED, so if a stale or
+    # partial file was resumed from, the export silently contains a handful of
+    # patents. Promoting that would replace the whole batch with the handful.
+    new = pd.read_excel(src, sheet_name="Review")
+    n_new = new.Patent_ID.astype(str).str.replace(r"_arch\d+$", "", regex=True).nunique()
+    if cur3c.exists():
+        cur = pd.read_excel(cur3c, sheet_name="Review")
+        n_cur = cur.Patent_ID.astype(str).str.replace(r"_arch\d+$", "", regex=True).nunique()
+        if n_new < n_cur * 0.9:
+            print(f"\n  REFUSED — the download holds {n_new} patents, the current record holds "
+                  f"{n_cur}.\n  That looks like a PARTIAL export (the wizard writes only the "
+                  f"patents it has saved).\n  Promoting it would drop {n_cur - n_new}. Check what "
+                  f"you loaded into the wizard;\n  if the smaller file really is right, pass --force.",
+                  file=sys.stderr)
+            if not a.force:
+                sys.exit(2)
+    if a.dry_run:
+        print(f"\n  DRY RUN — would promote {len(new)} rows / {n_new} patents, "
+              f"then re-run {len(STEPS)} machine step(s).")
+        return
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if cur3c.exists():
+        shutil.copy2(cur3c, cur3c.with_name(f"{cur3c.stem}.PRE_PROMOTE_{ts}.xlsx"))
+    print("\n  1. freezing your download as the human record")
+    if cur3d.exists():
+        os.chmod(cur3d, 0o644)
+    shutil.copy2(src, cur3d)
+    man = D3D / "PRISTINE_MANIFEST.sha256"
+    if man.exists():
+        os.chmod(man, 0o644)
+    run(["python", str(REPO / "scripts/freeze_exports.py"), "--freeze", a.batch, "--src", str(D3D)])
+    if man.exists():
+        os.chmod(man, 0o444)
+
+    print("  2. rebuilding the working copy from it")
+    run(["python", str(REPO / "scripts/freeze_exports.py"), "--copy", a.batch,
+         "--force", "--src", str(D3D)])
+
+    print(f"  3. re-applying {len(STEPS)} machine correction(s)")
+    for cmd in STEPS:
+        run(cmd + ["--batches", a.batch])
+
+    print("  4. verifying")
+    run(["python", str(REPO / "scripts/freeze_exports.py"), "--verify", "--src", str(D3D)])
+    run(["python", str(REPO / "scripts/conformance/check_batches.py"),
+         "--dir", str(D3C), "--batches", a.batch])
+    print(f"\n  done · 03c backup PRE_PROMOTE_{ts}")
+
+
+if __name__ == "__main__":
+    main()

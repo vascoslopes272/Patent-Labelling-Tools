@@ -1,0 +1,208 @@
+Batch,Patent_ID,Field,Before,After
+Batch_01,CN113086184A,boom1_span,NA — N/A,
+Batch_01,CN113086184A,boom2_span,NA — N/A,
+Batch_01,EP3770063A1_arch1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_01,EP3770063A1_arch1,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_01,EP3770063A1_arch2,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_01,EP3770063A1_arch2,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_01,EP3770063A1_arch2,boom3_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2012061526A1,gearArch,RetrWheel — Retractable Wheeled Gear,FixedWheel — Wheeled Gear
+Batch_01,US2014360830A1,gearArch,RetrWheel — Retractable Wheeled Gear,FixedWheel — Wheeled Gear
+Batch_01,US2017203839A1,gearArch,RetrWheel — Retractable Wheeled Gear,FixedWheel — Wheeled Gear
+Batch_01,US2017203839A1,boom1_span,NA — N/A,
+Batch_01,US2017203839A1,boom2_span,NA — N/A,
+Batch_01,US2018208305A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2018327086A1,gearArch,RetrWheel — Retractable Wheeled Gear,FixedWheel — Wheeled Gear
+Batch_01,US2018354613A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2018354613A1,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2020115035A1,gearArch,RetrWheel — Retractable Wheeled Gear,FixedWheel — Wheeled Gear
+Batch_01,US2020164975A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2020239134A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2020361622A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2020391879A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2020391879A1,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2021031910A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2021094674A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2021094674A1,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2021316849A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2023033507A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2023033507A1,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2023033507A1,boom3_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2023118750A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2023331380A1,boom1_span,NA — N/A,
+Batch_01,USD739335S,gearArch,RetrWheel — Retractable Wheeled Gear,FixedWheel — Wheeled Gear
+Batch_01,CN105730692A,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2018354615A1,boom1_span,NA — N/A,
+Batch_01,US2023091705A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2018162525A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2019389568A1,boom1_span,NA — N/A,
+Batch_01,US2019389568A1,boom2_span,NA — N/A,
+Batch_01,US2018244367A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2018244367A1,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2018265189A1,boom1_span,NA — N/A,
+Batch_01,US2018339773A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2023056974A1,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_01,DE102020007836A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_01,DE102020007836A1,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2019100303A1,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2021300527A1,boom1_span,NA — N/A,
+Batch_01,US2021300527A1,boom2_span,NA — N/A,
+Batch_01,US2023056709A1_arch1,boom1_span,NA — N/A,
+Batch_01,US2023056709A1_arch2,boom1_span,NA — N/A,
+Batch_01,US11780576B1,boom1_span,NA — N/A,
+Batch_01,US2022306292A1_arch4,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_01,US2022306292A1_arch4,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_01,CN120397241A,wing1_tipJoin,(row did not exist),True
+Batch_01,CN120397241A,wing2_tipJoin,(row did not exist),True
+Batch_01,US2019144107A1,wing1_tipJoin,(row did not exist),True
+Batch_01,US2019144107A1,wing2_tipJoin,(row did not exist),True
+Batch_01,US2020269980A1_arch1,wing1_tipJoin,(row did not exist),True
+Batch_01,US2020269980A1_arch1,wing2_tipJoin,(row did not exist),True
+Batch_01,US2020269980A1_arch2,wing1_tipJoin,(row did not exist),True
+Batch_01,US2020269980A1_arch2,wing2_tipJoin,(row did not exist),True
+Batch_02,US2020324886A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_02,CN116374167A,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_02,US2022033071A1,gearArch,RetrWheel — Retractable Wheeled Gear,FixedWheel — Wheeled Gear
+Batch_02,DE102016001771A1,boom1_span,NA — N/A,
+Batch_02,DE102016001771A1,boom2_span,NA — N/A,
+Batch_02,DE102016015461A1,boom1_span,NA — N/A,
+Batch_02,DE102016015461A1,boom2_span,NA — N/A,
+Batch_02,US2018222580A1_arch3,boom1_span,NA — N/A,
+Batch_02,US2018222580A1_arch3,boom2_span,Other — Other,
+Batch_02,US2018222580A1_arch3,boom2_spanOth,in the  middle of the fuselage,
+Batch_02,US2024272652A1,boom1_span,NA — N/A,
+Batch_02,DE102012020498A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_02,DE102012020498A1,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_02,US2019329880A1,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_02,US2018362155A1,gearArch,RetrWheel — Retractable Wheeled Gear,FixedWheel — Wheeled Gear
+Batch_02,EP2669195A1_arch1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_02,EP2669195A1_arch1,boom2_span,MidSpan — Mid-span,
+Batch_02,EP2669195A1_arch1,boom3_span,Inboard — Inboard (near root/fuselage),
+Batch_02,EP2669195A1_arch2,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_02,EP2669195A1_arch2,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_02,EP2669195A1_arch3,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_02,EP2669195A1_arch3,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_02,US2019308723A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_02,US2019308723A1,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_02,US2019310660A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_02,US2019310660A1,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_02,US2007158494A1,gearArch,RetrWheel — Retractable Wheeled Gear,FixedWheel — Wheeled Gear
+Batch_02,DE202013011072U1,boom1_span,MidSpan — Mid-span,
+Batch_02,US2012119016A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_02,US2014158815A1,boom1_span,Other — Other,
+Batch_02,US2014158815A1,boom1_spanOth,in each fuselage,
+Batch_02,WO2015089679A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_02,US2024190561A1,boom1_span,NA — N/A,
+Batch_02,US2013092799A1_arch4,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_02,US2013092799A1_arch4,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_02,US2013092799A1_arch5,boom3_span,Inboard — Inboard (near root/fuselage),
+Batch_02,ES2604711A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_02,CN113247244A,boom1_span,NA — N/A,
+Batch_02,WO2016004852A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_02,US2021078701A1,gearArch,RetrWheel — Retractable Wheeled Gear,FixedWheel — Wheeled Gear
+Batch_02,US2024253778A1_arch1,boom1_span,NA — N/A,
+Batch_02,US2024253778A1_arch2,boom1_span,NA — N/A,
+Batch_02,US2005230519A1,gearArch,RetrWheel — Retractable Wheeled Gear,FixedWheel — Wheeled Gear
+Batch_02,US2009212166A1,boom1_span,NA — N/A,
+Batch_02,US2009261209A1,gearArch,RetrWheel — Retractable Wheeled Gear,FixedWheel — Wheeled Gear
+Batch_02,US2009084890A1,boom1_span,NA — N/A,
+Batch_02,US2009084890A1,boom2_span,NA — N/A,
+Batch_02,DE102007055313A1,boom1_span,NA — N/A,
+Batch_02,US2009140095A1,boom1_span,NA — N/A,
+Batch_02,US2011042510A1,boom1_span,NA — N/A,
+Batch_02,US2011042510A1,boom2_span,NA — N/A,
+Batch_02,US2014084114A1,boom1_span,NA — N/A,
+Batch_02,CN202728574U,gearArch,RetrWheel — Retractable Wheeled Gear,FixedWheel — Wheeled Gear
+Batch_02,ES2555162A1,boom1_span,NA — N/A,
+Batch_02,DE202013011072U1,wing1_tipJoin,(row did not exist),True
+Batch_02,DE202013011072U1,wing2_tipJoin,(row did not exist),True
+Batch_02,US2022266995A1,wing1_tipJoin,(row did not exist),True
+Batch_02,US2022266995A1,wing2_tipJoin,(row did not exist),True
+Batch_02,WO2019211875A1,wing1_tipJoin,(row did not exist),True
+Batch_02,WO2019211875A1,wing2_tipJoin,(row did not exist),True
+Batch_03,US10526079B1,boom1_span,NA — N/A,
+Batch_03,US10526079B1,boom2_span,NA — N/A,
+Batch_03,US10526079B1,boom3_span,MidSpan — Mid-span,
+Batch_03,US2018044011A1_arch1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_03,US2018044011A1_arch2,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_03,US2025304249A1,boom3_span,NA — N/A,
+Batch_03,US2024270378A1,boom3_span,Inboard — Inboard (near root/fuselage),
+Batch_03,US2024375799A1,boom1_span,NA — N/A,
+Batch_03,US2023303454A1,boom1_span,NA — N/A,
+Batch_03,CN108674654A,gearArch,RetrWheel — Retractable Wheeled Gear,FixedWheel — Wheeled Gear
+Batch_03,DE202024104657U1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_03,DE102018116158A1,boom1_span,NA — N/A,
+Batch_03,DE102024102439A1,boom1_span,NA — N/A,
+Batch_03,US2021371117A1,boom1_span,NA — N/A,
+Batch_03,CN109263968A,boom1_span,NA — N/A,
+Batch_03,CN109263914A,boom1_span,NA — N/A,
+Batch_03,US2019135413A1,boom2_span,NA — N/A,
+Batch_03,US2019337614A1,boom2_span,NA — N/A,
+Batch_03,CN106314794A,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_03,CN108163193A,boom1_span,NA — N/A,
+Batch_03,CN113306714A,boom1_span,NA — N/A,
+Batch_03,CN113306714A,boom2_span,NA — N/A,
+Batch_03,CN113306714A,boom3_span,NA — N/A,
+Batch_03,CN118701285A,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_03,CN120863869A,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_03,CN120887008A,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_03,CN120887008A,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_03,CN120887008A,boom3_span,Inboard — Inboard (near root/fuselage),
+Batch_03,DE102016011273A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_03,DE202015007089U1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_03,DE202018002525U1,boom1_span,Spanning — Spanning (runs along the attachment),
+Batch_03,FR3115264A1,boom1_span,NA — N/A,
+Batch_03,DE102019004808A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_03,CN118457914A,wing1_tipJoin,(row did not exist),True
+Batch_03,CN118457914A,wing2_tipJoin,(row did not exist),True
+Batch_03,CN118457914A,wing3_tipJoin,(row did not exist),True
+Batch_03,US2018290736A1,wing1_tipJoin,(row did not exist),True
+Batch_03,US2021122465A1,wing1_tipJoin,(row did not exist),True
+Batch_03,US2021122465A1,wing2_tipJoin,(row did not exist),True
+Batch_03,US2021122465A1,wing3_tipJoin,(row did not exist),True
+Batch_05,CN113460300A,gearArch,RetrWheel — Retractable Wheeled Gear,FixedWheel — Wheeled Gear
+Batch_05,CN120828942A,boom1_span,NA — N/A,
+Batch_05,CN120828942A,boom2_span,NA — N/A,
+Batch_05,US2017174335A1,gearArch,RetrWheel — Retractable Wheeled Gear,FixedWheel — Wheeled Gear
+Batch_05,US2019063574A1,gearArch,RetrWheel — Retractable Wheeled Gear,FixedWheel — Wheeled Gear
+Batch_05,US2022363374A1,gearArch,RetrWheel — Retractable Wheeled Gear,FixedWheel — Wheeled Gear
+Batch_05,GB202410221D0,gearArch,RetrWheel — Retractable Wheeled Gear,FixedWheel — Wheeled Gear
+Batch_05,GB202302628D0_arch1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_05,GB202302628D0_arch1,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_05,US2017183088A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_05,USD912602S,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_05,US2023286650A1,gearArch,RetrWheel — Retractable Wheeled Gear,FixedWheel — Wheeled Gear
+Batch_05,CN120135432A,boom1_span,NA — N/A,
+Batch_05,CN120135432A,boom2_span,NA — N/A,
+Batch_05,US2013264429A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_05,US2025136287A1,boom1_span,NA — N/A,
+Batch_05,US2023234696A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_05,US2025019086A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_05,US2025019086A1,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_05,DE102019121788A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_05,DE102019121788A1,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_05,US2019337612A1,gearArch,RetrWheel — Retractable Wheeled Gear,FixedWheel — Wheeled Gear
+Batch_05,US2023249816A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_05,US2023249816A1,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_05,KR102760903B1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_05,KR102760903B1,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_05,US2020307767A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_05,US2020307767A1,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_05,US2020398981A1,boom1_span,NA — N/A,
+Batch_05,US2020398981A1,boom2_span,NA — N/A,
+Batch_05,US2020369363A1,boom1_span,NA — N/A,
+Batch_05,US2020369363A1,boom2_span,NA — N/A,
+Batch_05,US2008283673A1_arch2,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_05,US2008283673A1_arch2,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_05,US2008283673A1_arch3,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_05,US2008283673A1_arch3,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_05,ITTO20130495A1,gearArch,RetrWheel — Retractable Wheeled Gear,FixedWheel — Wheeled Gear
+Batch_05,WO2019062257A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_05,US2021064062A1_arch1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_05,US2024409209A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_05,US2024409209A1,boom2_span,Inboard — Inboard (near root/fuselage),
+Batch_05,US2023348088A1,boom1_span,Inboard — Inboard (near root/fuselage),
+Batch_05,WO2025255583A1,boom1_span,NA — N/A,
+Batch_05,US2006239824A1_arch1,gearArch,RetrWheel — Retractable Wheeled Gear,FixedWheel — Wheeled Gear
+Batch_05,USD1082648S,boom1_span,NA — N/A,
+Batch_05,US2024300644A1,wing1_tipJoin,(row did not exist),True

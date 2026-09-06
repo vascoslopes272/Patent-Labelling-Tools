@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+"""v15.6 migrations. Default is a DRY RUN; pass --apply to write.
+
+Four independent steps, all reversible from the .PRE_V156_<ts> backups:
+
+  1. boomN_span   cleared on every boom group that does NOT attach to a wing.
+                  Spanwise is measured along the WING, so on a fuselage or
+                  empennage boom it answered a question with no referent — the
+                  mirror of the boomN_long migration of 2026-09-02.
+  2. gearArch     RetrWheel -> FixedWheel (relabelled "Wheeled Gear"). Total
+                  mapping: the annotator's rule is that every retractable gear
+                  is wheeled gear, so no record can be mapped wrongly.
+  3. wingN_tipJoin  back-filled True where the Wing Architecture 'Other' note
+                  already says the panels connect at the tips.
+  4. wingN_plan   Oth -> Trap where the planform 'Other' note already says
+                  trapezoidal. Nothing else is touched: the category is a
+                  positive marker only (see the W_PLAN comment in the wizard).
+"""
+from __future__ import annotations
+import argparse, re, shutil, sys
+from datetime import datetime
+from pathlib import Path
+import pandas as pd
+
+DATA = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & "
+            "Labelling Outputs/1639_DS/data/03c_CORRECTED_wizard_exports")
+BATCHES = ["Batch_01", "Batch_02", "Batch_03", "Batch_05"]   # Batch_04 is still being labelled
+WING_ATTACH = {"Wings", "Both"}
+# Requires the JOIN verb and the TIP noun within ~40 chars of each other, and the
+# subject to be wings — "2 booms that connect ... at the wing tips" (EP4151521A1) is
+# a boom attachment, not a tip-joined wing, and must not match.
+TIPJOIN = re.compile(r"wing[s]?\b[^.]{0,60}?(connect|join|attatch|attach)[^.]{0,40}?tip"
+                     r"|(connect|join|attatch|attach)[^.]{0,30}?(at|to)\s+the\s+tip",
+                     re.I)
+TRAP = re.compile(r"trapez", re.I)
+
+
+def ident(v):
+    s = str(v).strip()
+    return s.split("—")[0].strip() if "—" in s else s
+
+
+def run(batch: str, apply: bool) -> dict:
+    f = DATA / f"reviewed_patents_{batch}.xlsx"
+    d = pd.read_excel(f, sheet_name="Review")
+    d["Field"] = d["Field"].astype(str)
+    stat = dict(span=0, gear=0, tip=0, trap=0)
+
+    # 1 ── spanwise on non-wing booms
+    attach = {}
+    for _, r in d[d["Field"].str.match(r"^boom\d+_attach$")].iterrows():
+        attach[(r["Patent_ID"], re.match(r"^boom(\d+)_", r["Field"]).group(1))] = ident(r["Value"])
+    for i, r in d.iterrows():
+        m = re.match(r"^boom(\d+)_(span|spanOth)$", r["Field"])
+        if not m:
+            continue
+        if attach.get((r["Patent_ID"], m.group(1))) in WING_ATTACH:
+            continue
+        if str(r["Value"]).strip() in ("", "nan", "None"):
+            continue
+        d.at[i, "Value"] = None
+        stat["span"] += 1
+
+    # 2 ── retractable gear folds into wheeled gear
+    for i, r in d[d["Field"] == "gearArch"].iterrows():
+        if ident(r["Value"]) == "RetrWheel":
+            d.at[i, "Value"] = "FixedWheel — Wheeled Gear"
+            stat["gear"] += 1
+
+    # 3 ── tip-joined, from the Wing Architecture 'Other' note
+    # 2026-09-05 FIX: the first pass scanned only wingConfOtherNote/wingNotes and
+    # missed US2024051687A1, whose note sits in the PLANFORM other-note. Scan every
+    # annotator-written note field. Titles and abstracts are deliberately NOT scanned:
+    # a "box wing" title is the patent's word, not the annotator's, and back-filling
+    # from it would be a machine guess wearing the appearance of a human annotation
+    # (the same reason boomN_wingIdx was never script-filled). Those are reported for
+    # manual confirmation instead.
+    NOTE_FIELDS = re.compile(r"otes$|Note$|note$|^comments$", re.I)
+    tipped = {r["Patent_ID"] for _, r in d[d["Field"].str.contains(NOTE_FIELDS)].iterrows()
+              if TIPJOIN.search(str(r["Value"]))}
+    for i, r in d[d["Field"].str.match(r"^wing\d+_tipJoin$")].iterrows():
+        if r["Patent_ID"] in tipped and str(r["Value"]).strip().lower() != "true":
+            d.at[i, "Value"] = True
+            stat["tip"] += 1
+    # the field is new, so most exports have no row for it yet
+    have = {(r["Patent_ID"], r["Field"]) for _, r in d[d["Field"].str.match(r"^wing\d+_tipJoin$")].iterrows()}
+    new = []
+    for _, r in d[d["Field"].str.match(r"^wing\d+_plan$")].iterrows():
+        wi = re.match(r"^wing(\d+)_", r["Field"]).group(1)
+        key = (r["Patent_ID"], f"wing{wi}_tipJoin")
+        if r["Patent_ID"] in tipped and key not in have:
+            new.append({"Patent_ID": r["Patent_ID"], "Section": "M2",
+                        "Sub_Dimension": f"Wing {wi} — Tip-Joined",
+                        "Field": f"wing{wi}_tipJoin", "Value": True,
+                        "Source": "migration_v156", "Image_Path": None})
+            have.add(key); stat["tip"] += 1
+
+    # 4 ── trapezoidal, from the planform 'Other' note
+    trap = {(r["Patent_ID"], re.match(r"^wing(\d+)_", r["Field"]).group(1))
+            for _, r in d[d["Field"].str.match(r"^wing\d+_plan_otherNote$")].iterrows()
+            if TRAP.search(str(r["Value"]))}
+    for i, r in d[d["Field"].str.match(r"^wing\d+_plan$")].iterrows():
+        wi = re.match(r"^wing(\d+)_", r["Field"]).group(1)
+        if (r["Patent_ID"], wi) in trap and ident(r["Value"]) == "Oth":
+            d.at[i, "Value"] = "Trap — Trapezoidal / Tapered"
+            stat["trap"] += 1
+
+    if new:
+        d = pd.concat([d, pd.DataFrame(new)], ignore_index=True)
+
+    if apply and any(stat.values()):
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        shutil.copy2(f, f.with_suffix(f".PRE_V156_{ts}.xlsx"))
+        d.to_excel(f, sheet_name="Review", index=False)
+    return stat
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--apply", action="store_true")
+    a = ap.parse_args()
+    print("APPLYING" if a.apply else "DRY RUN — nothing written (use --apply)")
+    tot = dict(span=0, gear=0, tip=0, trap=0)
+    for b in BATCHES:
+        s = run(b, a.apply)
+        for k in tot: tot[k] += s[k]
+        print(f"  {b}  span cleared {s['span']:>4} · gear {s['gear']:>3} · tipJoin {s['tip']:>3} · trapezoidal {s['trap']:>3}")
+    print(f"  {'TOTAL':<9} span cleared {tot['span']:>4} · gear {tot['gear']:>3} · tipJoin {tot['tip']:>3} · trapezoidal {tot['trap']:>3}")

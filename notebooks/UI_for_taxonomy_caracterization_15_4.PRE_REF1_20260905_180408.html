@@ -111,8 +111,8 @@ body{ padding-left:280px; }
 .sec{font-size:12px;font-weight:500;color:var(--text2);margin:1.25rem 0 .55rem;}
 
 /* options */
-.og{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:7px;margin-bottom:.25rem;align-items:start;}
-.og.n{grid-template-columns:repeat(auto-fill,minmax(175px,1fr));}
+.og{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:7px;margin-bottom:.25rem;}
+.og.n{grid-template-columns:repeat(auto-fill,minmax(148px,1fr));}
 .opt{padding:12px 14px;border:1px solid var(--border);border-radius:var(--r);cursor:pointer;background:var(--surface);transition:all 0.15s ease;position:relative;user-select:none;box-shadow:0 1px 2px rgba(0,0,0,0.02);}
 .opt:hover{border-color:var(--text3);background:var(--bg);transform:translateY(-1px);box-shadow:0 3px 5px rgba(0,0,0,0.04);}
 .opt.sel{border-color:var(--accent);background:var(--accent-bg);}
@@ -122,10 +122,7 @@ body{ padding-left:280px; }
 .opt.sel .o-id{color:var(--accent);}
 .o-name{font-size:13px;font-weight:500;color:var(--text);line-height:1.3;padding-right:16px;}
 .opt.sel .o-name{color:var(--accent-text);}
-.o-desc{font-size:11px;color:var(--text2);margin-top:4px;line-height:1.45;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden;}
-body.notes-full .o-desc,body.notes-full .g1-master-desc,body.notes-full .g1-subtxt{display:block;overflow:visible;-webkit-line-clamp:unset;line-clamp:unset;}
-.notes-toggle{margin-left:auto;font-size:11px;font-family:var(--mono);color:var(--text2);border:1px solid var(--border);background:var(--surface);border-radius:var(--r);padding:3px 9px;cursor:pointer;}
-.notes-toggle:hover{border-color:var(--accent);color:var(--accent);}
+.o-desc{font-size:11px;color:var(--text2);margin-top:4px;line-height:1.45;}
 .opt.sel .o-desc{color:var(--accent-text);opacity:.75;}
 
 /* int stepper */
@@ -170,18 +167,18 @@ body.notes-full .o-desc,body.notes-full .g1-master-desc,body.notes-full .g1-subt
 
 /* propulsion & structural modules */
 .m2-shell, .m3-shell{display:grid;gap:12px;}
-.m2-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px;margin-bottom:.2rem;align-items:start;}
+.m2-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;margin-bottom:.2rem;}
 .m2-card, .m3-card{border:1px solid var(--border);border-radius:var(--rl);background:linear-gradient(180deg,var(--surface),var(--bg));padding:14px;}
 .m2-head, .m3-head{font-size:14px;font-weight:600;letter-spacing:-.01em;color:var(--text);margin-bottom:4px;}
 .m2-sub, .m3-sub{font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:10px;}
-.m3-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;align-items:start;}
+.m3-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;}
 .m3-field{display:flex;flex-direction:column;gap:6px;}
 .m3-label{font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--text3);}
 .m3-num, .m3-readonly{width:100%;padding:10px 11px;border-radius:var(--r);border:1px solid var(--border2);background:var(--surface);color:var(--text);font:600 14px var(--mono);}
 .m3-num:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(45,91,227,.12);}
 .m3-readonly{background:var(--bg);color:var(--accent-text);}
 .m3-footnote{font-size:11px;color:var(--text2);line-height:1.45;margin-top:2px;}
-.m2-zone, .m3-zone{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:7px;align-items:start;}
+.m2-zone, .m3-zone{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:7px;}
 .m2-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;}
 .m2-count-wrap{display:flex;align-items:center;gap:8px;}
 .m2-count{width:92px;padding:9px 10px;border-radius:var(--r);border:1px solid var(--border2);font:600 14px var(--mono);text-align:center;}
@@ -200,26 +197,26 @@ details.m3-readonly[open] summary::after { content: '\2212'; }
 .cite-link:hover { background: var(--accent-bg); }
 
 /* progressive UI structures */
-.g1-master-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-bottom:4px;align-items:start;}
+.g1-master-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-bottom:4px;}
 .g1-master{border:1px solid var(--border);border-radius:var(--rl);background:linear-gradient(180deg,var(--surface),var(--bg));padding:14px;cursor:pointer;transition:all .18s ease;}
 .g1-master:hover{border-color:var(--text3);transform:translateY(-1px);}
 .g1-master.sel{border-color:var(--accent);background:var(--accent-bg);}
 .g1-master-lbl{font-size:14px;font-weight:600;color:var(--text);margin-bottom:4px;}
 .g1-master.sel .g1-master-lbl{color:var(--accent-text);}
-.g1-master-desc{font-size:12px;color:var(--text2);line-height:1.45;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden;}
+.g1-master-desc{font-size:12px;color:var(--text2);line-height:1.45;}
 .g1-panel{display:none;opacity:0;margin-top:12px;}
 .g1-panel.open{display:block;opacity:1;}
 .g1-subcard{border:1px solid var(--border);border-radius:var(--rl);background:var(--surface);padding:14px;margin-bottom:10px;}
 .g1-subhead{font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px;}
 .g1-subdesc{font-size:12px;color:var(--text2);margin-bottom:10px;}
-.g1-subgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;align-items:start;}
+.g1-subgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;}
 .g1-subbtn, .t1-scopebtn{border:1px solid var(--border);border-radius:var(--r);background:var(--bg);padding:12px;text-align:left;cursor:pointer;transition:all .16s ease;width:100%;}
 .g1-subbtn:hover, .t1-scopebtn:hover{border-color:var(--text3);transform:translateY(-1px);}
 .g1-subbtn.sel, .t1-scopebtn.sel{border-color:var(--accent);background:var(--accent-bg);}
 .g1-subid{font-size:10px;font-family:var(--mono);text-transform:uppercase;color:var(--text3);margin-bottom:3px;}
 .g1-subbtn.sel .g1-subid, .g1-subbtn.sel .g1-subname, .t1-scopebtn.sel .g1-subname{color:var(--accent-text);}
 .g1-subname{font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px;}
-.g1-subtxt{font-size:11px;color:var(--text2);line-height:1.45;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden;}
+.g1-subtxt{font-size:11px;color:var(--text2);}
 
 /* T2 Image Module Layout */
 .t2-split{display:flex;gap:20px;align-items:flex-start;height:calc(100vh - 220px);}
@@ -299,34 +296,11 @@ details.m3-readonly[open] summary::after { content: '\2212'; }
     <span style="color:var(--border);">|</span>
     <span style="font-size:10px;font-family:var(--mono);color:var(--text3);text-transform:uppercase;letter-spacing:.04em;">Prototype</span>
     <span style="font-size:13px;font-weight:600;color:var(--text);" id="hdr-name"></span>
-    <button type="button" class="notes-toggle" id="notes-toggle" title="Show the full option notes instead of the first 3 lines (full text is always on hover)">Notes: short</button>
   </div>
   <div class="panel" id="panel"></div>
 </div>
 <!-- SheetJS — parses ml_predict_labels_<batch>.xlsx client-side for the batch loader below -->
 <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-<script>
-// v15.4 UI: option notes are clamped to 3 lines by default to cut vertical scrolling;
-// this toggle (persisted) restores the full text for every card at once.
-(function(){
-  function apply(full){
-    document.body.classList.toggle("notes-full", !!full);
-    var b=document.getElementById("notes-toggle");
-    if(b) b.textContent = full ? "Notes: full" : "Notes: short";
-  }
-  document.addEventListener("DOMContentLoaded", function(){
-    var full=false;
-    try{ full = localStorage.getItem("wizNotesFull")==="1"; }catch(e){}
-    apply(full);
-    var b=document.getElementById("notes-toggle");
-    if(b) b.addEventListener("click", function(){
-      var nf=!document.body.classList.contains("notes-full");
-      apply(nf);
-      try{ localStorage.setItem("wizNotesFull", nf?"1":"0"); }catch(e){}
-    });
-  });
-})();
-</script>
 <script>
 // Version of the labelling taxonomy/schema this build writes — stamped onto
 // every exported record (JSON and review rows) as codebook_version, so a
@@ -442,7 +416,7 @@ var WING_CONFIG = [
   // wCount 0 so it asserts nothing until the reviewer clicks it up, and it is
   // deliberately excluded from ingestAI's zero-on-load list so a saved count
   // survives a reload.
-  {id:'Unknown', n:'Unknown / Not Visible', d:'The figures do not settle which wing architecture this is — occluded, cropped, or not depicted. Use it instead of guessing. You can still count the panels you CAN see; everything stays optional.'}
+  {id:'Unknown', n:'Unknown / Not Visible', d:'The figures do not settle which wing architecture this is — occluded, cropped, or simply not depicted. Use this instead of guessing between Standard Wings and an integrated hull. You can still count the panels you CAN see and describe them; everything stays optional.'}
 ];
 // v15.6 (2026-09-05) — WING-2. Tip-joining is a property of a PAIR of panels, so it
 // cannot live in the single-select planform: a box wing is also swept or straight,
@@ -472,24 +446,8 @@ var W_POS_L_GUIDE = 'Position along the fuselage, and not along the whole aircra
 // nothing, and it must not be used for frequency claims. Batches 01/02/03/05 were NOT
 // re-read; only the records whose notes already said 'trapezoidal' were back-filled.
 // Inverse ('negative trapezoidal') collapses into this option by decision 2026-09-05.
-// ── REF-1 · THE REFERENCE CONFIGURATION (2026-09-05) ────────────────────────
-// The convention the annotator had applied by habit since Batch 01 and the wizard
-// stated NOWHERE. acState records hover-vs-cruise PER FIGURE; nothing said which
-// configuration the MORPHOLOGY answers describe, so two reviewers could record the
-// same boom as Vertical and as Longitudinal and both be right.
-// The carve-out is not decoration: without it a strict cruise rule would instruct
-// you to record NO BOOM AT ALL on every aircraft whose lift booms stow for cruise
-// (see the boom 'Booms retract / stow' checkbox, added the same day).
-var REF_CONFIG_RULE = 'Every structural answer in M1, M2 and M3 describes the aircraft in its CRUISE configuration. Hover figures are evidence about what MOVES; they never set the geometry you record.  CARVE-OUT \u2014 whether a structure EXISTS (a boom, landing gear, a wing) is read from the figure that shows it DEPLOYED; only its attitude and orientation are read in cruise. A lift boom that stows for cruise is still a boom.  Where no cruise figure exists, record the cruise geometry the patent describes and tick humanUncertain.';
-function refConfigBanner(){
-  return '<div class="flag info" style="margin-bottom:10px;"><span class="f-lbl">Reference configuration</span>'
-    + 'Geometry is read in <b>CRUISE</b>. Existence is read <b>DEPLOYED</b> \u2014 a lift boom that stows for cruise is still a boom.'
-    + ' <span class="ilbl" style="text-decoration:underline dotted; cursor:help;" title="' + escHtml(REF_CONFIG_RULE) + '">full rule</span></div>';
-}
 var W_PLAN = [{id:'Str', n:'Straight'},{id:'Swp', n:'Swept'},{id:'Del', n:'Delta'},
-  // The `d` renders as VISIBLE inline text under the option, not as a tooltip, so it
-  // must stay short — the full guidance lives in the codebook, not in the grid.
-  {id:'Trap', n:'Trapezoidal / Tapered', d:'Chord narrows from root to tip \u2014 inverse taper too. Judge only from a TOP or plan view; perspective makes a straight wing look tapered. If the wing is clearly swept, Swept wins.'},
+  {id:'Trap', n:'Trapezoidal / Tapered', d:'The chord narrows from root to tip (or tip to root \u2014 inverse taper is recorded here too). Only pick this from a TOP or PLAN view: in a perspective view foreshortening makes a straight wing look tapered. If you have no plan view, leave the planform as what you CAN see and say so in the notes. Sweep and taper often occur together \u2014 if the wing is clearly swept, Swept takes precedence and the taper goes in the notes.'},
   {id:'Oth', n:'Other (Elliptical / Compound / Complex)'}];
 // Hoisted out of pageM2()'s wing-role/wing-tilt render block (was redeclared
 // inline on every render) so recordToRows() can reuse the exact same id->name
@@ -530,7 +488,7 @@ var T1_DISAPPROVE_REASONS = [
   // architecture" \u2014 which is what this one reason now says. The 25 existing
   // records are migrated in 03c_CORRECTED, never in the frozen 03_HUMAN exports.
   {id:'No Aircraft Image', n:'No Usable, Sufficient, or Legible Aircraft Image',
-   d:'No figure shows the structure, or there are too few, or they are too poor to read — all one judgement: the drawings do not settle the architecture. Distinct from No Content, which means nothing to review at all.'},
+   d:'Used when no figure depicts the aircraft\'s structure; when figures exist but are too few to describe the aircraft\'s architecture; and when the figures that exist are too poor to read. All three are the same judgement \u2014 the drawings do not let you determine the architecture \u2014 and are recorded under one reason. Distinct from No Content, which means the record carries nothing to review at all.'},
   // RETIRED v15.4 (see FUS_SHAPE's PodBoom for the pattern). Kept so an old saved
   // file still loads and still renders its label; no longer pickable.
   {id:'Unreadable', n:'Unreadable/Insufficient image quality (legacy \u2014 now No Usable, Sufficient, or Legible Aircraft Image)',
@@ -541,7 +499,7 @@ var T1_DISAPPROVE_REASONS = [
   // STOL had to go to Out of Domain (whose own text says "not an AAM aircraft at all",
   // plainly false of it) or to Other, where it stopped being a countable category.
   {id:'Not VTOL', n:'Not VTOL (STOL / CTOL)',
-   d:'In the domain in every other respect — passenger-carrying, often electric, often the same applicants — but it needs a ground roll. Claims a vertical mode too? Then it is a VTOL: approve it.'},
+   d:'Inside the eVTOL/AAM technology domain in every other respect \u2014 passenger-carrying, often electric, often the same applicants \u2014 but the aircraft needs a ground roll to take off. Distinct from Out of TD, which is for subject matter that is not an AAM aircraft at all. If the patent claims BOTH a vertical and a rolling take-off mode it is a VTOL: approve it.'},
   {id:'Other', n:'Other'}
 ];
 // v15.4: pickable subset — 'Unreadable' is retired but stays in the array above so
@@ -604,7 +562,7 @@ var EMP_TYPE = [
 var CHORD = [
   {id:'Front', n:'Front (Puller / Tractor)', d:'Propeller/rotor mounted AHEAD of its support/wing, pulling the aircraft forward. "Tractor" and "puller" are the same thing — the airflow is pulled through from in front.'},
   {id:'Back',  n:'Back (Pusher)',            d:'Propeller/rotor mounted BEHIND its support/wing, pushing the aircraft forward — the airflow is pushed out the back.'},
-  {id:'None',  n:'No chordwise sense (vertical-axis or coaxial lift rotor)', d:'The thrust axis is vertical, so there is no front/back to record — a lift rotor, a coaxial pair, a hub. A determinate answer, not a skipped question. Never for a horizontal-axis unit.'}
+  {id:'None',  n:'No chordwise sense (vertical-axis or coaxial lift rotor)', d:'The unit has NO front/back sense to record, because its thrust axis is vertical — a lift rotor, a coaxial pair, a hub. This is a determinate answer, not a skipped question: "the answer is none", never "I did not look". Do NOT use it for a horizontal-axis propulsor, which always has a tractor/pusher sense.'}
 ];
 var BLADE_MECH = [{id:'Open', n:'Open / Free Rotor'},{id:'Ducted', n:'Ducted Fan / Shrouded'}];
 // Retraction Kinematics. Codebook 2026-08-06: split from 2 options into 3. The
@@ -789,8 +747,8 @@ var BOOM_POS_SPAN = [
 var BOOM_WING_REL = [
   {id:'Fore',     n:'Forward of the wing',  d:'The boom body sits ahead of the wing it attaches to — it extends towards the nose from the attachment.'},
   {id:'Aft',      n:'Aft of the wing',      d:'The boom body sits behind the wing it attaches to — it extends towards the tail from the attachment.'},
-  {id:'Straddle', n:'Straddles the wing',   d:'The boom reaches both forward AND aft of its wing as ONE continuous structure, on one wing only. It stays a single group only if its propulsors cannot be split into a forward set and an aft set — if they can, it is two booms.'},
-  {id:'Bridge',   n:'Bridges two wings',    d:'The boom runs from a forward wing to an aft wing (canard or tandem), so it belongs to both. The spanwise answer below still uses the bigger wing; the bridging is recorded here.'},
+  {id:'Straddle', n:'Straddles the wing',   d:'The boom extends both forward AND aft of its wing, crossing the chord, as ONE continuous structure. ONE wing only — if it reaches a second wing, pick Bridges two wings. v15.5 test: this stays a SINGLE boom group only when its propulsors cannot be assigned to a forward set and an aft set without splitting the group — the same exception that keeps a nose-to-tail boom as one. If there IS a distinguishable forward group and aft group of propulsors, the general counting rule wins: they are two booms, not one straddling boom.'},
+  {id:'Bridge',   n:'Bridges two wings',    d:'The boom runs from a forward wing to an aft wing (canard/tandem layouts), so it belongs to both. This is the case the old "answer for the BIGGER wing" hint was papering over — when you pick this, the spanwise answer below still uses the bigger wing, but the bridging is now recorded explicitly.'},
   {id:'NA',       n:'N/A',                  d:'The boom lies wholly within the wing chord, or fore/aft has no meaning for this geometry.'},
   {id:'Other',    n:'Other'}
 ];
@@ -913,7 +871,7 @@ var FUS_SHAPE_CHOICES = ['Circular', 'Oval', 'Rectangular', 'Blended', 'Other'];
 // legacy batches are migrated in notebooks/02a_legacy_conformance.ipynb.
 var FUS_KIN = [
   {id:'Fixed',      n:'Fixed / Conventional', d:'The body holds one attitude between hover and cruise. Anything that vectors — a tilting wing, tilting nacelles, a deflected slipstream — does so RELATIVE TO the body, which itself does not reorient. This is the normal case for SLC, TW, TR, DS, CVT and HB.'},
-  {id:'BodyPitch',  n:'Whole-Body Pitch',        d:'The whole vehicle leans as one rigid body — no joint between cabin and airframe. It is the KIND of motion, not how far it goes: a few degrees counts as much as most of the way. MR, PTC and RC take this (L10).'},
+  {id:'BodyPitch',  n:'Whole-Body Pitch',        d:'The entire vehicle pitches as one rigid body to generate translation or to transition. There is no joint between the cabin and the airframe — the aircraft leans and everything leans with it. The category is about the KIND of motion, not how far it goes: a multirotor that pitches a few degrees to move forward belongs here just as much as a pitch-to-cruise aircraft that rotates most of the way. Architectures MR, PTC and RC take this value (L10).'},
   {id:'TiltBody',   n:'Tilting Body',            d:'The airframe reorients roughly 90° between hover and cruise and the cabin goes with it. The classic tailsitter: nothing moves internally, the whole aircraft rotates together.'},
   {id:'LevelCabin', n:'Variable Incidence', d:'The airframe reorients as in Tilting Body, but the cabin sits on its own joint and stays level with the ground throughout. Look for a cabin pod carried on a pivot, gimbal or pendular mount between the rotating structures.'},
   // RETIRED, kept for the same reason RETRACT_MECH keeps 'Retractable': a legacy
@@ -1064,7 +1022,7 @@ var T1_EDGE_TAGS = [
   // contract. Renders on DISAPPROVED records too (the chips carry no approval gate),
   // which is the point — an Out-of-TD patent can still be electric-adjacent.
   {id:'ElectricSimilar', n:'Electric-adjacent, but similar enough',
-   d:'Not clearly an electric VTOL, but close enough to share the design space — a hybrid, an unstated powerplant, a conventional aircraft of the same morphology. Records "near the boundary", not "inside it".'}
+   d:'The aircraft is not clearly an electric VTOL, but is close enough to belong to the same design space \u2014 a hybrid, an unstated powerplant on an otherwise eVTOL airframe, or a conventional-powered aircraft of the same morphology. Use it whether the patent is approved or disapproved. It records "near the boundary", not "inside it".'}
 ];
 
 // v15.3: t1/t2 relabelled to the stage names used in the codebook and the thesis
@@ -2789,7 +2747,7 @@ function ocArrFig(key, val, name, desc, oid, dis) {
 
 function dupTypeCard(t) {
   var sel = S.duplicateType === t.id;
-  return '<div class="opt'+(sel?' sel':'')+'" data-dup-type="'+t.id+'" title="'+String(t.d||'').replace(/"/g,'&quot;')+'"><div class="o-id">Type '+t.id+'</div><div class="o-name">'+t.n+'</div><div class="o-desc">'+t.d+'</div></div>';
+  return '<div class="opt'+(sel?' sel':'')+'" data-dup-type="'+t.id+'"><div class="o-id">Type '+t.id+'</div><div class="o-name">'+t.n+'</div><div class="o-desc">'+t.d+'</div></div>';
 }
 
 function qualityChip(q) {
@@ -3109,7 +3067,7 @@ function t1ScopeOptions() { return [{id:'Whole Aircraft Architecture', n:'Whole 
 function t1FieldOptions() { return [{id:'Aerodynamic/Structural', n:'Aerodynamic/Structural'},{id:'Mechanical/Kinematic', n:'Mechanical/Kinematic'},{id:'Propulsion/Electrical', n:'Propulsion/Electrical'},{id:'Control/Avionics', n:'Control/Avionics'},{id:'Other / Unidentified', n:'Other / Unidentified'}]; }
 var T1_TGT = [{id:'Layout Convergence', n:'Layout Convergence'},{id:'Weight/Complexity Reduction', n:'Weight/Complexity Reduction'},{id:'Aerodynamic Efficiency', n:'Aerodynamic Efficiency'},{id:'Redundancy/Safety', n:'Redundancy/Safety'},{id:'Other / Unidentified', n:'Other / Unidentified'}];
 
-function g1MasterButton(key, label, desc) { return '<button type="button" class="g1-master' + (S.g1Focus === key ? ' sel' : '') + '" data-g1-master="' + key + '" title="' + String(desc||'').replace(/"/g,'&quot;') + '"><div class="g1-master-lbl">' + label + '</div><div class="g1-master-desc">' + desc + '</div></button>'; }
+function g1MasterButton(key, label, desc) { return '<button type="button" class="g1-master' + (S.g1Focus === key ? ' sel' : '') + '" data-g1-master="' + key + '"><div class="g1-master-lbl">' + label + '</div><div class="g1-master-desc">' + desc + '</div></button>'; }
 function g1SubPanel(groupKey) {
   var group = G1_TAXONOMY.find(function(g){ return g.key === groupKey; });
   if (!group) return '';
@@ -3118,7 +3076,7 @@ function g1SubPanel(groupKey) {
     html += '<div class="g1-subcard"><div class="g1-subhead">' + sub.title + '</div><div class="g1-subdesc">' + sub.desc + '</div><div class="g1-subgrid">';
     sub.items.forEach(function(itemId){
       var t = TOP.find(function(x){ return x.id === itemId; });
-      if (t) html += '<button type="button" class="g1-subbtn' + (S.topType === t.id ? ' sel' : '') + '" data-g1-top="' + t.id + '" data-g1-group="' + groupKey + '" title="' + String(t.desc||'').replace(/"/g,'&quot;') + '"><div class="g1-subid">' + t.id + '</div><div class="g1-subname">' + t.name + '</div><div class="g1-subtxt">' + t.desc + '</div></button>';
+      if (t) html += '<button type="button" class="g1-subbtn' + (S.topType === t.id ? ' sel' : '') + '" data-g1-top="' + t.id + '" data-g1-group="' + groupKey + '"><div class="g1-subid">' + t.id + '</div><div class="g1-subname">' + t.name + '</div><div class="g1-subtxt">' + t.desc + '</div></button>';
     });
     html += '</div></div>';
   });
@@ -3691,7 +3649,7 @@ function pageGate(){
   var huG1 = humanUncertainToggle('g1');
   // v15.4: the page name now sits in .p-q (the 17px heading) and the stage id +
   // a plain description of what the page asks sits in the .p-module eyebrow.
-  var head = '<div class="p-module">Level 1 &middot; G1 &middot; Primary Physics &amp; Thrust Configuration</div><div class="p-q">Global Architecture</div>' + refConfigBanner();
+  var head = '<div class="p-module">Level 1 &middot; G1 &middot; Primary Physics &amp; Thrust Configuration</div><div class="p-q">Global Architecture</div>';
   if (S.g1_quickOverride) return head + qoG1 + huG1 + commentsSection();
   // v15.4: the old .p-hint here ("Classification is driven by the most complex
   // propulsive/structural system present. Isolate structural lifting surface
@@ -3852,7 +3810,7 @@ function m1BoomsCard(){
             ? '<div class="m2-kv">Position of the attachment — Longitudinal <span class="ilbl">(which third of the AIRFRAME it connects in, nose-to-tail — a boom running the whole length is "Full length", not N/A)</span></div>' + bgGrid(i,'long',BOOM_POS_LONG,g.long)
               + otherNoteInput('long', 'Describe the longitudinal position...', i)
             : '')
-        + '<div class="m2-kv">Orientation <span class="ilbl" title="' + escHtml(REF_CONFIG_RULE) + '">(as the boom sits in CRUISE — hover figures show what moves, not the recorded geometry)</span></div>' + bgGrid(i,'orient',BOOM_ORIENT,g.orient)
+        + '<div class="m2-kv">Orientation</div>' + bgGrid(i,'orient',BOOM_ORIENT,g.orient)
         + otherNoteInput('orient', 'Describe how the booms run...', i)
         + '<div class="irow" style="margin-top:10px;"><span class="ilbl" style="margin-right:8px;" title="' + escHtml(BOOM_COUNT_GUIDE) + '">Count per side</span>'
         + '<input type="number" min="0" max="20" value="' + (parseInt(g.count,10)||0) + '" data-bg-idx="' + i + '" data-bg-field="count" class="m3-num" style="width:70px;">'
@@ -5766,23 +5724,9 @@ function rowsToAIData(rows) {
   // was the "M2 not saved" bug.
   var WING_FIELD_MAP = { wTilt:'tilt', wPosV:'posV', wPosL:'posL', wPlan:'plan', wRole:'role',
                          tilt:'tilt', posV:'posV', posL:'posL', plan:'plan', role:'role' };
-  // v15.6 FIX (2026-09-06): tipJoin is a BOOLEAN and was absent from the parser
-  // below, so wing<N>_tipJoin was silently dropped every time a patent was
-  // rebuilt from its rows — the tick survived stage navigation (still in S) but
-  // vanished on Next/Previous PATENT. Parsed separately because stripLabel()
-  // is for "id — Label" coded values, not booleans.
-  var WING_BOOL_MAP = { tipJoin:'tipJoin', wTipJoin:'tipJoin' };
   var byWing = {};
   rows.forEach(function(r) {
     if (r.Section !== 'M2') return;
-    var mb = /^wing(\d+)_(tipJoin|wTipJoin)$/.exec(String(r.Field || ''));
-    if (mb) {
-      if (r.Value === undefined || r.Value === '' || r.Value == null) return;
-      var idxB = parseInt(mb[1], 10);
-      if (!byWing[idxB]) byWing[idxB] = { id: idxB };
-      byWing[idxB][WING_BOOL_MAP[mb[2]]] = xlBool(r.Value);
-      return;
-    }
     var m = /^wing(\d+)_(wTilt|wPosV|wPosL|wPlan|wRole|tilt|posV|posL|plan|role)$/.exec(String(r.Field || ''));
     if (!m) return;
     var idx = parseInt(m[1], 10), key = WING_FIELD_MAP[m[2]];
@@ -7317,10 +7261,6 @@ document.getElementById('panel').addEventListener('change', function(e){
     S[field] = val3; renderPreserveScroll(); return;
   }
   if (tgt.type === 'checkbox' && (field === 'latSym' || field === 'longSym')) { S[field] = tgt.checked; renderPreserveScroll(); return; }
-  // v15.6 FIX (2026-09-06): wTipJoin had NO handler, so the tick rendered and was
-  // then wiped by the next renderPreserveScroll() — every checkbox in this panel
-  // needs an explicit branch; there is no generic data-field fallback for them.
-  if (tgt.type === 'checkbox' && /^wTipJoin[1-4]$/.test(field || '')) { S[field] = tgt.checked; markBatchDirty(); renderPreserveScroll(); return; }
   if (tgt.type === 'checkbox' && field === 'boomsPresent') { S.boomsPresent = tgt.checked; if (!tgt.checked) { S.boomGroups = []; } else if (!(S.boomGroups||[]).length) { S.boomGroups = [{ attach:null, wingSpan:null, wingRel:null, wingIdx:null, span:null, long:null, orient:null, count:0, symmetric:true, circSymmetric:false, tilts:false, retracts:false, hasProps:null, cards:[] }]; } renderPreserveScroll(); return; }
   // boomXFormat checkbox retired v14 (C5) — BOOM_ORIENT's per-group 'X' option
   // supersedes it; the S.boomXFormat state key + ingest path are kept only for

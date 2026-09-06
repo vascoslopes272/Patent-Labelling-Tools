@@ -5766,23 +5766,9 @@ function rowsToAIData(rows) {
   // was the "M2 not saved" bug.
   var WING_FIELD_MAP = { wTilt:'tilt', wPosV:'posV', wPosL:'posL', wPlan:'plan', wRole:'role',
                          tilt:'tilt', posV:'posV', posL:'posL', plan:'plan', role:'role' };
-  // v15.6 FIX (2026-09-06): tipJoin is a BOOLEAN and was absent from the parser
-  // below, so wing<N>_tipJoin was silently dropped every time a patent was
-  // rebuilt from its rows — the tick survived stage navigation (still in S) but
-  // vanished on Next/Previous PATENT. Parsed separately because stripLabel()
-  // is for "id — Label" coded values, not booleans.
-  var WING_BOOL_MAP = { tipJoin:'tipJoin', wTipJoin:'tipJoin' };
   var byWing = {};
   rows.forEach(function(r) {
     if (r.Section !== 'M2') return;
-    var mb = /^wing(\d+)_(tipJoin|wTipJoin)$/.exec(String(r.Field || ''));
-    if (mb) {
-      if (r.Value === undefined || r.Value === '' || r.Value == null) return;
-      var idxB = parseInt(mb[1], 10);
-      if (!byWing[idxB]) byWing[idxB] = { id: idxB };
-      byWing[idxB][WING_BOOL_MAP[mb[2]]] = xlBool(r.Value);
-      return;
-    }
     var m = /^wing(\d+)_(wTilt|wPosV|wPosL|wPlan|wRole|tilt|posV|posL|plan|role)$/.exec(String(r.Field || ''));
     if (!m) return;
     var idx = parseInt(m[1], 10), key = WING_FIELD_MAP[m[2]];
