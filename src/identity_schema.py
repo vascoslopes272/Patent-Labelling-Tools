@@ -12,6 +12,7 @@ wins a field, and the confidence constants for sources that do not compute one.
 from __future__ import annotations
 
 from src.aircraft_specs import BLADE_COLUMNS
+from src.patent_flags import FLAG_COLUMNS as _FLAG_COLUMNS
 from src.patent_scope import SCOPE_COLUMNS as _SCOPE_COLUMNS
 from src.patent_maturity import MATURITY_COLUMNS as _MATURITY_COLUMNS
 
@@ -47,6 +48,9 @@ IDENTITY_COLUMNS = [
     "aircraft_name_alternatives",
     # Propulsion
     "is_electric", "powertrain", "powertrain_source", "powertrain_confidence",
+    # Takeoff mode + the rejectable suggestion it feeds (src/patent_flags.py).
+    # A label with a reason and a score — never a deletion.
+    *_FLAG_COLUMNS,
     # Application domain
     "industry_primary", "industry_source", "industry_confidence",
     # Specifications

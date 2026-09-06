@@ -67,6 +67,11 @@ from src.identity_llm import (               # noqa: F401
 from src.identity_excel import (             # noqa: F401
     export_identity_excel, merge_preserving_human,
 )
+from src.patent_flags import (        # noqa: F401
+    classify_takeoff_mode, assess_rejectable, build_flag_row,
+    FLAG_COLUMNS as _FLAG_COLUMNS, TAKEOFF_DEFS,
+    TAKEOFF_MODE_OPTIONS, REJECTABLE_MIN_CONFIDENCE,
+)
 from src.patent_scope import SCOPE_COLUMNS as _SCOPE_COLUMNS
 from src.patent_maturity import MATURITY_COLUMNS as _MATURITY_COLUMNS
 from src.identity_schema import (           # noqa: F401
@@ -274,6 +279,7 @@ def build_identity_row(
         **blade_cols,
         # Filled by attach_scope() once src/patent_scope.py has run — it needs
         # the resolved aircraft_name, so it cannot run before this point.
+        **{c: None for c in _FLAG_COLUMNS},
         **{c: None for c in _SCOPE_COLUMNS},
         # Filled by attach_maturity().
         **{c: None for c in _MATURITY_COLUMNS},
@@ -285,6 +291,23 @@ def build_identity_row(
         "notes": None,
     }
     return row, evidence
+
+
+def attach_flags(row: dict, flag_row: dict) -> dict:
+    """Fold src/patent_flags.build_flag_row()'s columns into an identity row.
+
+    Runs before attach_scope() only for tidiness — it depends on nothing the
+    other passes produce. It adds one review reason, because a rejectable
+    suggestion is precisely the row a human must look at.
+    """
+    row.update({c: flag_row.get(c) for c in _FLAG_COLUMNS})
+
+    if flag_row.get("rejectable"):
+        reasons = [r for r in (row.get("review_reason") or "").split("; ") if r]
+        reasons.append(f"REJECTABLE: {flag_row.get('rejectable_reason')}")
+        row["needs_review"] = True
+        row["review_reason"] = "; ".join(dict.fromkeys(reasons))
+    return row
 
 
 def attach_maturity(row: dict, maturity_row: dict) -> dict:

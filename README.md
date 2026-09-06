@@ -68,6 +68,8 @@ own small module, so you can read or change one without touching the rest.
 | `aircraft_gazetteer.py` | The curated company → aircraft table. |
 | `identity_llm.py` | Prompts, answer parsing, the Anthropic API path. |
 | `patent_scope.py` | Scope, architecture, specificity, `aircraft_link`. |
+| `patent_flags.py` | Takeoff mode (VTOL/STOL/CTOL) and the rejectable suggestion. |
+| `triage_report.py` | The standalone worst-first review page. |
 | `figure_views.py` | What kind of view each figure is. |
 | `patent_maturity.py` | Granted vs filed, citations, maturity tier. |
 | `identity_excel.py` | The workbook writer and the human-edit merge. |
@@ -94,6 +96,30 @@ a Joby patent on a motor bearing is labelled `aircraft_name = S4` at confidence
 kept — it is real evidence about the company — but the column says which kind of
 claim it is. **Filter `aircraft_link == "Depicted"` before any per-aircraft
 statistic.**
+
+#### Takeoff mode, the rejectable flag, and the triage page
+
+| Column | What it says |
+|---|---|
+| `takeoff_mode` | **VTOL / STOL / CTOL / VSTOL**. Keyword-driven, with one guard that matters: eVTOL patents mention runways constantly *to disclaim them*, so "takes off without a runway" is read as VTOL evidence, never conventional-takeoff evidence. |
+| `takeoff_evidence` | The sentence that produced the label, shown on the triage card so a wrong call is dismissible at a glance. |
+| `rejectable` | A **suggestion with a reason and a score** — never a deletion, never a wizard edit. Fires when takeoff mode is STOL/CTOL, or the powertrain is Turbine/Piston, and that label clears `REJECTABLE_MIN_CONFIDENCE` (0.70). |
+| `rejectable_reason` | Why, in words: `takeoff mode is STOL, not VTOL; propulsion is Turbine, not electric`. |
+
+Hybrid-electric and V/STOL are deliberately **not** rejectable: a series hybrid
+still flies on electric motors, and a both-capable aircraft is still a
+vertical-takeoff aircraft. Whether either belongs in the corpus is a scoping
+decision, not one a flag should pre-empt.
+
+`triage_<Batch_NN>.html` is a standalone review page written next to the
+workbook. It opens from disk, needs no server or network, and is entirely
+separate from `UI_for_taxonomy_caracterization_*.html` — it reads nothing the
+wizard owns and writes nothing the wizard reads. Rows are ordered worst-first:
+flagged, then contradictions (VTOL text with a combustion powertrain), then
+lowest confidence. Keyboard: `J`/`K` move, `A` accept, `X` confirm rejectable,
+`D` dismiss the flag, `E` edit, `N` note. Decisions download as a CSV that
+`apply_triage_decisions()` folds back in with `*_source = "human"`, so they
+survive every later re-run.
 
 #### Blade counts and maturity
 

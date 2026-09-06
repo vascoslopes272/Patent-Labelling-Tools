@@ -39,7 +39,9 @@ import pandas as pd
 from src import aircraft_identity as ai
 from src import patent_scope as ps
 from src import patent_maturity as pm
+from src import patent_flags as pfl
 from src.extractor import load_patseer_excel
+from src import triage_report as tr
 
 
 @dataclass
@@ -185,6 +187,14 @@ def analyse(inputs: Stage03aInputs, sbert=None,
             aircraft_name=row["aircraft_name"],
             aircraft_name_source=row["aircraft_name_source"],
         )
+        # Flags first: takeoff mode depends only on the text and the powertrain
+        # prediction, and a rejectable suggestion adds its own review reason.
+        flag_row, flag_ev = pfl.build_flag_row(ctext, ai.classify_powertrain(ctext, sbert), sbert)
+        ai.attach_flags(row, flag_row)
+        for e in flag_ev:
+            e["patent_id"] = pid
+        results.evidence.extend(flag_ev)
+
         ai.attach_scope(row, scope_row)
         ai.attach_maturity(row, pm.build_maturity_row(pid, inputs.excel_index))
 
@@ -306,7 +316,15 @@ def report(results: Stage03aResults) -> pd.DataFrame:
     print("  ^ the population for any statistic grouped by aircraft. The")
     print("    CompanyAttributed rows are company-level evidence only.")
 
+    # The two disqualifying labels come first: they are what you act on.
+    flagged = ident["rejectable"].fillna(False).astype(bool).sum()
+    print(f"\nREJECTABLE (suggestion, never a deletion): {pct(flagged)}")
+    if flagged:
+        print(ident.loc[ident["rejectable"].fillna(False).astype(bool),
+                        "rejectable_reason"].value_counts().to_string())
+
     for title, col in [
+        ("TAKEOFF MODE — VTOL vs STOL vs conventional", "takeoff_mode"),
         ("SCOPE — what the patents are about", "scope"),
         ("SPECIFICITY", "specificity"),
         ("AIRCRAFT LINK", "aircraft_link"),
@@ -340,6 +358,91 @@ def report(results: Stage03aResults) -> pd.DataFrame:
         print(borderline[["patent_id", "scope", "specificity", "specificity_score",
                           "specificity_reason"]].head(8).to_string(index=False))
     return ident
+
+
+# ─── 6. Triage page + decision ingest ────────────────────────────────────────
+
+def build_triage(inputs: Stage03aInputs, results: Stage03aResults,
+                 out_path: "Path | None" = None) -> Path:
+    """Write the standalone review page for this batch and return its path.
+
+    Opens straight from disk in a browser. It is entirely separate from the
+    taxonomy wizard — it reads nothing the wizard owns and writes nothing the
+    wizard reads.
+    """
+    data_matched = Path(inputs.cfg["paths"].get("data_matched", inputs.cfg["paths"]["data"]))
+    out_path = out_path or (data_matched / inputs.batch / f"triage_{inputs.batch}.html")
+    path = tr.build_triage_html(results.rows, inputs.batch, out_path)
+    flagged = sum(1 for r in results.rows if r.get("rejectable"))
+    print(f"Triage page -> {path}\n  {len(results.rows)} patents, {flagged} flagged "
+          f"rejectable, sorted worst-first.\n  Open it, review, then click "
+          f"'Download decisions CSV' and run apply_triage_decisions().")
+    return path
+
+
+def apply_triage_decisions(results: Stage03aResults, csv_path: "str | Path") -> int:
+    """Fold the triage page's CSV back into the rows.
+
+    An edited label is written with its `*_source` set to "human" and its
+    confidence to 1.0, which is what makes it survive every later re-run
+    (see identity_excel.merge_preserving_human). A confirmed rejectable becomes
+    rejectable_source="human"; a dismissed one sets rejectable to False.
+
+    Returns the number of patents whose row changed.
+    """
+    df = pd.read_csv(csv_path, dtype=object).fillna("")
+    by_pid = {r["patent_id"]: r for r in results.rows}
+    changed = 0
+
+    for _, d in df.iterrows():
+        row = by_pid.get(str(d.get("patent_id", "")).strip())
+        if row is None:
+            continue
+        touched = False
+
+        for field, _label, _opts in tr.REVIEW_FIELDS:
+            value = str(d.get(f"{field}_human", "")).strip()
+            if not value:
+                continue
+            row[field] = value
+            if f"{field}_source" in row:
+                row[f"{field}_source"] = "human"
+            if f"{field}_confidence" in row:
+                row[f"{field}_confidence"] = 1.0
+            touched = True
+
+        action = str(d.get("action", "")).strip()
+        if action == "confirm_reject":
+            row["rejectable"] = True
+            row["rejectable_confidence"] = 1.0
+            touched = True
+        elif action == "dismiss_flag":
+            row["rejectable"] = False
+            row["rejectable_reason"] = (
+                f"dismissed by reviewer (was: {row.get('rejectable_reason')})")
+            row["rejectable_confidence"] = 1.0
+            touched = True
+
+        note = str(d.get("note", "")).strip()
+        if note:
+            row["notes"] = note
+            touched = True
+
+        if action:
+            row["reviewed_at"] = str(d.get("reviewed_at", "")).strip() or None
+            # A reviewed row is settled; it should stop appearing in the queue.
+            row["needs_review"] = False
+            touched = True
+
+        changed += 1 if touched else 0
+
+    # is_electric is derived, so recompute after any human powertrain edit.
+    for row in results.rows:
+        pt = row.get("powertrain")
+        row["is_electric"] = ai.ELECTRIC_BY_POWERTRAIN.get(pt, "Unknown") if pt else "Unknown"
+
+    print(f"Applied {changed} decision(s). Re-run export() to write them to the workbook.")
+    return changed
 
 
 # ─── Whole-corpus convenience ────────────────────────────────────────────────

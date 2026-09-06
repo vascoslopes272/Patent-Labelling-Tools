@@ -75,11 +75,17 @@ images. It answers, per patent:
 | Its numbers? | `pax`, `mtow_kg`, `range_km`, …, `blades_primary`, `blades_all` |
 | Where / what for? | `assignee_country`, `region`, `pub_office`, `industry_primary` |
 | Accepted, or only filed? | `legal_stage`, `maturity_tier`, `impact_tier`, citations |
+| **VTOL or STOL?** | **`takeoff_mode`** — a STOL or runway aircraft is not an eVTOL |
+| **Rejectable?** | **`rejectable`** + reason + score — a suggestion, never a deletion |
 
 Output: `<data_matched>/<Batch_NN>/aircraft_identity_<Batch_NN>.xlsx` — sheets
 **Identity** (one row per patent), **Figures** (one row per figure),
 **Evidence** (every candidate every signal proposed), **LLM_Prompts**, and
 **README** (the column dictionary).
+
+Review happens in `triage_<Batch_NN>.html`, written next to the workbook — a
+standalone keyboard-driven page, sorted worst-first. It is **separate from the
+taxonomy wizard** and touches none of its files.
 
 **The one rule:** filter `aircraft_link == "Depicted"` before any statistic
 grouped by aircraft. `CompanyAttributed` means "Joby filed this and Joby makes
