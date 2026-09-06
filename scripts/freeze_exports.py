@@ -166,10 +166,16 @@ def main() -> int:
     ap.add_argument("--freeze", nargs="+", metavar="BATCH", help="chmod 444 + manifest these batches")
     ap.add_argument("--copy", nargs="+", metavar="BATCH", help="create/refresh editable working copies")
     ap.add_argument("--force", action="store_true", help="with --copy: replace an edited copy (backed up first)")
+    # A batch that has had a SECOND human review pass is frozen in
+    # 03d_HUMAN_PASS2_wizard_exports, not 03_HUMAN — and 02a reads 03c, so the
+    # working copy has to be refreshed from whichever pass is the latest.
+    # Without this the pass-2 file is stranded and 02a silently runs on pass 1.
+    ap.add_argument("--src", metavar="DIR", help="copy FROM this directory instead of 03_HUMAN "
+                                                 "(use for a batch whose latest pass is 03d)")
     a = ap.parse_args()
 
     cfg = load_config()
-    src = Path(cfg["paths"]["html_review_exports"])
+    src = Path(a.src) if getattr(a, "src", None) else Path(cfg["paths"]["html_review_exports"])
     dst = Path(cfg["paths"].get("corrected_wizard_exports",
                                 Path(cfg["paths"]["data"]) / "03c_CORRECTED_wizard_exports"))
     known = sorted({p.stem.removeprefix("reviewed_patents_").strip().split(".")[0]

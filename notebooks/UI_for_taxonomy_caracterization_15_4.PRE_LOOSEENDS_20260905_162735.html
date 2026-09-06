@@ -111,8 +111,8 @@ body{ padding-left:280px; }
 .sec{font-size:12px;font-weight:500;color:var(--text2);margin:1.25rem 0 .55rem;}
 
 /* options */
-.og{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:7px;margin-bottom:.25rem;align-items:start;}
-.og.n{grid-template-columns:repeat(auto-fill,minmax(175px,1fr));}
+.og{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:7px;margin-bottom:.25rem;}
+.og.n{grid-template-columns:repeat(auto-fill,minmax(148px,1fr));}
 .opt{padding:12px 14px;border:1px solid var(--border);border-radius:var(--r);cursor:pointer;background:var(--surface);transition:all 0.15s ease;position:relative;user-select:none;box-shadow:0 1px 2px rgba(0,0,0,0.02);}
 .opt:hover{border-color:var(--text3);background:var(--bg);transform:translateY(-1px);box-shadow:0 3px 5px rgba(0,0,0,0.04);}
 .opt.sel{border-color:var(--accent);background:var(--accent-bg);}
@@ -122,10 +122,7 @@ body{ padding-left:280px; }
 .opt.sel .o-id{color:var(--accent);}
 .o-name{font-size:13px;font-weight:500;color:var(--text);line-height:1.3;padding-right:16px;}
 .opt.sel .o-name{color:var(--accent-text);}
-.o-desc{font-size:11px;color:var(--text2);margin-top:4px;line-height:1.45;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden;}
-body.notes-full .o-desc,body.notes-full .g1-master-desc,body.notes-full .g1-subtxt{display:block;overflow:visible;-webkit-line-clamp:unset;line-clamp:unset;}
-.notes-toggle{margin-left:auto;font-size:11px;font-family:var(--mono);color:var(--text2);border:1px solid var(--border);background:var(--surface);border-radius:var(--r);padding:3px 9px;cursor:pointer;}
-.notes-toggle:hover{border-color:var(--accent);color:var(--accent);}
+.o-desc{font-size:11px;color:var(--text2);margin-top:4px;line-height:1.45;}
 .opt.sel .o-desc{color:var(--accent-text);opacity:.75;}
 
 /* int stepper */
@@ -170,18 +167,18 @@ body.notes-full .o-desc,body.notes-full .g1-master-desc,body.notes-full .g1-subt
 
 /* propulsion & structural modules */
 .m2-shell, .m3-shell{display:grid;gap:12px;}
-.m2-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px;margin-bottom:.2rem;align-items:start;}
+.m2-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;margin-bottom:.2rem;}
 .m2-card, .m3-card{border:1px solid var(--border);border-radius:var(--rl);background:linear-gradient(180deg,var(--surface),var(--bg));padding:14px;}
 .m2-head, .m3-head{font-size:14px;font-weight:600;letter-spacing:-.01em;color:var(--text);margin-bottom:4px;}
 .m2-sub, .m3-sub{font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:10px;}
-.m3-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;align-items:start;}
+.m3-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;}
 .m3-field{display:flex;flex-direction:column;gap:6px;}
 .m3-label{font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--text3);}
 .m3-num, .m3-readonly{width:100%;padding:10px 11px;border-radius:var(--r);border:1px solid var(--border2);background:var(--surface);color:var(--text);font:600 14px var(--mono);}
 .m3-num:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(45,91,227,.12);}
 .m3-readonly{background:var(--bg);color:var(--accent-text);}
 .m3-footnote{font-size:11px;color:var(--text2);line-height:1.45;margin-top:2px;}
-.m2-zone, .m3-zone{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:7px;align-items:start;}
+.m2-zone, .m3-zone{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:7px;}
 .m2-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;}
 .m2-count-wrap{display:flex;align-items:center;gap:8px;}
 .m2-count{width:92px;padding:9px 10px;border-radius:var(--r);border:1px solid var(--border2);font:600 14px var(--mono);text-align:center;}
@@ -200,26 +197,26 @@ details.m3-readonly[open] summary::after { content: '\2212'; }
 .cite-link:hover { background: var(--accent-bg); }
 
 /* progressive UI structures */
-.g1-master-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-bottom:4px;align-items:start;}
+.g1-master-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-bottom:4px;}
 .g1-master{border:1px solid var(--border);border-radius:var(--rl);background:linear-gradient(180deg,var(--surface),var(--bg));padding:14px;cursor:pointer;transition:all .18s ease;}
 .g1-master:hover{border-color:var(--text3);transform:translateY(-1px);}
 .g1-master.sel{border-color:var(--accent);background:var(--accent-bg);}
 .g1-master-lbl{font-size:14px;font-weight:600;color:var(--text);margin-bottom:4px;}
 .g1-master.sel .g1-master-lbl{color:var(--accent-text);}
-.g1-master-desc{font-size:12px;color:var(--text2);line-height:1.45;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden;}
+.g1-master-desc{font-size:12px;color:var(--text2);line-height:1.45;}
 .g1-panel{display:none;opacity:0;margin-top:12px;}
 .g1-panel.open{display:block;opacity:1;}
 .g1-subcard{border:1px solid var(--border);border-radius:var(--rl);background:var(--surface);padding:14px;margin-bottom:10px;}
 .g1-subhead{font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px;}
 .g1-subdesc{font-size:12px;color:var(--text2);margin-bottom:10px;}
-.g1-subgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;align-items:start;}
+.g1-subgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;}
 .g1-subbtn, .t1-scopebtn{border:1px solid var(--border);border-radius:var(--r);background:var(--bg);padding:12px;text-align:left;cursor:pointer;transition:all .16s ease;width:100%;}
 .g1-subbtn:hover, .t1-scopebtn:hover{border-color:var(--text3);transform:translateY(-1px);}
 .g1-subbtn.sel, .t1-scopebtn.sel{border-color:var(--accent);background:var(--accent-bg);}
 .g1-subid{font-size:10px;font-family:var(--mono);text-transform:uppercase;color:var(--text3);margin-bottom:3px;}
 .g1-subbtn.sel .g1-subid, .g1-subbtn.sel .g1-subname, .t1-scopebtn.sel .g1-subname{color:var(--accent-text);}
 .g1-subname{font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px;}
-.g1-subtxt{font-size:11px;color:var(--text2);line-height:1.45;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden;}
+.g1-subtxt{font-size:11px;color:var(--text2);}
 
 /* T2 Image Module Layout */
 .t2-split{display:flex;gap:20px;align-items:flex-start;height:calc(100vh - 220px);}
@@ -299,34 +296,11 @@ details.m3-readonly[open] summary::after { content: '\2212'; }
     <span style="color:var(--border);">|</span>
     <span style="font-size:10px;font-family:var(--mono);color:var(--text3);text-transform:uppercase;letter-spacing:.04em;">Prototype</span>
     <span style="font-size:13px;font-weight:600;color:var(--text);" id="hdr-name"></span>
-    <button type="button" class="notes-toggle" id="notes-toggle" title="Show the full option notes instead of the first 3 lines (full text is always on hover)">Notes: short</button>
   </div>
   <div class="panel" id="panel"></div>
 </div>
 <!-- SheetJS — parses ml_predict_labels_<batch>.xlsx client-side for the batch loader below -->
 <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-<script>
-// v15.4 UI: option notes are clamped to 3 lines by default to cut vertical scrolling;
-// this toggle (persisted) restores the full text for every card at once.
-(function(){
-  function apply(full){
-    document.body.classList.toggle("notes-full", !!full);
-    var b=document.getElementById("notes-toggle");
-    if(b) b.textContent = full ? "Notes: full" : "Notes: short";
-  }
-  document.addEventListener("DOMContentLoaded", function(){
-    var full=false;
-    try{ full = localStorage.getItem("wizNotesFull")==="1"; }catch(e){}
-    apply(full);
-    var b=document.getElementById("notes-toggle");
-    if(b) b.addEventListener("click", function(){
-      var nf=!document.body.classList.contains("notes-full");
-      apply(nf);
-      try{ localStorage.setItem("wizNotesFull", nf?"1":"0"); }catch(e){}
-    });
-  });
-})();
-</script>
 <script>
 // Version of the labelling taxonomy/schema this build writes — stamped onto
 // every exported record (JSON and review rows) as codebook_version, so a
@@ -335,7 +309,7 @@ details.m3-readonly[open] summary::after { content: '\2212'; }
 // v15.5 (2026-09-02): first bump since v13. The stamp had been frozen at '1.0'
 // across every taxonomy revision, so no exported file could say which schema
 // produced it. Bump this on EVERY taxonomy change from here on.
-var CODEBOOK_VERSION = '1.6';
+var CODEBOOK_VERSION = '1.5';
 
 // --- CORE PATENT DATA EXTRACTED FROM FILE DATASET ---
 var T1_META = {
@@ -365,7 +339,7 @@ var THROUGHPUT = { figCur:'1', figTot:'18', patCur:'1', patTot:'1635' };
 var TOP=[
   {id:'TW', name:'Vectored Thrust \u2014 Tilt Wing', desc:'Entire wing panel rotates to redirect thrust from vertical to horizontal. Excludes a wing that tilts only for structural reasons (folding, ground clearance) \u2014 classify those by the propulsor instead.'},
   {id:'TR', name:'Vectored Thrust \u2014 Tilt Rotor', desc:'Propulsors tilt independently of fixed wing.'},
-  {id:'DS', name:'Vectored Thrust \u2014 Deflected Slipstream', desc:'The propulsors are fixed \u2014 their THRUST AXIS never pivots relative to the airframe (the propellers of course still spin) \u2014 and their high-speed slipstream is turned downward by a fixed structure in the flow path to make vertical lift. That structure may be flaps, a deflecting wing, a vane cascade or a duct; which one it is does not matter. Contrast Tilt Rotor, where the propulsor mount itself rotates.'},
+  {id:'DS', name:'Vectored Thrust \u2014 Deflected Slipstream', desc:'Fixed props, airflow deflected by large structural flaps.'},
   // v15.3: the "ambiguous dual-rotation mechanisms" clause is removed \u2014 the
   // codebook now sends ambiguity to humanUncertain so CVT keeps a single meaning.
   // v15.5 (2026-09-03): the "At least one wing tilts" clause is REMOVED. It
@@ -374,7 +348,7 @@ var TOP=[
   // wing \u2014 the other 21 mix a TILTING ROTOR with fixed propulsors and have no
   // tilting wing at all. What defines CVT is the MIX of fixed and tilting thrust,
   // not which component does the tilting.
-  {id:'CVT', name:'Vectored Thrust \u2014 Combined (CVT)', desc:'FIXED and TILTING thrust mechanisms mixed on the same aircraft. The tilting half may be a tilting WING or tilting ROTORS \u2014 either counts, and which one it is does not matter here; what makes the aircraft CVT is that some other thrust source does NOT tilt with it, such as fixed rotors on a wing, or propulsors on the fuselage, the empennage or a non-tilting boom. A non-tilting wing carrying NO propulsors does not make an aircraft CVT: it is still a Tilt Wing. NOT for aircraft that are merely hard to read: when the drawing will not settle whether the wing or the propulsors vector, pick the more likely of TW/TR and flag humanUncertain. THE BOUNDARY AGAINST TILT ROTOR (settled 2026-09-05): if EVERY thrust source tilts — with the boom, the wing or its own mount — the aircraft is a Tilt Rotor; if ANY one of them does not, it is Combined. Which component does the tilting is irrelevant. A propulsor ticked "Control / stability only" is not a thrust source for this test, so a tilt wing carrying a small stability propeller stays a Tilt Wing rather than becoming Combined.'},
+  {id:'CVT', name:'Vectored Thrust \u2014 Combined (CVT)', desc:'FIXED and TILTING thrust mechanisms mixed on the same aircraft. The tilting half may be a tilting WING or tilting ROTORS \u2014 either counts, and which one it is does not matter here; what makes the aircraft CVT is that some other thrust source does NOT tilt with it, such as fixed rotors on a wing, or propulsors on the fuselage, the empennage or a non-tilting boom. A non-tilting wing carrying NO propulsors does not make an aircraft CVT: it is still a Tilt Wing. NOT for aircraft that are merely hard to read: when the drawing will not settle whether the wing or the propulsors vector, pick the more likely of TW/TR and flag humanUncertain.'},
   // v15.4: "(Tailsitter)" moved out of the NAME and into the description as the
   // example it always was. A tailsitter is the classic instance of Tilt Body,
   // not the definition of it \u2014 the test is that the whole airframe rotates
@@ -387,8 +361,8 @@ var TOP=[
   // the winged branch \u2014 "multirotor-ness" is captured by M3 rotor counts, NOT
   // by G1's wingless branch (MR stays strictly wingless).
   {id:'PTC', name:'Vectored Thrust \u2014 Pitch-to-Cruise (Winged Multirotor)', desc:'Fixed vertical lift rotors + fixed wing; the whole vehicle pitches forward a modest angle to cruise. No tilting mechanism, no separate cruise propulsor, and NOT a 90\u00b0 tailsitter (that is TB).'},
-  {id:'SLC', name:'Independent Thrust \u2014 Lift + Cruise (SLC)', desc:'TWO SEPARATE, FIXED propulsion sets: rotors that lift in hover, and a distinct propulsor that pushes or pulls in cruise. Nothing tilts and nothing stops. The test is that you can point at the cruise unit and it is not one of the lift rotors. Boundary against Pitch-to-Cruise: if there is NO separate cruise propulsor and the vehicle pitches so the lift rotors themselves drive it forward, that is PTC, not SLC. Boundary against Stopped Rotor Wing: if the hover rotor stops and becomes the lifting surface, that is SRW.'},
-  {id:'SRW', name:'Independent Thrust \u2014 Stopped / Slowed Rotor Wing', desc:'The hover rotor STOPS OR SLOWS AND BECOMES THE CRUISE LIFTING SURFACE \u2014 the same blades that lifted the aircraft are locked into place and fly as a wing. The test is identity: the cruise wing IS the stopped rotor, not a separate panel. Boundary against Lift + Cruise: if the aircraft carries a distinct wing that was always a wing, and the rotors merely stop being used, that is SLC. A rotor that folds away rather than becoming a lifting surface is also SLC.'},
+  {id:'SLC', name:'Independent Thrust \u2014 Lift + Cruise (SLC)', desc:'Separate fixed hover rotors and cruise propulsors.'},
+  {id:'SRW', name:'Independent Thrust \u2014 Stopped / Slowed Rotor Wing', desc:'Rotor-wing variant where hover units stop/lock to provide cruise lift.'},
   {id:'RC', name:'Wingless \u2014 Rotorcraft', desc:'Traditional helicopter topologies (single, coaxial, tandem).'},
   {id:'MR', name:'Wingless \u2014 Multirotor', desc:'Distributed thrust drones, multicopters.'},
   {id:'HB', name:'Other \u2014 Hoverbikes', desc:'Motorcycle posture, rider interface visible.'},
@@ -442,21 +416,8 @@ var WING_CONFIG = [
   // wCount 0 so it asserts nothing until the reviewer clicks it up, and it is
   // deliberately excluded from ingestAI's zero-on-load list so a saved count
   // survives a reload.
-  {id:'Unknown', n:'Unknown / Not Visible', d:'The figures do not settle which wing architecture this is — occluded, cropped, or not depicted. Use it instead of guessing. You can still count the panels you CAN see; everything stays optional.'}
+  {id:'Unknown', n:'Unknown / Not Visible', d:'The figures do not settle which wing architecture this is — occluded, cropped, or simply not depicted. Use this instead of guessing between Standard Wings and an integrated hull. You can still count the panels you CAN see and describe them; everything stays optional.'}
 ];
-// v15.6 (2026-09-05) — WING-2. Tip-joining is a property of a PAIR of panels, so it
-// cannot live in the single-select planform: a box wing is also swept or straight,
-// and the corpus proves it ("wings with swept connect at the wingtip", B01
-// US2020269980A1). Rendered as its own checkbox beside the planform grid; back-filled
-// for the 17 records that already said so in the Wing Architecture 'Other' note.
-// The tail equivalent already exists separately as EMP_TYPE's 'BoxTail'.
-function wingTipJoinCheck(i) {
-  var f = wingField('wTipJoin', i);
-  return '<label class="m2-check" style="font-size:13px; margin-top:6px; display:inline-flex;">'
-    + '<input type="checkbox" data-field="' + f + '" ' + (S[f] ? 'checked' : '')
-    + ' title="This panel is JOINED AT OR NEAR ITS TIP to another wing panel — a box wing, a joined/annular wing, or a closed-loop layout. It is not a planform: tick it in addition to Straight/Swept/Delta, which still describe this panel\'s own shape. A winglet or an upturned tip fence is NOT a tip join: the panel must actually connect to another panel.">'
-    + ' Tip-joined to another panel <span class="ilbl" style="margin-left:6px;">(box / joined / closed-loop wing — not a winglet)</span></label>';
-}
 var W_POS_V = [{id:'High', n:'High / Hub'},{id:'Mid', n:'Mid / Center'},{id:'Low', n:'Low / Down'},{id:'Unknown', n:'Unknown'}];
 var W_POS_L = [{id:'Fwd', n:'Forward (Nose/Canard position)'},{id:'Cent', n:'Center (CG / Mid-Fuselage)'},{id:'Aft', n:'Aft (Tail / Rear position)'}];
 // v15.4: the per-wing dimensions render as bare option grids with no labels, so
@@ -464,33 +425,7 @@ var W_POS_L = [{id:'Fwd', n:'Forward (Nose/Canard position)'},{id:'Cent', n:'Cen
 // ("Nose/Canard", "Tail / Rear") read as if they were aircraft-level. Hung on a
 // new m2-kv header in pageM2's per-wing block, same pattern as the boom card.
 var W_POS_L_GUIDE = 'Position along the fuselage, and not along the whole aircraft. A wing sitting forward on the fuselage is Forward even when booms or propulsors extend further ahead of it.';
-// v15.6 (2026-09-05): 'Trap' added. Taper is only reliably readable from a TOP or
-// PLAN projection, which exists for 210 of 692 winged patents (30.3%); in the
-// front-isometric views that dominate the corpus (901 figures) foreshortening makes
-// a tapered and a straight planform look alike. So this option is deliberately a
-// POSITIVE marker only \u2014 where it is picked it is real, but its absence proves
-// nothing, and it must not be used for frequency claims. Batches 01/02/03/05 were NOT
-// re-read; only the records whose notes already said 'trapezoidal' were back-filled.
-// Inverse ('negative trapezoidal') collapses into this option by decision 2026-09-05.
-// ── REF-1 · THE REFERENCE CONFIGURATION (2026-09-05) ────────────────────────
-// The convention the annotator had applied by habit since Batch 01 and the wizard
-// stated NOWHERE. acState records hover-vs-cruise PER FIGURE; nothing said which
-// configuration the MORPHOLOGY answers describe, so two reviewers could record the
-// same boom as Vertical and as Longitudinal and both be right.
-// The carve-out is not decoration: without it a strict cruise rule would instruct
-// you to record NO BOOM AT ALL on every aircraft whose lift booms stow for cruise
-// (see the boom 'Booms retract / stow' checkbox, added the same day).
-var REF_CONFIG_RULE = 'Every structural answer in M1, M2 and M3 describes the aircraft in its CRUISE configuration. Hover figures are evidence about what MOVES; they never set the geometry you record.  CARVE-OUT \u2014 whether a structure EXISTS (a boom, landing gear, a wing) is read from the figure that shows it DEPLOYED; only its attitude and orientation are read in cruise. A lift boom that stows for cruise is still a boom.  Where no cruise figure exists, record the cruise geometry the patent describes and tick humanUncertain.';
-function refConfigBanner(){
-  return '<div class="flag info" style="margin-bottom:10px;"><span class="f-lbl">Reference configuration</span>'
-    + 'Geometry is read in <b>CRUISE</b>. Existence is read <b>DEPLOYED</b> \u2014 a lift boom that stows for cruise is still a boom.'
-    + ' <span class="ilbl" style="text-decoration:underline dotted; cursor:help;" title="' + escHtml(REF_CONFIG_RULE) + '">full rule</span></div>';
-}
-var W_PLAN = [{id:'Str', n:'Straight'},{id:'Swp', n:'Swept'},{id:'Del', n:'Delta'},
-  // The `d` renders as VISIBLE inline text under the option, not as a tooltip, so it
-  // must stay short — the full guidance lives in the codebook, not in the grid.
-  {id:'Trap', n:'Trapezoidal / Tapered', d:'Chord narrows from root to tip \u2014 inverse taper too. Judge only from a TOP or plan view; perspective makes a straight wing look tapered. If the wing is clearly swept, Swept wins.'},
-  {id:'Oth', n:'Other (Elliptical / Compound / Complex)'}];
+var W_PLAN = [{id:'Str', n:'Straight'},{id:'Swp', n:'Swept'},{id:'Del', n:'Delta'}, {id:'Oth', n:'Other (Elliptical / Tapered / Complex)'}];
 // Hoisted out of pageM2()'s wing-role/wing-tilt render block (was redeclared
 // inline on every render) so recordToRows() can reuse the exact same id->name
 // pairs to label the exported Value column — one source of truth instead of
@@ -530,24 +465,17 @@ var T1_DISAPPROVE_REASONS = [
   // architecture" \u2014 which is what this one reason now says. The 25 existing
   // records are migrated in 03c_CORRECTED, never in the frozen 03_HUMAN exports.
   {id:'No Aircraft Image', n:'No Usable, Sufficient, or Legible Aircraft Image',
-   d:'No figure shows the structure, or there are too few, or they are too poor to read — all one judgement: the drawings do not settle the architecture. Distinct from No Content, which means nothing to review at all.'},
+   d:'Used when no figure depicts the aircraft\'s structure; when figures exist but are too few to describe the aircraft\'s architecture; and when the figures that exist are too poor to read. All three are the same judgement \u2014 the drawings do not let you determine the architecture \u2014 and are recorded under one reason. Distinct from No Content, which means the record carries nothing to review at all.'},
   // RETIRED v15.4 (see FUS_SHAPE's PodBoom for the pattern). Kept so an old saved
   // file still loads and still renders its label; no longer pickable.
   {id:'Unreadable', n:'Unreadable/Insufficient image quality (legacy \u2014 now No Usable, Sufficient, or Legible Aircraft Image)',
    d:'Retired in v15.4. Every case it covered is now recorded under No Usable, Sufficient, or Legible Aircraft Image.'},
-  // v15.7 (2026-09-05). Searched the whole file first: STOL / VTOL-capability /
-  // vertical-take-off appeared NOWHERE except the demo abstract, so the one property
-  // the technology domain is defined by was assumed rather than recorded. An electric
-  // STOL had to go to Out of Domain (whose own text says "not an AAM aircraft at all",
-  // plainly false of it) or to Other, where it stopped being a countable category.
-  {id:'Not VTOL', n:'Not VTOL (STOL / CTOL)',
-   d:'In the domain in every other respect — passenger-carrying, often electric, often the same applicants — but it needs a ground roll. Claims a vertical mode too? Then it is a VTOL: approve it.'},
   {id:'Other', n:'Other'}
 ];
 // v15.4: pickable subset — 'Unreadable' is retired but stays in the array above so
 // old saved files keep loading and rendering it (withLegacy re-adds it when it is
 // the current value). Same mechanism as FUS_SHAPE_CHOICES / FUS_KIN_CHOICES.
-var T1_DISAPPROVE_CHOICES = ['Out of Domain', 'Pure UAV', 'Not VTOL', 'No Content', 'No Aircraft Image', 'Other'];
+var T1_DISAPPROVE_CHOICES = ['Out of Domain', 'Pure UAV', 'No Content', 'No Aircraft Image', 'Other'];
 // v15.3: EMP_TYPE had no tooltips at all. EMP_TYPE_TEST is the test that decides
 // the hard cases — rendered once above the option grid (see pageM2's Directional
 // Stabilizers block) and also hung on the first option's tooltip, so it is
@@ -575,10 +503,7 @@ var T1_DISAPPROVE_CHOICES = ['Out of Domain', 'Pure UAV', 'Not VTOL', 'No Conten
 // 'Fins' keeps its minimality: orientation is NOT the test there, so a pair of
 // small horizontal winglets is Fins just as a pair of boom-tail fins is.
 var EMP_FIN_VS_VERTFIN_VERTFIN = 'Exactly ONE vertical stabilizing surface, and no horizontal stabilizer \u2014 a single central fin, or a single fin on a lone tailboom. The count is the test: it is ONE. Two or more minimal surfaces, whatever their orientation, are Fins; two verticals joined by a full horizontal stabilizer are H-Tail.';
-// v15.7 (2026-09-05): 'Minimal' dropped from the name and from this rule. v15.5 made
-// the test COUNT, but the word 'minimal' asks about SIZE — two tests in one label, and
-// the size half was never defined. Count is the whole test now. Id unchanged.
-var EMP_FIN_VS_VERTFIN_FINS = 'TWO OR MORE stabilizing surfaces. They may be vertical, horizontal, or both \u2014 neither orientation nor size is the test, the COUNT is. A fin on each tailboom, a pair of wingtip fins, twin fuselage fins, small horizontal winglets. Contrast the two neighbours: ONE vertical surface with no horizontal is VertFin, and two verticals joined by a full horizontal stabilizer is H-Tail.';
+var EMP_FIN_VS_VERTFIN_FINS = 'TWO OR MORE minimal stabilizing surfaces. They may be vertical, horizontal, or both \u2014 orientation is not the test, minimality and count are. A fin on each tailboom, a pair of wingtip fins, twin fuselage fins, small horizontal winglets. Contrast the two neighbours: ONE substantial vertical surface with no horizontal is VertFin, and two verticals joined by a full horizontal stabilizer is H-Tail.';
 var EMP_TYPE_TEST = 'An aft structure counts as empennage only if it carries stabilizing surfaces, horizontal or vertical. A bare tailcone is fuselage, so a propulsor on a bare tail tip is fuselage-mounted and not empennage-mounted. Minimal fins do count. On twin-boom tails the fin assembly is empennage and the boom stays a boom.';
 var EMP_TYPE = [
   {id:'Tailless', n:'Tailless (None)', d:EMP_TYPE_TEST}, {id:'Conventional', n:'Conventional (Horizontal at base)'}, {id:'Cruciform', n:'Cruciform (Horizontal mid-vertical)'}, {id:'T-Tail', n:'T-Tail'}, {id:'V-Tail', n:'V-Tail'}, {id:'Inv_V-Tail', n:'Inverted V-Tail'}, {id:'Y-Tail', n:'Y-Tail (Two dihedral surfaces + ventral fin)'}, {id:'H-Tail', n:'H-Tail / Twin Tail', d:'Two or more vertical surfaces JOINED BY A HORIZONTAL stabilizer \u2014 the classic twin-boom H tail. Without that horizontal member the same two fins are Fins, and a single fin is VertFin.'}, {id:'VertFin', n:'Single Vertical Fin Only (No Horizontal Stabilizer)', d:EMP_FIN_VS_VERTFIN_VERTFIN},
@@ -592,7 +517,7 @@ var EMP_TYPE = [
   // the "Directional Stabilizers" render below (Tailless/Fins/VertFin): unlike
   // those three it HAS a horizontal surface, so "empennage tilts with the wings"
   // is a real question for it.
-  {id:'HorizStab', n:'Horizontal Stabilizer Only (No Vertical Fin)'}, {id:'Fins', n:'Stabilizing Fins (Two or More)', d:EMP_FIN_VS_VERTFIN_FINS}, {id:'BoxTail', n:'Box-Wing / Closed-Loop Tail'}, {id:'Oth', n:'Other'}
+  {id:'HorizStab', n:'Horizontal Stabilizer Only (No Vertical Fin)'}, {id:'Fins', n:'Minimal Stabilizing Fins (Two or More)', d:EMP_FIN_VS_VERTFIN_FINS}, {id:'BoxTail', n:'Box-Wing / Closed-Loop Tail'}, {id:'Oth', n:'Other'}
 ];
 // EMP_KIN retired v14 (C4/PR-06) — the 3-option Fixed/Tilt/Stabilator choice is
 // replaced by the empTilts boolean + empTiltsNote (see pageM2's Empennage
@@ -604,7 +529,7 @@ var EMP_TYPE = [
 var CHORD = [
   {id:'Front', n:'Front (Puller / Tractor)', d:'Propeller/rotor mounted AHEAD of its support/wing, pulling the aircraft forward. "Tractor" and "puller" are the same thing — the airflow is pulled through from in front.'},
   {id:'Back',  n:'Back (Pusher)',            d:'Propeller/rotor mounted BEHIND its support/wing, pushing the aircraft forward — the airflow is pushed out the back.'},
-  {id:'None',  n:'No chordwise sense (vertical-axis or coaxial lift rotor)', d:'The thrust axis is vertical, so there is no front/back to record — a lift rotor, a coaxial pair, a hub. A determinate answer, not a skipped question. Never for a horizontal-axis unit.'}
+  {id:'None',  n:'None / Not applicable',    d:'No meaningful front/back chordwise distinction — e.g. a vertical-axis lift rotor or a hub where puller/pusher does not apply.'}
 ];
 var BLADE_MECH = [{id:'Open', n:'Open / Free Rotor'},{id:'Ducted', n:'Ducted Fan / Shrouded'}];
 // Retraction Kinematics. Codebook 2026-08-06: split from 2 options into 3. The
@@ -683,14 +608,6 @@ var AC_STATE = [
   // values; the NonApplicable auto-fill for non-Whole-Vehicle figures is correct).
   {id:'HoverCruise',  n:'Invariant'}
 ];
-// v15.7 (2026-09-05): the canonical pickable set, declared so the conformance harness
-// can read it instead of inferring one. CORRECTION to an earlier claim: the T2 render
-// does NOT offer Ground/Unclear/NonApplicable — pageT2's inline _acOpts list has always
-// been Hover/Transition/Cruise/HoverCruise/Other, and it maps a legacy value onto
-// 'Other' for the highlight. So the 92 legacy figures in B01/B05 CANNOT grow; they are
-// stored values awaiting a re-pick, not an open hole. This constant just makes that
-// guarantee explicit in one place rather than buried in a render function.
-var AC_STATE_CHOICES = ['Hover', 'Transition', 'Cruise', 'HoverCruise', 'Other'];
 // TILTED_IN_VIEW retired v14 (C1/PR-01): the per-figure "Wings tilted / Rotors
 // tilted" pick never had much signal beyond acState/topType and was removed from
 // the UI + export. The 'tiltedInView' STATE KEY and its ingestAI/rowsToAIData
@@ -789,8 +706,8 @@ var BOOM_POS_SPAN = [
 var BOOM_WING_REL = [
   {id:'Fore',     n:'Forward of the wing',  d:'The boom body sits ahead of the wing it attaches to — it extends towards the nose from the attachment.'},
   {id:'Aft',      n:'Aft of the wing',      d:'The boom body sits behind the wing it attaches to — it extends towards the tail from the attachment.'},
-  {id:'Straddle', n:'Straddles the wing',   d:'The boom reaches both forward AND aft of its wing as ONE continuous structure, on one wing only. It stays a single group only if its propulsors cannot be split into a forward set and an aft set — if they can, it is two booms.'},
-  {id:'Bridge',   n:'Bridges two wings',    d:'The boom runs from a forward wing to an aft wing (canard or tandem), so it belongs to both. The spanwise answer below still uses the bigger wing; the bridging is recorded here.'},
+  {id:'Straddle', n:'Straddles the wing',   d:'The boom extends both forward AND aft of its wing, crossing the chord, as ONE continuous structure. ONE wing only — if it reaches a second wing, pick Bridges two wings. v15.5 test: this stays a SINGLE boom group only when its propulsors cannot be assigned to a forward set and an aft set without splitting the group — the same exception that keeps a nose-to-tail boom as one. If there IS a distinguishable forward group and aft group of propulsors, the general counting rule wins: they are two booms, not one straddling boom.'},
+  {id:'Bridge',   n:'Bridges two wings',    d:'The boom runs from a forward wing to an aft wing (canard/tandem layouts), so it belongs to both. This is the case the old "answer for the BIGGER wing" hint was papering over — when you pick this, the spanwise answer below still uses the bigger wing, but the bridging is now recorded explicitly.'},
   {id:'NA',       n:'N/A',                  d:'The boom lies wholly within the wing chord, or fore/aft has no meaning for this geometry.'},
   {id:'Other',    n:'Other'}
 ];
@@ -913,7 +830,7 @@ var FUS_SHAPE_CHOICES = ['Circular', 'Oval', 'Rectangular', 'Blended', 'Other'];
 // legacy batches are migrated in notebooks/02a_legacy_conformance.ipynb.
 var FUS_KIN = [
   {id:'Fixed',      n:'Fixed / Conventional', d:'The body holds one attitude between hover and cruise. Anything that vectors — a tilting wing, tilting nacelles, a deflected slipstream — does so RELATIVE TO the body, which itself does not reorient. This is the normal case for SLC, TW, TR, DS, CVT and HB.'},
-  {id:'BodyPitch',  n:'Whole-Body Pitch',        d:'The whole vehicle leans as one rigid body — no joint between cabin and airframe. It is the KIND of motion, not how far it goes: a few degrees counts as much as most of the way. MR, PTC and RC take this (L10).'},
+  {id:'BodyPitch',  n:'Whole-Body Pitch',        d:'The entire vehicle pitches as one rigid body to generate translation or to transition. There is no joint between the cabin and the airframe — the aircraft leans and everything leans with it. The category is about the KIND of motion, not how far it goes: a multirotor that pitches a few degrees to move forward belongs here just as much as a pitch-to-cruise aircraft that rotates most of the way. Architectures MR, PTC and RC take this value (L10).'},
   {id:'TiltBody',   n:'Tilting Body',            d:'The airframe reorients roughly 90° between hover and cruise and the cabin goes with it. The classic tailsitter: nothing moves internally, the whole aircraft rotates together.'},
   {id:'LevelCabin', n:'Variable Incidence', d:'The airframe reorients as in Tilting Body, but the cabin sits on its own joint and stays level with the ground throughout. Look for a cabin pod carried on a pivot, gimbal or pendular mount between the rotating structures.'},
   // RETIRED, kept for the same reason RETRACT_MECH keeps 'Retractable': a legacy
@@ -947,15 +864,7 @@ var FUS_KIN_CHOICES = ['Fixed', 'BodyPitch', 'TiltBody', 'LevelCabin'];
 // pageM1, not written by applyFusKinLock) rather than an exceptionless fact.
 // Kept as a named list so applyFusKinLock() and pageM1 cannot drift apart.
 var BODYPITCH_ARCHS = ['PTC', 'RC'];
-// v15.6 (2026-09-05): 'RetrWheel' RETIRED. A drawing shows you wheels; it rarely shows
-// you whether they retract, so the option recorded an inference rather than an
-// observation \u2014 the same argument that retired 'Simple Line Drawing'. 'FixedWheel'
-// is RELABELLED to plain 'Wheeled Gear' (id unchanged, so none of the 73 existing
-// records changes meaning \u2014 same id-stable rename as 'Exposed' and 'HoverCruise'),
-// and the 23 RetrWheel records migrate into it. Retraction, where it matters, goes in
-// the M1 notes. RetrWheel stays in the array so an old saved file still labels.
-var GEAR_ARCH = [{id:'Skids', n:'Skids / Fixed Skids'},{id:'FixedWheel', n:'Wheeled Gear', d:'The aircraft rests on wheels. Whether they retract is a separate question this dimension deliberately does not ask \u2014 note it in the M1 comments if the drawing shows it.'},{id:'RetrWheel', n:'Retractable Wheeled Gear (legacy \u2014 now Wheeled Gear)'},{id:'PadsHull', n:'Pads / Hull'},{id:'Unknown', n:'Unknown'}];
-var GEAR_ARCH_CHOICES = ['Skids', 'FixedWheel', 'PadsHull', 'Unknown'];
+var GEAR_ARCH = [{id:'Skids', n:'Skids / Fixed Skids'},{id:'FixedWheel', n:'Fixed Wheeled Gear'},{id:'RetrWheel', n:'Retractable Wheeled Gear'},{id:'PadsHull', n:'Pads / Hull'},{id:'Unknown', n:'Unknown'}];
 
 var T2_PER = ['Top', 'Bottom/Down', 'Front', 'Back', 'Side', 'Front-Isometric', 'Rear-Isometric', 'Generic 3D'];
 // v15.2: Blueprint (AC_STY), Grid/Pattern (BG_STY), Blueprint Blue (BG_COL)
@@ -1058,13 +967,7 @@ var DINO_UNDERSTANDING = [
 // saved record keeps the string in its t1EdgeTags list (ingestAI splits the raw
 // value with no id validation); it simply stops rendering as a chip.
 var T1_EDGE_TAGS = [
-  {id:'UAVSimilar', n:'UAV, but similar enough'},
-  // v15.7 (2026-09-05). HUMAN-ONLY, like the other epistemic options: no SigLIP/SBERT
-  // prompt mirrors it, which the drift guard permits under its model-subset-of-wizard
-  // contract. Renders on DISAPPROVED records too (the chips carry no approval gate),
-  // which is the point — an Out-of-TD patent can still be electric-adjacent.
-  {id:'ElectricSimilar', n:'Electric-adjacent, but similar enough',
-   d:'Not clearly an electric VTOL, but close enough to share the design space — a hybrid, an unstated powerplant, a conventional aircraft of the same morphology. Records "near the boundary", not "inside it".'}
+  {id:'UAVSimilar', n:'UAV, but similar enough'}
 ];
 
 // v15.3: t1/t2 relabelled to the stage names used in the codebook and the thesis
@@ -1277,7 +1180,7 @@ function aircraftSnapshotKeys() {
               // and the m3_*_propKinOth ones ride the generic m3_* sweep, so
               // only the flat M1/M2 ones need listing here.
               'wingConfOth','empTypeOth','fusShapeOth'];
-  ['wTilt','wRole','wPosV','wPosL','wPlan','wPlanOth','wTipJoin'].forEach(function(base){
+  ['wTilt','wRole','wPosV','wPosL','wPlan','wPlanOth'].forEach(function(base){
     for (var i=1;i<=4;i++) keys.push(base+i);
   });
   // Wing Role's note key is wRole<i>Oth (field + 'Oth' — see otherNoteKey()),
@@ -1785,9 +1688,7 @@ function nextBlockers(){
         if (boomIsWingRefd(g) && !g.wingRel) gm.push('position relative to its wing');
         // v15.5: which panel, when there is more than one to choose from.
         if (boomNeedsWingIdx(g) && !g.wingIdx) gm.push('which wing panel');
-        // v15.6: required only where it is RENDERED — a mandatory field must never
-        // block on something the reviewer cannot see (same rule as wingRel/wingIdx).
-        if (boomIsWingRefd(g) && !g.span) gm.push('spanwise position');
+        if (!g.span)                  gm.push('spanwise position');
         // v15.5: the airframe station is only required where it is decidable —
         // a wing-attached boom answers 'which wing panel' instead.
         if (!boomIsWingRefd(g) && !g.long) gm.push('longitudinal position');
@@ -2066,7 +1967,7 @@ function propKinLockReason(topType){
     TW:'the rotors are fixed to the wing — the wing tilts, the rotors do not tilt on their own (if they did, it would be CVT)',
     TB:'the rotors are fixed to the airframe — the whole body (wing + fuselage) rotates between hover and cruise, the rotors do not tilt on their own',
     PTC:'the rotors are fixed to the airframe — the vehicle pitches forward as a whole (multirotor-style) to gain cruise speed while the wing offloads the rotors; nothing articulates',
-    DS:'a fixed structure in the flow path — flaps, a deflecting wing, a vane cascade or a duct — turns the slipstream downward; the propulsor mount itself never pivots',
+    DS:'thrust is redirected by large structural flaps deflecting the slipstream — the propulsors themselves never articulate',
     SLC:'separate fixed lift and fixed cruise units — nothing tilts',
     SRW:'the rotor stops and locks for cruise rather than tilting',
     MR:'distributed fixed rotors — thrust is set by RPM, not articulation',
@@ -2193,7 +2094,7 @@ function m3Blueprints() {
     }
     // Multirotors (and some rotorcraft) carry their rotors on booms / outriggers —
     // offer the same boom-mounted propulsors card the winged/fallback configs get.
-    rotorCards.push({key:'boom', title:'Boom-Mounted Propulsors', subtitle:'Propulsors carried on booms — record where the booms attach.', defaultSym:S.latSym, isBoom:true});
+    rotorCards.push({key:'boom', title:'Boom-Mounted Propulsors', subtitle:'Propulsors carried on booms/outriggers — record where the booms attach.', defaultSym:S.latSym, isBoom:true});
     return rotorCards;
   }
   if (!isWinged() || S.wCount === 0 || ['BWB', 'FW', 'LB'].indexOf(S.wingConf) > -1) {
@@ -2208,7 +2109,7 @@ function m3Blueprints() {
     }
     // Boom-mounted propulsors (booms carrying lift/cruise units, attached to the
     // airframe). isBoom drives the card-level "Boom Attachment" selector.
-    fallbackCards.push({key:'boom', title:'Boom-Mounted Propulsors', subtitle:'Propulsors carried on booms — record where the booms attach.', defaultSym:S.latSym, isBoom:true});
+    fallbackCards.push({key:'boom', title:'Boom-Mounted Propulsors', subtitle:'Propulsors carried on booms/outriggers — record where the booms attach.', defaultSym:S.latSym, isBoom:true});
     return fallbackCards;
   }
   var cards = [];
@@ -2218,7 +2119,7 @@ function m3Blueprints() {
   cards.push({key:'fuselage', title:'Fuselage Body', subtitle:'Central structure, cabin spine, or structural outriggers.', defaultSym:false, zoneMode:true});
   // Boom-mounted propulsors — same propulsor attributes as a wing/fuselage card,
   // plus a card-level "Boom Attachment" selector (to the wings, fuselage, etc.).
-  cards.push({key:'boom', title:'Boom-Mounted Propulsors', subtitle:'Propulsors carried on booms — record where the booms attach.', defaultSym:true, isBoom:true});
+  cards.push({key:'boom', title:'Boom-Mounted Propulsors', subtitle:'Propulsors carried on booms/outriggers — record where the booms attach.', defaultSym:true, isBoom:true});
   if (S.empType && S.empType != 'Tailless') {
     cards.push({key:'emp', title:'Empennage / Tail [' + labelFor(EMP_TYPE, S.empType) + ']', subtitle:'Stabilizer control thrusters.', defaultSym:false, zoneMode:true});
   }
@@ -2275,7 +2176,7 @@ function twFixedPropelledMsg(stations) {
 function twNonTiltingThrustStations() {
   var out = [];
   for (var _i = 1; _i <= (S.wCount || 0); _i++) {
-    if (S['wTilt' + _i] !== 'Tilt' && m3ThrustStationCount('wing' + _i) > 0) out.push('Wing ' + _i);
+    if (S['wTilt' + _i] !== 'Tilt' && m3StationCount('wing' + _i) > 0) out.push('Wing ' + _i);
   }
   var NAMES = { fuselage:'The fuselage', emp:'The empennage', hull_array:'The hull edge array', core_layout:'The airframe hub array' };
   ['fuselage', 'emp', 'hull_array', 'core_layout'].forEach(function(k){
@@ -2296,24 +2197,6 @@ function twNonTiltingThrustStations() {
 // — a wing whose count was entered via the override still counts as propelled.
 function m3StationCount(key) {
   return S[key + '_quickOverride'] ? (parseInt(S[key + '_quickCount'], 10) || 0) : m3CardCount(key);
-}
-// 2026-09-05 (#12): is EVERY declared propulsor type on this card control-only?
-// A control/stability unit provides attitude or yaw authority, not lift or cruise
-// thrust, so it is not a "thrust source" for the Tilt Wing sole-thrust rule or the
-// CVT fixed/tilting mix. Opt-in and default false, so no existing record changes
-// meaning; a card with no types declared is NOT control-only.
-function m3CardIsControlOnly(key) {
-  var nTo = m3NTypes(key);
-  if (!nTo) return false;
-  for (var to = 1; to <= nTo; to++) {
-    var tk = nTo <= 1 ? key : m3TypeKey(key, to);
-    if (!S[m3Field(tk, 'ctrlOnly')]) return false;
-  }
-  return true;
-}
-// Counts only propulsors that actually provide lift or cruise thrust.
-function m3ThrustStationCount(key) {
-  return m3CardIsControlOnly(key) ? 0 : m3StationCount(key);
 }
 // 2026-08-23: boom-borne thrust, split by whether the BOOM rotates. A rotor
 // mounted rigidly on a tilting boom vectors its thrust exactly as a rotor on a
@@ -2374,12 +2257,6 @@ function m3TypeAttrs(bp, tkey, showCount) {
   // actually records tractor-vs-pusher orientation. CHORD array, its
   // options, and the "chord" field id are unchanged.
   h += '<div class="m2-kv">Thrust Orientation (Tractor / Pusher)</div>' + grid('', CHORD.map(function(o){ return oc(m3Field(tkey,'chord'), o.id, o.n, o.d); }));
-  // 2026-09-05 (#12): marks a unit that exists for CONTROL, not propulsion. Read by
-  // twNonTiltingThrustStations() and the CVT mix check via m3ThrustStationCount().
-  h += '<label class="m2-check" style="font-size:13px; margin-top:8px; display:inline-flex;">'
-    + '<input type="checkbox" data-field="' + m3Field(tkey,'ctrlOnly') + '" ' + (S[m3Field(tkey,'ctrlOnly')] ? 'checked' : '')
-    + ' title="This unit provides ATTITUDE OR YAW AUTHORITY, not lift or cruise thrust — a small tail propeller for pitch trim on a tilt wing, an anti-torque unit, a yaw thruster. It is then not counted as a thrust source by the Tilt Wing sole-thrust rule or the Combined Thrust mix check, so a tilt wing with a stability propeller stays a Tilt Wing. Do NOT tick it for a propulsor that carries real lift or cruise load, however small.">'
-    + ' Control / stability only <span class="ilbl" style="margin-left:6px;">(attitude or yaw authority — not lift or cruise thrust)</span></label>';
 
   if (S.topType === 'TW' && bp.key.indexOf('wing') > -1) {
     // Tilt-wing: the propulsor is bolted to the wing, so its ARTICULATION is
@@ -2554,16 +2431,13 @@ function m3Card(bp) {
       + '</div>';
   }
   var count = m3CardCount(bp.key), sym = m3Get(bp.key, 'sym', bp.defaultSym);
-  // v15.6 (2026-09-05): 'Longitudinally Symmetric (Fore/Aft)' and 'Circular / Radial
-  // Symmetry' RETIRED from the M3 cards. Neither fed a rule, a consistency lock or
-  // anything in the Python pipeline, and across all four batches they were ticked 4
-  // and 6 times respectively out of 2,532 each — all in Batch 05. Same retirement
-  // pattern as BOOM_WING_SPAN / boomXFormat / TILTED_IN_VIEW: the m3_*_symLong and
-  // m3_*_symCirc STATE KEYS and their ingest paths are deliberately LEFT IN PLACE so
-  // a previously saved file still loads; the values are simply never rendered again.
-  // NOTE the boom group's own 'Circular / Radial' (boomN_circSym) is a DIFFERENT
-  // field and is NOT retired — it rings the boom count on radial frames and is used.
-  var symChecks = '<label class="m2-check"><input type="checkbox" data-field="' + m3Field(bp.key,'sym') + '" ' + (sym ? 'checked' : '') + '> Laterally Symmetric Pairs</label>';
+  var symLong = m3SymLong(bp.key);
+  // Both symmetry checkboxes for this card, rendered as one unit so the lateral
+  // and longitudinal mirror planes always appear together.
+  var symCirc = m3SymCirc(bp.key);
+  var symChecks = '<label class="m2-check"><input type="checkbox" data-field="' + m3Field(bp.key,'sym') + '" ' + (sym ? 'checked' : '') + '> Laterally Symmetric Pairs</label>'
+    + '<label class="m2-check"><input type="checkbox" data-field="' + m3Field(bp.key,'symLong') + '" ' + (symLong ? 'checked' : '') + '> Longitudinally Symmetric (Fore/Aft)</label>'
+    + '<label class="m2-check"><input type="checkbox" data-field="' + m3Field(bp.key,'symCirc') + '" ' + (symCirc ? 'checked' : '') + '> Circular / Radial Symmetry</label>';
   var notes = m3Get(bp.key, 'notes', '');
   // v15.3 (2026-08-09): scoped to the MAIN ROTOR card. This used to key off the
   // architecture ALONE, which was correct only while core_layout was the sole
@@ -2789,7 +2663,7 @@ function ocArrFig(key, val, name, desc, oid, dis) {
 
 function dupTypeCard(t) {
   var sel = S.duplicateType === t.id;
-  return '<div class="opt'+(sel?' sel':'')+'" data-dup-type="'+t.id+'" title="'+String(t.d||'').replace(/"/g,'&quot;')+'"><div class="o-id">Type '+t.id+'</div><div class="o-name">'+t.n+'</div><div class="o-desc">'+t.d+'</div></div>';
+  return '<div class="opt'+(sel?' sel':'')+'" data-dup-type="'+t.id+'"><div class="o-id">Type '+t.id+'</div><div class="o-name">'+t.n+'</div><div class="o-desc">'+t.d+'</div></div>';
 }
 
 function qualityChip(q) {
@@ -3109,7 +2983,7 @@ function t1ScopeOptions() { return [{id:'Whole Aircraft Architecture', n:'Whole 
 function t1FieldOptions() { return [{id:'Aerodynamic/Structural', n:'Aerodynamic/Structural'},{id:'Mechanical/Kinematic', n:'Mechanical/Kinematic'},{id:'Propulsion/Electrical', n:'Propulsion/Electrical'},{id:'Control/Avionics', n:'Control/Avionics'},{id:'Other / Unidentified', n:'Other / Unidentified'}]; }
 var T1_TGT = [{id:'Layout Convergence', n:'Layout Convergence'},{id:'Weight/Complexity Reduction', n:'Weight/Complexity Reduction'},{id:'Aerodynamic Efficiency', n:'Aerodynamic Efficiency'},{id:'Redundancy/Safety', n:'Redundancy/Safety'},{id:'Other / Unidentified', n:'Other / Unidentified'}];
 
-function g1MasterButton(key, label, desc) { return '<button type="button" class="g1-master' + (S.g1Focus === key ? ' sel' : '') + '" data-g1-master="' + key + '" title="' + String(desc||'').replace(/"/g,'&quot;') + '"><div class="g1-master-lbl">' + label + '</div><div class="g1-master-desc">' + desc + '</div></button>'; }
+function g1MasterButton(key, label, desc) { return '<button type="button" class="g1-master' + (S.g1Focus === key ? ' sel' : '') + '" data-g1-master="' + key + '"><div class="g1-master-lbl">' + label + '</div><div class="g1-master-desc">' + desc + '</div></button>'; }
 function g1SubPanel(groupKey) {
   var group = G1_TAXONOMY.find(function(g){ return g.key === groupKey; });
   if (!group) return '';
@@ -3118,7 +2992,7 @@ function g1SubPanel(groupKey) {
     html += '<div class="g1-subcard"><div class="g1-subhead">' + sub.title + '</div><div class="g1-subdesc">' + sub.desc + '</div><div class="g1-subgrid">';
     sub.items.forEach(function(itemId){
       var t = TOP.find(function(x){ return x.id === itemId; });
-      if (t) html += '<button type="button" class="g1-subbtn' + (S.topType === t.id ? ' sel' : '') + '" data-g1-top="' + t.id + '" data-g1-group="' + groupKey + '" title="' + String(t.desc||'').replace(/"/g,'&quot;') + '"><div class="g1-subid">' + t.id + '</div><div class="g1-subname">' + t.name + '</div><div class="g1-subtxt">' + t.desc + '</div></button>';
+      if (t) html += '<button type="button" class="g1-subbtn' + (S.topType === t.id ? ' sel' : '') + '" data-g1-top="' + t.id + '" data-g1-group="' + groupKey + '"><div class="g1-subid">' + t.id + '</div><div class="g1-subname">' + t.name + '</div><div class="g1-subtxt">' + t.desc + '</div></button>';
     });
     html += '</div></div>';
   });
@@ -3691,7 +3565,7 @@ function pageGate(){
   var huG1 = humanUncertainToggle('g1');
   // v15.4: the page name now sits in .p-q (the 17px heading) and the stage id +
   // a plain description of what the page asks sits in the .p-module eyebrow.
-  var head = '<div class="p-module">Level 1 &middot; G1 &middot; Primary Physics &amp; Thrust Configuration</div><div class="p-q">Global Architecture</div>' + refConfigBanner();
+  var head = '<div class="p-module">Level 1 &middot; G1 &middot; Primary Physics &amp; Thrust Configuration</div><div class="p-q">Global Architecture</div>';
   if (S.g1_quickOverride) return head + qoG1 + huG1 + commentsSection();
   // v15.4: the old .p-hint here ("Classification is driven by the most complex
   // propulsive/structural system present. Isolate structural lifting surface
@@ -3777,7 +3651,7 @@ function pageM1(){
   // keys still exist and are always exported at their v10 defaults \u2014 see fresh().
   return head + qoM1 + '<div class="m3-shell"><div class="m3-card"><div class="m3-head">Symmetry</div><div class="m3-sub">Tick if the left half of the aircraft mirrors the right half.</div><div class="m3-grid"><div><label class="m2-check" style="font-size:13px; font-weight:500;"><input type="checkbox" data-field="latSym" ' + (S.latSym ? 'checked' : '') + '> Symmetric left-to-right</label></div></div></div><div class="m3-card"><div class="m3-head">Fuselage Profiles &amp; Kinematics</div><div class="m3-grid"><div><div class="m3-label">Structural Cross-Section Profile</div>' + grid('', withLegacy(FUS_SHAPE, FUS_SHAPE_CHOICES, S.fusShape).map(function(o){ return oc('fusShape', o.id, o.n); })) + otherNoteInput('fusShape', 'Describe the fuselage cross-section...') + '</div><div><div class="m3-label">Body Motion</div><div class="m3-sub" style="margin:2px 0 6px;">R4-01: compare hover vs cruise figures and ask what THE BODY does. Nothing reorients, and anything that vectors does so relative to a body that stays put = Fixed. The whole rigid vehicle leans to translate or transition = Whole-Body Pitch. The airframe reorients ~90° and the cabin goes with it = Tilting Body. The airframe reorients but the cabin stays level on its own joint = Variable Incidence.</div>' + (S.topType === 'TB' ? physicsLock('TB', 'the airframe reorients between hover and cruise, so Fixed is impossible. What remains is whether the CABIN reorients with it (Tilting Body) or hangs on its own joint and stays level (Variable Incidence) — see R4-01 above.') + grid('', FUS_KIN.filter(function(o){ return o.id === 'TiltBody' || o.id === 'LevelCabin' || o.id === S.fusKin; }).map(function(o){ return oc('fusKin', o.id, o.n, o.d); })) : ([ 'RC' ].indexOf(S.topType) > -1 ? physicsLock(S.topType, 'this architecture sits in R2-02\'s fixed list, so its figures carry no aircraft state — there is no hover/cruise pair to compare and no way for a drawing to show the body doing anything else. Translating by leaning the whole vehicle IS whole-body pitch (codebook L10).') + grid('', FUS_KIN.filter(function(o){ return o.id === 'BodyPitch'; }).map(function(o){ return oc('fusKin', o.id, o.n, null, null, true); })) : (BODYPITCH_ARCHS.indexOf(S.topType) > -1 ? physicsLock(S.topType, 'the airframe and the payload volume pitch together as one rigid body to generate translation — there is no joint between cabin and airframe. That is Whole-Body Pitch by definition of the architecture (codebook L10). The category is about the kind of motion, not how far it goes.') + grid('', FUS_KIN.filter(function(o){ return o.id === 'BodyPitch'; }).map(function(o){ return oc('fusKin', o.id, o.n, null, null, true); })) : (S.topType === 'MR' ? flg('info', 'Multirotor — you pick the body motion', 'This used to be locked to Whole-Body Pitch on the R2-02 argument that a multirotor cannot translate except by leaning. A multirotor with TILTING BOOMS can: the booms rotate, the thrust vector turns with them, and the body holds level — that is Fixed, or Variable Incidence if the cabin sits on its own joint. Whole-body pitch is still the normal case, so pick it unless the figures show otherwise. Tick "Booms tilt" on the M1 boom group when they do.') + grid('', withLegacy(FUS_KIN, FUS_KIN_CHOICES, S.fusKin).map(function(o){ return oc('fusKin', o.id, o.n, o.d); })) : grid('', withLegacy(FUS_KIN, FUS_KIN_CHOICES, S.fusKin).map(function(o){ return oc('fusKin', o.id, o.n, o.d); })))))) + '</div></div>'
   + '<div class="m3-field" style="margin-top:10px;"><div class="m3-label">Fuselage Edge-Case Notes</div><textarea class="comments" style="min-height:56px;" data-field="fusNotes" placeholder="Log fuselage ambiguities here...">' + escHtml(S.fusNotes) + '</textarea></div>'
-  + '</div><div class="m3-card"><div class="m3-head">Ground Contact Interface</div><div class="m3-zone">' + withLegacy(GEAR_ARCH, GEAR_ARCH_CHOICES, S.gearArch).map(function(o){ return oc('gearArch', o.id, o.n, o.d); }).join('') + '</div>'
+  + '</div><div class="m3-card"><div class="m3-head">Ground Contact Interface</div><div class="m3-zone">' + GEAR_ARCH.map(function(o){ return oc('gearArch', o.id, o.n); }).join('') + '</div>'
   + '<div class="m3-field" style="margin-top:10px;"><div class="m3-label">Ground Contact Edge-Case Notes</div><textarea class="comments" style="min-height:56px;" data-field="gearNotes" placeholder="Log landing gear ambiguities here...">' + escHtml(S.gearNotes) + '</textarea></div>'
   + '</div>' + m1BoomsCard() + '</div>' + huM1 + commentsSection();
 }
@@ -3837,14 +3711,8 @@ function m1BoomsCard(){
         // Labels now state their reference frame explicitly: spanwise is measured
         // along the WING, longitudinal along the AIRFRAME. They used to read as if
         // they shared one frame, which is what BOOM_WING_REL exists to fix.
-        // v15.6 (2026-09-05): spanwise is measured along the WING, so it is asked only
-        // of wing-attached groups — the mirror of the BOOM_POS_LONG gate below. A boom
-        // bolted to the fuselage has no wing span to sit along; 160 such values were
-        // cleared across B01/02/03/05 by migrate_boom_span.py.
-        + (boomIsWingRefd(g)
-            ? '<div class="m2-kv">Position — Spanwise <span class="ilbl">(along the WING span; if it bridges two wings, answer for the BIGGER one)</span></div>' + bgGrid(i,'span',BOOM_POS_SPAN,g.span)
-              + otherNoteInput('span', 'Describe the spanwise position...', i)
-            : '')
+        + '<div class="m2-kv">Position — Spanwise <span class="ilbl">(along the WING span; if it bridges two wings, answer for the BIGGER one)</span></div>' + bgGrid(i,'span',BOOM_POS_SPAN,g.span)
+        + otherNoteInput('span', 'Describe the spanwise position...', i)
         // v15.5: airframe station, asked only for booms that are NOT wing-referenced.
         // A wing boom's station is its wing's station, not its own — it answers
         // 'Which wing panel' above instead. See BOOM_WING_IDX.
@@ -3852,7 +3720,7 @@ function m1BoomsCard(){
             ? '<div class="m2-kv">Position of the attachment — Longitudinal <span class="ilbl">(which third of the AIRFRAME it connects in, nose-to-tail — a boom running the whole length is "Full length", not N/A)</span></div>' + bgGrid(i,'long',BOOM_POS_LONG,g.long)
               + otherNoteInput('long', 'Describe the longitudinal position...', i)
             : '')
-        + '<div class="m2-kv">Orientation <span class="ilbl" title="' + escHtml(REF_CONFIG_RULE) + '">(as the boom sits in CRUISE — hover figures show what moves, not the recorded geometry)</span></div>' + bgGrid(i,'orient',BOOM_ORIENT,g.orient)
+        + '<div class="m2-kv">Orientation</div>' + bgGrid(i,'orient',BOOM_ORIENT,g.orient)
         + otherNoteInput('orient', 'Describe how the booms run...', i)
         + '<div class="irow" style="margin-top:10px;"><span class="ilbl" style="margin-right:8px;" title="' + escHtml(BOOM_COUNT_GUIDE) + '">Count per side</span>'
         + '<input type="number" min="0" max="20" value="' + (parseInt(g.count,10)||0) + '" data-bg-idx="' + i + '" data-bg-field="count" class="m3-num" style="width:70px;">'
@@ -3870,12 +3738,6 @@ function m1BoomsCard(){
         // pitch to translate (see pageM1's Body Motion block), and a tilting
         // boom does not break the TW sole-thrust rule (see twFixedPropelledMsg).
         + '<label class="m2-check" style="font-size:13px; margin-top:10px; display:inline-flex;"><input type="checkbox" data-bg-idx="' + i + '" data-bg-field="tilts" title="The boom group rotates RELATIVE TO THE FUSELAGE, carrying its propulsors with it. That is the whole test: not whether the booms move when the aircraft moves. On a tilt-body whose entire airframe rotates together, the booms do NOT tilt relative to the fuselage, so leave this unticked; on a level-cabin layout where the cabin stays put while the booms swing, they DO." ' + (g.tilts?'checked':'') + '> Booms tilt <span class="ilbl" style="margin-left:6px;">(the booms themselves rotate — the thrust vector turns with them, the body need not lean)</span></label>'
-        // 2026-09-05 (BOOM-6): booms that STOW. Before this existed the only retraction
-        // field in the wizard sat on the propulsor, so a retracting boom had to be
-        // recorded as a fuselage propulsor with rmech=Retracting — which deleted the
-        // boom AND made the fuselage read as a non-tilting thrust station, corrupting
-        // both the TW sole-thrust lock and the CVT mix check. Opt-in, default false.
-        + '<label class="m2-check" style="font-size:13px; margin-top:6px; display:inline-flex;"><input type="checkbox" data-bg-idx="' + i + '" data-bg-field="retracts" title="The boom group stows, folds or withdraws relative to the airframe — typically deployed for hover and stowed for cruise. Tick this and KEEP the boom recorded as a boom: do not move its propulsors onto the fuselage card. The propulsors themselves keep Retraction Kinematics = Fixed, because the boom does the moving, exactly as a rotor on a tilting boom keeps articulation Fixed." ' + (g.retracts?'checked':'') + '> Booms retract / stow <span class="ilbl" style="margin-left:6px;">(the boom folds or withdraws — the aircraft still HAS this boom)</span></label>'
         + '</div>';
     });
     h += '<button type="button" class="btn" data-bg-add="1" style="margin-top:10px; padding:4px 12px; font-size:12px;">+ Add boom group</button>';
@@ -3937,8 +3799,7 @@ function pageM2(){ if (isOtherArch()) return otherCommentaryPage('M2', 'Lifting 
               h += grid('n',W_POS_V.map(function(p){return oc(wingField('wPosV',i),p.id,p.n);}))
                  + '<div class="m2-kv" title="' + escHtml(W_POS_L_GUIDE) + '">Longitudinal Position <span class="ilbl">(along the FUSELAGE, not the whole aircraft)</span></div>'
                  + grid('',W_POS_L.map(function(p){return oc(wingField('wPosL',i),p.id,p.n);}))
-                 + grid('n',W_PLAN.map(function(p){return oc(wingField('wPlan',i),p.id,p.n,p.d);}))
-                 + wingTipJoinCheck(i); 
+                 + grid('n',W_PLAN.map(function(p){return oc(wingField('wPlan',i),p.id,p.n);})); 
               
               if (S['wPlan'+i] === 'Oth') {
                  h += '<div style="margin-top:8px;"><input type="text" class="m3-num" data-field="wPlanOth'+i+'" placeholder="Specify custom planform shape..." value="'+escHtml(S['wPlanOth'+i]||'')+'"></div>';
@@ -3949,7 +3810,7 @@ function pageM2(){ if (isOtherArch()) return otherCommentaryPage('M2', 'Lifting 
       h+=flg('info','Individual Wing Variables Bypassed','Integrated hull frameworks have no discrete countable panel, so per-panel count / position / role / tilt are bypassed. Still record the overall planform shape below.');
       h+=sec('Integrated Surface Planform');
       h+='<div class="m3-sub" style="margin-top:4px;">The hull itself is the lifting surface — capture its overall planform (e.g. Swept) even though there is no separate countable wing panel.</div>';
-      h+=grid('n',W_PLAN.map(function(p){return oc(wingField('wPlan',1),p.id,p.n,p.d);}))+wingTipJoinCheck(1);
+      h+=grid('n',W_PLAN.map(function(p){return oc(wingField('wPlan',1),p.id,p.n);}));
       if (S.wPlan1 === 'Oth') {
          h += '<div style="margin-top:8px;"><input type="text" class="m3-num" data-field="wPlanOth1" placeholder="Specify custom planform shape..." value="'+escHtml(S.wPlanOth1||'')+'"></div>';
       }
@@ -4121,8 +3982,8 @@ function buildMorphologyObj() {
     // ('Oth' included) — the free text rides separately in planOtherNote, never
     // substituted into plan itself (that was the old, lossy behavior).
     wings: (['BWB','FW','LB'].indexOf(S.wingConf) > -1)
-      ? (S.wPlan1 ? [{role:'Main', tilt:null, posV:null, posL:null, plan:S.wPlan1, tipJoin:!!S.wTipJoin1, planOtherNote:S.wPlan1==='Oth'?(S.wPlanOth1||''):''}] : [])
-      : [1,2,3,4].map(function(i){ return i<=S.wCount ? {role:S['wRole'+i]||'Main', tilt:S['wTilt'+i], posV:S['wPosV'+i], posL:S['wPosL'+i], plan:S['wPlan'+i], tipJoin:!!S['wTipJoin'+i], planOtherNote:S['wPlan'+i]==='Oth'?(S['wPlanOth'+i]||''):'', roleOtherNote:isOtherVal(S['wRole'+i])?(S['wRole'+i+'Oth']||''):''} : null }).filter(Boolean),
+      ? (S.wPlan1 ? [{role:'Main', tilt:null, posV:null, posL:null, plan:S.wPlan1, planOtherNote:S.wPlan1==='Oth'?(S.wPlanOth1||''):''}] : [])
+      : [1,2,3,4].map(function(i){ return i<=S.wCount ? {role:S['wRole'+i]||'Main', tilt:S['wTilt'+i], posV:S['wPosV'+i], posL:S['wPosL'+i], plan:S['wPlan'+i], planOtherNote:S['wPlan'+i]==='Oth'?(S['wPlanOth'+i]||''):'', roleOtherNote:isOtherVal(S['wRole'+i])?(S['wRole'+i+'Oth']||''):''} : null }).filter(Boolean),
     empType: S.empType, empTilts: !!S.empTilts, empTiltsNote: '', empNotes: S.empNotes,   // v15.5: note retired, never re-exported
     fusShape: S.fusShape, fusKin: S.fusKin, fusNotes: S.fusNotes, gearArch: S.gearArch, gearNotes: S.gearNotes, wingNotes: S.wingNotes,
     // Shared categorical-"Other" notes (v15.3): only carried when the field is
@@ -4451,7 +4312,6 @@ function ingestAI(data) {
       // New format's explicit sibling field takes precedence over the legacy
       // inference above when both are present.
       if (w.planOtherNote) S['wPlanOth' + i] = w.planOtherNote;
-      if (w.tipJoin != null) S['wTipJoin' + i] = xlBool(w.tipJoin);
       if (i > 1 && w.role) S['wRole' + i] = w.role;
       // Shared categorical-"Other" note for Wing Role (v15.3, see otherNoteKey()).
       if (w.roleOtherNote) S['wRole' + i + 'Oth'] = w.roleOtherNote;
@@ -5038,9 +4898,7 @@ function recordToRows(record, pid) {
       // hangs on. Blank on fuselage-referenced groups and on single-wing aircraft,
       // where the question is not asked. Additive, like wingRel before it.
       rows.push(reviewRow(apid, "M1", sub, "boom" + gn + "_wingIdx", boomNeedsWingIdx(g, m.wCount) ? withLabel(g.wingIdx, BOOM_WING_IDX) : null));
-      // v15.6: spanwise is a wing-referenced question — not exported for a boom that
-      // does not attach to a wing (mirrors boomN_long, which is exported only when it IS).
-      rows.push(reviewRow(apid, "M1", sub, "boom" + gn + "_span",   boomIsWingRefd(g) ? withLabel(g.span, BOOM_POS_SPAN) : null));
+      rows.push(reviewRow(apid, "M1", sub, "boom" + gn + "_span",   withLabel(g.span,   BOOM_POS_SPAN)));
       // v15.5: blank for wing-referenced groups — the field is now fuselage-only,
       // so a wing boom must not carry a stale airframe station.
       rows.push(reviewRow(apid, "M1", sub, "boom" + gn + "_long",   boomIsWingRefd(g) ? null : withLabel(g.long, BOOM_POS_LONG)));
@@ -5048,7 +4906,7 @@ function recordToRows(record, pid) {
       // Shared categorical-"Other" notes (v15.3) — free text, no withLabel.
       rows.push(reviewRow(apid, "M1", sub, "boom" + gn + "_attachOth", isOtherVal(g.attach) ? (g.attachOth || null) : null));
       rows.push(reviewRow(apid, "M1", sub, "boom" + gn + "_wingRelOth", isOtherVal(g.wingRel) ? (g.wingRelOth || null) : null));
-      rows.push(reviewRow(apid, "M1", sub, "boom" + gn + "_spanOth",   (boomIsWingRefd(g) && isOtherVal(g.span))   ? (g.spanOth   || null) : null));
+      rows.push(reviewRow(apid, "M1", sub, "boom" + gn + "_spanOth",   isOtherVal(g.span)   ? (g.spanOth   || null) : null));
       rows.push(reviewRow(apid, "M1", sub, "boom" + gn + "_longOth",   (!boomIsWingRefd(g) && isOtherVal(g.long)) ? (g.longOth || null) : null));
       rows.push(reviewRow(apid, "M1", sub, "boom" + gn + "_orientOth", isOtherVal(g.orient) ? (g.orientOth || null) : null));
       rows.push(reviewRow(apid, "M1", sub, "boom" + gn + "_count",    g.count != null ? g.count : null));
@@ -5059,7 +4917,6 @@ function recordToRows(record, pid) {
       // boom<N>_tilts (2026-08-18) — new column, false on every group labelled
       // before it existed. Plain boolean, no paired note (unlike empTilts).
       rows.push(reviewRow(apid, "M1", sub, "boom" + gn + "_tilts", !!g.tilts));
-      rows.push(reviewRow(apid, "M1", sub, "boom" + gn + "_retracts", !!g.retracts));
       rows.push(reviewRow(apid, "M1", sub, "boom" + gn + "_cards",    (g.cards && g.cards.length) ? g.cards.join("|") : null));
     });
     // Section-level boom edge-case notes (one per architecture, not per group).
@@ -5094,7 +4951,6 @@ function recordToRows(record, pid) {
       });
       // Categorical "Other" pattern: plan keeps the option id ('Oth' included);
       // the free text rides in this sibling field, never substituted into plan.
-      rows.push(reviewRow(apid, "M2", "Wing " + wi + " — Tip-Joined", "wing" + wi + "_tipJoin", !!w.tipJoin));
       rows.push(reviewRow(apid, "M2", "Wing " + wi + " — Planform Other Detail", "wing" + wi + "_plan_otherNote", w.planOtherNote || null));
       // Same pattern for Wing Role's 'Other' (v15.3, see otherNoteInput()).
       rows.push(reviewRow(apid, "M2", "Wing " + wi + " — Role Other Detail", "wing" + wi + "_role_otherNote", w.roleOtherNote || null));
@@ -5123,8 +4979,7 @@ function recordToRows(record, pid) {
       // Card-level (shared) fields. `count` is the card total; `ntypes` says how
       // many distinct propeller types this card holds. quickOverride/quickCount
       // are the v13 Quick Count Override (rule 4b) — plain values, no option list.
-      // v15.6: symLong/symCirc dropped from the export with the UI (see m3Card).
-      ["count","sym","zone","zoneChord","zoneSpan","notes","ntypes","quickOverride","quickCount"].forEach(function(field) {
+      ["count","sym","symLong","symCirc","zone","zoneChord","zoneSpan","notes","ntypes","quickOverride","quickCount"].forEach(function(field) {
         if (card[field] === undefined) return;
         // zone is now MULTI-select (array) — emit as "id — name" values joined by "|".
         var _v = (field === 'zone' && Array.isArray(card.zone))
@@ -5139,7 +4994,7 @@ function recordToRows(record, pid) {
           var tDim = subDim + " — Type " + ty.idx;
           // propKinOth (v15.3) is free text — no entry in M3_FIELD_OPTS, so
           // withLabel passes it through unlabelled and it reads back verbatim.
-          ["count","chord","orient","bmech","rmech","propKin","propKinOth","ctrlOnly","zone","zoneChord","zoneSpan"].forEach(function(field) {
+          ["count","chord","orient","bmech","rmech","propKin","propKinOth","zone","zoneChord","zoneSpan"].forEach(function(field) {
             if (ty[field] === undefined) return;
             var _tv = (field === 'zone' && Array.isArray(ty.zone))
               ? ty.zone.map(function(z){ return withLabel(z, M3_FIELD_OPTS.zone); }).join('|')
@@ -5154,7 +5009,7 @@ function recordToRows(record, pid) {
         // shown with no count stepper at all) — with 0 propulsors here the
         // attribute fields were never shown to the reviewer, so stale
         // ML/default values must not be saved.
-        ["chord","orient","bmech","rmech","propKin","propKinOth","ctrlOnly"].forEach(function(field) {
+        ["chord","orient","bmech","rmech","propKin","propKinOth"].forEach(function(field) {
           if (card[field] === undefined) return;
           rows.push(reviewRow(apid, "M3", subDim, card.component + "_" + field, withLabel(card[field] != null ? card[field] : null, M3_FIELD_OPTS[field])));
         });
@@ -5583,12 +5438,11 @@ function rowsToAIData(rows) {
     if (!bm) return;
     if (r.Value === undefined || r.Value === '' || r.Value == null) return;
     var bi = parseInt(bm[1], 10), key = bm[2];
-    if (!byBoom[bi]) byBoom[bi] = { attach:null, wingSpan:null, wingRel:null, wingIdx:null, span:null, long:null, orient:null, count:0, symmetric:false, circSymmetric:false, tilts:false, retracts:false, hasProps:null, cards:[], notes:'' };
+    if (!byBoom[bi]) byBoom[bi] = { attach:null, wingSpan:null, wingRel:null, wingIdx:null, span:null, long:null, orient:null, count:0, symmetric:false, circSymmetric:false, tilts:false, hasProps:null, cards:[], notes:'' };
     if (key === 'count')        byBoom[bi].count          = xlCount(r.Value);   // rule 1: normalize True/False → 1/0
     else if (key === 'sym')     byBoom[bi].symmetric      = xlBool(r.Value);
     else if (key === 'circSym') byBoom[bi].circSymmetric  = xlBool(r.Value);
     else if (key === 'tilts')    byBoom[bi].tilts          = xlBool(r.Value);
-    else if (key === 'retracts') byBoom[bi].retracts       = xlBool(r.Value);
     else if (key === 'hasProps') byBoom[bi].hasProps       = xlBool(r.Value);
     else if (key === 'cards')   byBoom[bi].cards           = String(r.Value).split('|').filter(Boolean);
     else if (key === 'notes')   byBoom[bi].notes           = r.Value;
@@ -5766,23 +5620,9 @@ function rowsToAIData(rows) {
   // was the "M2 not saved" bug.
   var WING_FIELD_MAP = { wTilt:'tilt', wPosV:'posV', wPosL:'posL', wPlan:'plan', wRole:'role',
                          tilt:'tilt', posV:'posV', posL:'posL', plan:'plan', role:'role' };
-  // v15.6 FIX (2026-09-06): tipJoin is a BOOLEAN and was absent from the parser
-  // below, so wing<N>_tipJoin was silently dropped every time a patent was
-  // rebuilt from its rows — the tick survived stage navigation (still in S) but
-  // vanished on Next/Previous PATENT. Parsed separately because stripLabel()
-  // is for "id — Label" coded values, not booleans.
-  var WING_BOOL_MAP = { tipJoin:'tipJoin', wTipJoin:'tipJoin' };
   var byWing = {};
   rows.forEach(function(r) {
     if (r.Section !== 'M2') return;
-    var mb = /^wing(\d+)_(tipJoin|wTipJoin)$/.exec(String(r.Field || ''));
-    if (mb) {
-      if (r.Value === undefined || r.Value === '' || r.Value == null) return;
-      var idxB = parseInt(mb[1], 10);
-      if (!byWing[idxB]) byWing[idxB] = { id: idxB };
-      byWing[idxB][WING_BOOL_MAP[mb[2]]] = xlBool(r.Value);
-      return;
-    }
     var m = /^wing(\d+)_(wTilt|wPosV|wPosL|wPlan|wRole|tilt|posV|posL|plan|role)$/.exec(String(r.Field || ''));
     if (!m) return;
     var idx = parseInt(m[1], 10), key = WING_FIELD_MAP[m[2]];
@@ -6547,7 +6387,7 @@ document.getElementById('panel').addEventListener('click', function(e){
 
   // Boom groups: add / remove (M1 "Booms / Outriggers")
   var bgAddBtn = tgt.closest('[data-bg-add]');
-  if (bgAddBtn) { S.boomGroups = S.boomGroups || []; S.boomGroups.push({ attach:null, wingSpan:null, wingRel:null, wingIdx:null, span:null, long:null, orient:null, count:0, symmetric:true, circSymmetric:false, tilts:false, retracts:false, hasProps:null, cards:[] }); markBatchDirty(); renderPreserveScroll(); return; }
+  if (bgAddBtn) { S.boomGroups = S.boomGroups || []; S.boomGroups.push({ attach:null, wingSpan:null, wingRel:null, wingIdx:null, span:null, long:null, orient:null, count:0, symmetric:true, circSymmetric:false, tilts:false, hasProps:null, cards:[] }); markBatchDirty(); renderPreserveScroll(); return; }
   var bgRemBtn = tgt.closest('[data-bg-remove]');
   if (bgRemBtn) { var rmi=parseInt(bgRemBtn.getAttribute('data-bg-idx'),10); if(S.boomGroups && S.boomGroups[rmi]!==undefined){ S.boomGroups.splice(rmi,1); markBatchDirty(); renderPreserveScroll(); } return; }
   if(tgt.id === 'btn-next' && !tgt.disabled) {
@@ -7317,18 +7157,13 @@ document.getElementById('panel').addEventListener('change', function(e){
     S[field] = val3; renderPreserveScroll(); return;
   }
   if (tgt.type === 'checkbox' && (field === 'latSym' || field === 'longSym')) { S[field] = tgt.checked; renderPreserveScroll(); return; }
-  // v15.6 FIX (2026-09-06): wTipJoin had NO handler, so the tick rendered and was
-  // then wiped by the next renderPreserveScroll() — every checkbox in this panel
-  // needs an explicit branch; there is no generic data-field fallback for them.
-  if (tgt.type === 'checkbox' && /^wTipJoin[1-4]$/.test(field || '')) { S[field] = tgt.checked; markBatchDirty(); renderPreserveScroll(); return; }
-  if (tgt.type === 'checkbox' && field === 'boomsPresent') { S.boomsPresent = tgt.checked; if (!tgt.checked) { S.boomGroups = []; } else if (!(S.boomGroups||[]).length) { S.boomGroups = [{ attach:null, wingSpan:null, wingRel:null, wingIdx:null, span:null, long:null, orient:null, count:0, symmetric:true, circSymmetric:false, tilts:false, retracts:false, hasProps:null, cards:[] }]; } renderPreserveScroll(); return; }
+  if (tgt.type === 'checkbox' && field === 'boomsPresent') { S.boomsPresent = tgt.checked; if (!tgt.checked) { S.boomGroups = []; } else if (!(S.boomGroups||[]).length) { S.boomGroups = [{ attach:null, wingSpan:null, wingRel:null, wingIdx:null, span:null, long:null, orient:null, count:0, symmetric:true, circSymmetric:false, tilts:false, hasProps:null, cards:[] }]; } renderPreserveScroll(); return; }
   // boomXFormat checkbox retired v14 (C5) — BOOM_ORIENT's per-group 'X' option
   // supersedes it; the S.boomXFormat state key + ingest path are kept only for
   // old-save round-trip (see BOOM_ORIENT's comment), so no click handler needed.
   if (tgt.type === 'checkbox' && field === 'empTilts') { S.empTilts = tgt.checked; renderPreserveScroll(); return; }
   if (tgt.type === 'checkbox' && tgt.dataset && tgt.dataset.bgField === 'symmetric') { var sgi=parseInt(tgt.dataset.bgIdx,10); if(S.boomGroups[sgi]){ S.boomGroups[sgi].symmetric=tgt.checked; markBatchDirty(); renderPreserveScroll(); } return; }
   if (tgt.type === 'checkbox' && tgt.dataset && tgt.dataset.bgField === 'tilts') { var tgi=parseInt(tgt.dataset.bgIdx,10); if(S.boomGroups[tgi]){ S.boomGroups[tgi].tilts=tgt.checked; markBatchDirty(); renderPreserveScroll(); } return; }
-  if (tgt.type === 'checkbox' && tgt.dataset && tgt.dataset.bgField === 'retracts') { var rgi=parseInt(tgt.dataset.bgIdx,10); if(S.boomGroups[rgi]){ S.boomGroups[rgi].retracts=tgt.checked; markBatchDirty(); renderPreserveScroll(); } return; }
   if (tgt.type === 'checkbox' && tgt.dataset && tgt.dataset.bgField === 'circSymmetric') { var sgi2=parseInt(tgt.dataset.bgIdx,10); if(S.boomGroups[sgi2]){ S.boomGroups[sgi2].circSymmetric=tgt.checked; markBatchDirty(); renderPreserveScroll(); } return; }
   if (tgt.type === 'number' && tgt.dataset && tgt.dataset.bgField === 'count') { var cgi=parseInt(tgt.dataset.bgIdx,10); if(S.boomGroups[cgi]){ var cv=parseInt(tgt.value,10); if(isNaN(cv)||cv<0)cv=0; S.boomGroups[cgi].count=cv; markBatchDirty(); renderPreserveScroll(); } return; }
   if (field && field.indexOf('m3_') === 0 && tgt.type === 'checkbox') {

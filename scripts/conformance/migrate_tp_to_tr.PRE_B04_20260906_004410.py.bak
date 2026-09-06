@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""TP -> TR. Default is a DRY RUN; pass --apply to write.
+
+'TP' (Vectored Thrust — Tilt Propulsors) was RENAMED to 'TR' (Vectored Thrust —
+Tilt Rotor) after v13. It is the same category, not a different one: the option
+description is byte-identical in both wizards —
+
+    v13  {id:'TP', name:'… Tilt Propulsors', desc:'Propulsors tilt independently of fixed wing.'}
+    v15  {id:'TR', name:'… Tilt Rotor',      desc:'Propulsors tilt independently of fixed wing.'}
+
+The Python side was renamed on 2026-08-24 (PRE_TPTR_20260824_112830) and kept
+'TP' as a read-only alias, but the EXPORTS were never migrated, so Batch_02 still
+carries 63 topType='TP' and three batches carry a stale '_TP_' inside labelToken
+(a derived summary string that embeds the architecture code).
+
+No review is needed and no record changes meaning: this is a pure id rename, the
+same move as 'Non-Retractable' -> 'Fixed …' and 'HoverCruise' -> 'Invariant'.
+"""
+from __future__ import annotations
+import argparse, re, shutil
+from datetime import datetime
+from pathlib import Path
+import pandas as pd
+
+DATA = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & "
+            "Labelling Outputs/1639_DS/data/03c_CORRECTED_wizard_exports")
+BATCHES = ["Batch_01", "Batch_02", "Batch_03", "Batch_05"]
+TOKEN = re.compile(r"(^|[_\s|])TP([_\s|]|$)")
+
+
+def ident(v: str) -> str:
+    s = str(v).strip()
+    return s.split("—")[0].strip() if "—" in s else s
+
+
+def run(batch: str, apply: bool) -> dict:
+    f = DATA / f"reviewed_patents_{batch}.xlsx"
+    d = pd.read_excel(f, sheet_name="Review")
+    d["Field"] = d["Field"].astype(str)
+    stat = {"topType": 0, "labelToken": 0}
+
+    for i, r in d[d["Field"] == "topType"].iterrows():
+        if ident(r["Value"]) == "TP":
+            d.at[i, "Value"] = "TR — Vectored Thrust — Tilt Rotor"
+            stat["topType"] += 1
+
+    for i, r in d[d["Field"] == "labelToken"].iterrows():
+        v = str(r["Value"])
+        if v != "nan" and TOKEN.search(v):
+            d.at[i, "Value"] = TOKEN.sub(lambda m: f"{m.group(1)}TR{m.group(2)}", v)
+            stat["labelToken"] += 1
+
+    if apply and any(stat.values()):
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        shutil.copy2(f, f.with_suffix(f".PRE_TPTR_{ts}.xlsx"))
+        d.to_excel(f, sheet_name="Review", index=False)
+    return stat
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--apply", action="store_true")
+    a = ap.parse_args()
+    print("APPLYING" if a.apply else "DRY RUN — nothing written (use --apply)")
+    tot = {"topType": 0, "labelToken": 0}
+    for b in BATCHES:
+        s = run(b, a.apply)
+        for k in tot:
+            tot[k] += s[k]
+        print(f"  {b}  topType TP->TR {s['topType']:>3} · labelToken {s['labelToken']:>3}")
+    print(f"  {'TOTAL':<9} topType TP->TR {tot['topType']:>3} · labelToken {tot['labelToken']:>3}")
