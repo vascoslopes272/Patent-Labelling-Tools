@@ -135,19 +135,12 @@ def parse_kind_code(patent_id: str | None) -> dict:
 # Legal-status strings a PatSeer export may carry, mapped to the two stages.
 # Ordered most-specific-first; matched as case-insensitive substrings.
 _LEGAL_STATUS_RULES: list[tuple[str, str]] = [
-    # PatSeer's "Legal Status Current" reads "ACTIVE - GRANTED" / "ACTIVE - APPLIED"
-    # / "INACTIVE - NONPAYMENT" ... so "active"/"alive" must NOT decide the stage:
-    # they only say whether the right subsists (that is `active`, below).
-    (r"\bgranted\b|\bissued\b|\bpatented\b|\bin\s*force\b", "Granted"),
-    (r"\bapplied\b|\bpending\b|\bpublished\b|\bfiled\b|\bapplication\b"
-     r"|\bexamination\b|\ballowance\b|\baction\s+mailed\b|\bissue\s+fee\b", "Application"),
+    (r"\bgranted\b|\bissued\b|\bin\s*force\b|\bactive\b|\balive\b", "Granted"),
+    (r"\bpending\b|\bpublished\b|\bfiled\b|\bapplication\b|\bexamination\b", "Application"),
     # Dead ends are recorded as their own stage rather than folded into either:
     # a lapsed grant WAS granted, and an abandoned application never was.
-    (r"\blapsed\b|\bexpired\b|\brevoked\b|\bceased\b|\bnon\s*-?\s*payment\b", "Granted"),
-    (r"\babandoned\b|\brefused\b|\brejected\b|\bsuspended\b", "Application"),
-    # "withdrawn / surrendered" is deliberately absent: PatSeer uses it for both
-    # a withdrawn application and a surrendered patent, so the stage comes from
-    # the kind code and only `active` is read from the status.
+    (r"\blapsed\b|\bexpired\b|\brevoked\b|\bceased\b", "Granted"),
+    (r"\bwithdrawn\b|\babandoned\b|\brefused\b|\brejected\b", "Application"),
 ]
 
 # Statuses that mean the right no longer subsists. Kept as a separate boolean so
@@ -155,8 +148,7 @@ _LEGAL_STATUS_RULES: list[tuple[str, str]] = [
 # evidence the invention cleared examination.
 _INACTIVE_RE = re.compile(
     r"\blapsed\b|\bexpired\b|\brevoked\b|\bceased\b|\bwithdrawn\b|"
-    r"\babandoned\b|\brefused\b|\brejected\b|\bsurrendered\b|\bsuspended\b|"
-    r"\binactive\b|\bdead\b|\bnon\s*-?\s*payment\b", re.IGNORECASE)
+    r"\babandoned\b|\brefused\b|\brejected\b", re.IGNORECASE)
 
 
 def legal_stage_for(patent_id: str | None,
@@ -168,20 +160,12 @@ def legal_stage_for(patent_id: str | None,
     used, so a reviewer can tell a documented status from an inferred one.
     """
     raw = (legal_status_raw or "").strip()
-    status_active = None
     if raw and raw.lower() not in ("nan", "none", "-"):
-        status_active = not bool(_INACTIVE_RE.search(raw))
         for pattern, stage in _LEGAL_STATUS_RULES:
             if re.search(pattern, raw, re.IGNORECASE):
                 return {"value": stage, "source": "legal_status",
-                        "confidence": 0.95, "raw": raw, "active": status_active}
-        # A status that names no stage ("ACTIVE", "INACTIVE - WITHDRAWN /
-        # SURRENDERED"): the kind code decides granted-vs-filed below, and the
-        # status still decides whether the right is alive.
-        out = legal_stage_for(patent_id, None)
-        out.update({"raw": raw, "active": status_active,
-                    "source": f"{out.get('source') or 'unknown'}+legal_status"})
-        return out
+                        "confidence": 0.95, "raw": raw,
+                        "active": not bool(_INACTIVE_RE.search(raw))}
 
     parsed = parse_kind_code(patent_id)
     office, kind = parsed["office"], parsed["kind"]
@@ -207,36 +191,21 @@ def legal_stage_for(patent_id: str | None,
 # existing notebook's behaviour changes. Column names differ across PatSeer
 # accounts, hence the variant lists — same pattern as _archive/deduplicator.py.
 
-# Matched case-insensitively after whitespace normalisation, first hit wins, so
-# the most informative column of each kind is listed first. "Legal Status
-# Current" is filled for every row of the 2026-06 export; "Register Legal
-# Status" (US register events) is empty for 43 % of it.
 _LEGAL_STATUS_VARIANTS = [
-    "Legal Status Current", "Legal Status", "Register Legal Status", "Status",
-    "Application Status", "Patent Status", "Current Status", "Legal Status - Simple",
+    "Legal Status", "Status", "Application Status", "Patent Status",
+    "Current Status", "Legal Status - Simple",
 ]
-_ALIVE_VARIANTS = [
-    "Legal Status (Dead/Alive)", "Family Legal Status(Dead/Alive)",
-]
-_RECORD_TYPE_VARIANTS = ["Record Type"]
-_ASSIGNEE_COUNTRY_VARIANTS = ["Assignee Country", "Assignee Country Code"]
 _FAMILY_ID_VARIANTS = [
     "Simple Family ID", "Family ID", "INPADOC Family ID", "DOCDB Family ID",
 ]
 _FAMILY_SIZE_VARIANTS = [
     "Family Size", "Simple Family Size", "INPADOC Family Size", "No. of Family Members",
-    "No. of Simple Family Members",
 ]
-# NOT "Publication/Issue Date": for an A1 publication that was later granted
-# that column is the A1's publication date, so reading it as the grant date
-# made grant_lag_years the publication lag. This export has no grant-date
-# column, so grant_lag_years stays empty rather than being wrong.
 _GRANT_DATE_VARIANTS = [
-    "Grant Date", "Granted Date", "Issue Date",
+    "Grant Date", "Granted Date", "Issue Date", "Publication/Issue Date",
 ]
 _PRIORITY_DATE_VARIANTS = [
     "Priority Date", "Earliest Priority Date", "First Priority Date",
-    "Priority Date (Record)", "EFAM Earliest Priority Date", "SFAM Earliest Priority date",
 ]
 _CLAIM_COUNT_VARIANTS = [
     "No. of Claims", "Claim Count", "Number of Claims", "Claims Count",
@@ -245,8 +214,8 @@ _FIGURE_COUNT_VARIANTS = [
     "No. of Drawings", "Drawing Count", "Figures", "Number of Drawings",
 ]
 _FWD_CITE_COUNT_VARIANTS = [
-    "No. of Forward Citations", "No. of Forward Citations (Individual)",
-    "Forward Citation Count", "Cited By Count", "Times Cited",
+    "No. of Forward Citations", "Forward Citation Count", "Cited By Count",
+    "Times Cited",
 ]
 _BWD_CITE_COUNT_VARIANTS = [
     "No. of Backward Citations", "Backward Citation Count", "Cites Count",
@@ -254,9 +223,6 @@ _BWD_CITE_COUNT_VARIANTS = [
 
 _OPTIONAL_COLUMNS = [
     ("legal_status_raw",   _LEGAL_STATUS_VARIANTS),
-    ("legal_alive_raw",    _ALIVE_VARIANTS),
-    ("record_type",        _RECORD_TYPE_VARIANTS),
-    ("assignee_country_col", _ASSIGNEE_COUNTRY_VARIANTS),
     ("family_id",          _FAMILY_ID_VARIANTS),
     ("family_size",        _FAMILY_SIZE_VARIANTS),
     ("grant_date",         _GRANT_DATE_VARIANTS),
@@ -280,9 +246,8 @@ def enrich_from_excel(index: dict[str, dict], path) -> dict:
 
     df = pd.read_excel(path, dtype=str)
     found: dict[str, str] = {}
-    by_norm = {" ".join(str(c).split()).lower(): c for c in df.columns}
     for key, variants in _OPTIONAL_COLUMNS:
-        col = next((by_norm[v.lower()] for v in variants if v.lower() in by_norm), None)
+        col = next((c for c in variants if c in df.columns), None)
         if col:
             found[key] = col
 
@@ -385,7 +350,6 @@ MATURITY_COLUMNS = [
     "backward_citations_in_corpus", "self_citations_in_corpus",
     "in_corpus_forward_share",
     "years_since_publication", "grant_lag_years",
-    "priority_year", "record_type", "snapshot_date",
     "family_id", "family_size", "claim_count", "figure_count",
     "forward_citation_percentile", "impact_tier", "maturity_tier",
 ]
@@ -400,26 +364,13 @@ _IMPACT_MED_PCT = 0.50
 
 def build_maturity_row(patent_id: str,
                        index: dict[str, dict],
-                       reference_year: int | None = None,
-                       snapshot_date: "str | None" = None) -> dict:
+                       reference_year: int | None = None) -> dict:
     """Maturity columns for one patent. Percentile/tier columns are filled by
-    add_corpus_percentiles() afterwards — they need the whole corpus.
-
-    `snapshot_date` (ISO "YYYY-MM-DD") is the date the PatSeer export was taken.
-    Ages are measured to THAT date, not to today: citations and legal status
-    in the file stop there, so "years since publication" must too. It is also
-    written to the row, so a table built from this sheet can say which snapshot
-    it describes and where the publication-lag truncation begins.
-    """
+    add_corpus_percentiles() afterwards — they need the whole corpus."""
     meta = index.get(patent_id, {})
-    if snapshot_date and not reference_year:
-        reference_year = _year(snapshot_date)
     reference_year = reference_year or date.today().year
 
     stage = legal_stage_for(patent_id, meta.get("legal_status_raw"))
-    alive = (meta.get("legal_alive_raw") or "").strip().upper()
-    right_active = ({"ALIVE": True, "DEAD": False}.get(alive)
-                    if alive else stage["active"])
     cites = citation_summary(patent_id, index)
 
     pub_year = _year(meta.get("pub_year"))
@@ -443,7 +394,7 @@ def build_maturity_row(patent_id: str,
         "legal_stage_confidence": stage["confidence"],
         "kind_code": parse_kind_code(patent_id)["kind"],
         "legal_status_raw": meta.get("legal_status_raw"),
-        "right_active": right_active,
+        "right_active": stage["active"],
         "forward_citations": fwd,
         "backward_citations": cites["backward_citations"],
         "forward_citations_per_year": per_year,
@@ -454,9 +405,6 @@ def build_maturity_row(patent_id: str,
             round(cites["forward_citations_in_corpus"] / fwd, 3) if fwd else None),
         "years_since_publication": years_since_pub,
         "grant_lag_years": grant_lag,
-        "priority_year": _year(meta.get("priority_date")),
-        "record_type": meta.get("record_type"),
-        "snapshot_date": snapshot_date,
         "family_id": meta.get("family_id"),
         "family_size": meta.get("family_size"),
         "claim_count": meta.get("claim_count"),

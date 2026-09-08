@@ -104,10 +104,6 @@ def mine_name_candidates(
         head = re.split(r"[-\s]", value)[0].upper()
         if head in _STOP_TOKENS or value.upper() in _STOP_TOKENS:
             return
-        # "referred to as lift force" captures "lift": a single all-lowercase
-        # word is prose, never a product designation.
-        if value.islower() and " " not in value and "-" not in value:
-            return
         # Never propose the patent's own publication number as the aircraft name.
         if patent_id and value.upper().replace("-", "") in str(patent_id).upper():
             return

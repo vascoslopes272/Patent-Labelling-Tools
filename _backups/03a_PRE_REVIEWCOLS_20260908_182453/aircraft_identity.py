@@ -71,14 +71,7 @@ from src.patent_scope import SCOPE_COLUMNS as _SCOPE_COLUMNS
 from src.patent_maturity import MATURITY_COLUMNS as _MATURITY_COLUMNS
 from src.identity_schema import (           # noqa: F401
     IDENTITY_COLUMNS, EVIDENCE_COLUMNS, PROMPT_COLUMNS, HUMAN_COLUMNS,
-    FINAL_RULES, HUMAN_OPTIONS, REVIEW_COLUMNS, apply_finals,
     SOURCE_PRECEDENCE, NEEDS_REVIEW_BELOW, _CONF_HUMAN,
-)
-from src.text_citation import (             # noqa: F401
-    find_quote, literal_pattern, classify_takeoff, TAKEOFF_OPTIONS, SECTIONS,
-)
-from src.wizard_link import (               # noqa: F401
-    load_wizard_reviews, assign_aircraft_groups, group_summary, split_group_name,
 )
 from src.grouper import _normalise_company
 
@@ -115,19 +108,14 @@ def build_identity_row(
     spec_hints: dict | None = None,
     blade_hits: list[dict] | None = None,
     llm_answer: dict | None = None,
-    takeoff_pred: dict | None = None,
-    wizard: dict | None = None,
-    group: dict | None = None,
 ) -> tuple[dict, list[dict]]:
     """Merge every signal for one patent into (identity_row, evidence_rows).
 
     `meta` is the PatSeer excel entry (extractor.load_patseer_excel), and
     `batch_meta` the batches.xlsx row (company_canonical / prototype_label).
-    `wizard` is the patent's T1 record from src/wizard_link.load_wizard_reviews
-    and `group` its entry from assign_aircraft_groups; `takeoff_pred` comes
-    from src/text_citation.classify_takeoff. Every argument beyond patent_id /
-    batch / meta is optional so the notebook can run any subset of the stages
-    — gazetteer-only, or SBERT without the LLM — and still get a well-formed sheet.
+    Every argument beyond those is optional so the notebook can run any subset
+    of the stages — gazetteer-only, or SBERT without the LLM — and still get a
+    well-formed sheet.
     """
     batch_meta = batch_meta or {}
     gaz_hit = gaz_hit or {}
@@ -135,9 +123,6 @@ def build_identity_row(
     spec_hints = spec_hints or {}
     name_candidates = name_candidates or []
     blade_hits = blade_hits or []
-    takeoff_pred = takeoff_pred or {}
-    wizard = wizard or {}
-    group = group or {}
     evidence: list[dict] = []
 
     def _ev(field, value, source, conf, context=""):
@@ -150,15 +135,7 @@ def build_identity_row(
     assignee_raw = meta.get("assignee")
     company = (batch_meta.get("company_canonical")
                or (_normalise_company(assignee_raw) if assignee_raw else None))
-    country, country_src = assignee_country(assignee_raw), "assignee_string"
-    if not country and meta.get("assignee_country_col"):
-        # The export's own "Assignee Country" column, when the assignee string
-        # carries no "(US)" suffix to parse.
-        cc = str(meta["assignee_country_col"]).strip().upper()
-        if len(cc) == 2 and cc.isalpha():
-            country, country_src = cc, "patseer_column"
-    if not country:
-        country_src = None
+    country = assignee_country(assignee_raw)
     office = publication_office(patent_id)
 
     # ── aircraft_name ────────────────────────────────────────────────────────
@@ -205,34 +182,6 @@ def build_identity_row(
     # is_electric is derived from powertrain rather than predicted separately —
     # one source of truth, so the two columns can never contradict each other.
     is_electric = ELECTRIC_BY_POWERTRAIN.get(powertrain, "Unknown") if powertrain else "Unknown"
-
-    # ── "where does it say that?" — the citations the reviewer reads ─────────
-    # Name: does the proposed real name literally appear in the loaded text?
-    # A gazetteer name usually does NOT (it is inferred from company + year),
-    # and the reviewer must know that before accepting it.
-    name_in_text, name_section, name_quote = None, None, None
-    if name:
-        cite = find_quote(meta, literal_pattern(str(name)))
-        if cite:
-            name_in_text, name_section, name_quote = "Yes", cite["section"], cite["quote"]
-        else:
-            name_in_text = "No"
-    # Powertrain: the keyword pass reports the pattern that fired; SBERT and
-    # the gazetteer have no sentence to point at, and the column says so.
-    pt_section, pt_quote = None, None
-    if pt_src == "keyword" and powertrain_pred.get("pattern"):
-        cite = find_quote(meta, powertrain_pred["pattern"])
-        if cite:
-            pt_section, pt_quote = cite["section"], cite["quote"]
-    elif pt_src == "gazetteer":
-        pt_section = "gazetteer (company-level, no sentence)"
-    elif pt_src in ("sbert", "llm"):
-        pt_section = f"{pt_src} (no literal sentence)"
-
-    # ── take-off mode (VTOL / STOL) ──────────────────────────────────────────
-    takeoff = takeoff_pred.get("value")
-    _ev("takeoff_mode", takeoff, takeoff_pred.get("source"), takeoff_pred.get("confidence"),
-        f"{takeoff_pred.get('section')}: {takeoff_pred.get('quote')}" if takeoff else "")
 
     # ── industry ─────────────────────────────────────────────────────────────
     industry_pred = industry_pred or {}
@@ -282,28 +231,19 @@ def build_identity_row(
     blade_cols = summarise_blade_counts(blade_hits)
 
     # ── review routing ───────────────────────────────────────────────────────
-    # Only the fields the reviewer actually decides (name / electric / VTOL)
-    # raise a flag. Specs, scope and architecture are informative columns and
-    # flagging them would mark every row.
     reasons: list[str] = []
-    if group.get("aircraft_group_source") == "generated":
-        reasons.append("group name generated — no wizard aircraftName")
-    if group.get("aircraft_group_note", "") and "differs from original" in str(group.get("aircraft_group_note")):
-        reasons.append("D1/D2 name differs from its original")
-    if name and name_in_text == "No":
-        reasons.append("proposed real name not found in patent text")
-    elif name and (name_conf or 0) < NEEDS_REVIEW_BELOW:
+    if not name:
+        reasons.append("no aircraft name")
+    elif (name_conf or 0) < NEEDS_REVIEW_BELOW:
         reasons.append("low-confidence name")
-    if gaz_hit.get("_match") == "ambiguous":
-        reasons.append("multiple gazetteer aircraft for this company")
     if not powertrain:
-        reasons.append("powertrain unknown")
+        reasons.append("no powertrain")
     elif (pt_conf or 0) < NEEDS_REVIEW_BELOW:
         reasons.append("low-confidence powertrain")
-    if not takeoff:
-        reasons.append("take-off mode unknown")
-    elif takeoff in ("STOL", "V/STOL", "CTOL"):
-        reasons.append(f"take-off language says {takeoff}")
+    if gaz_hit.get("_match") == "ambiguous":
+        reasons.append("multiple gazetteer aircraft for this company")
+    if not any(specs.values()):
+        reasons.append("no specifications")
 
     row = {
         "patent_id": patent_id,
@@ -314,44 +254,17 @@ def build_identity_row(
         "app_year": meta.get("app_year"),
         "pub_year": meta.get("pub_year"),
         "title": meta.get("title"),
-        "wizard_approved": wizard.get("approved"),
-        "wizard_disapprove_reason": wizard.get("disapprove_reason"),
-        "wizard_aircraft_name": wizard.get("aircraft_name"),
-        "wizard_duplicate_type": wizard.get("duplicate_type"),
-        "wizard_duplicate_of": wizard.get("duplicate_of"),
-        "aircraft_group": group.get("aircraft_group"),
-        "aircraft_group_source": group.get("aircraft_group_source"),
-        "aircraft_group_note": group.get("aircraft_group_note"),
         "pub_office": office,
         "assignee_country": country,
-        "assignee_country_source": country_src,
         "region": region_for(country, office),
         "aircraft_name": name,
         "aircraft_name_source": name_src,
         "aircraft_name_confidence": round(name_conf, 4) if name_conf is not None else None,
-        "aircraft_name_in_text": name_in_text,
-        "aircraft_name_section": name_section,
-        "aircraft_name_quote": name_quote,
         "aircraft_name_alternatives": alternatives or None,
-        "aircraft_name_human": None,
-        "aircraft_name_final": None,
         "is_electric": is_electric,
         "powertrain": powertrain,
         "powertrain_source": pt_src,
         "powertrain_confidence": round(pt_conf, 4) if pt_conf is not None else None,
-        "powertrain_section": pt_section,
-        "powertrain_quote": pt_quote,
-        "is_electric_human": None,
-        "is_electric_final": None,
-        "takeoff_mode": takeoff,
-        "takeoff_source": takeoff_pred.get("source"),
-        "takeoff_confidence": (round(float(takeoff_pred["confidence"]), 4)
-                               if takeoff and takeoff_pred.get("confidence") is not None else None),
-        "takeoff_section": takeoff_pred.get("section") if takeoff else None,
-        "takeoff_quote": takeoff_pred.get("quote") if takeoff else None,
-        "takeoff_human": None,
-        "takeoff_final": None,
-        "review_status": None,
         "industry_primary": industry,
         "industry_source": ind_src,
         "industry_confidence": round(ind_conf, 4) if ind_conf is not None else None,
@@ -371,7 +284,6 @@ def build_identity_row(
         "reviewed_at": None,
         "notes": None,
     }
-    apply_finals(row)
     return row, evidence
 
 
@@ -394,21 +306,28 @@ def attach_scope(row: dict, scope_row: dict) -> dict:
     aircraft_name and its source, and mutates `row` in place (returning it for
     convenience). Two things change beyond adding columns:
 
-    `needs_review` / `review_reason` are re-derived so a row whose proposed
-    real name is only company-attributed is flagged even when every other
-    field is confidently filled — that is exactly the row a reviewer must
-    look at before accepting the name.
+      1. `needs_review` / `review_reason` are re-derived, so a row whose name
+         is only company-attributed is flagged even when every other field is
+         confidently filled — that is exactly the row a reviewer must look at.
+      2. "no aircraft name" stops counting as a review reason for a genuinely
+         component-level patent. There is no aircraft to name, so demanding one
+         would flag most of the corpus and drown the rows that matter.
     """
     row.update({k: scope_row.get(k) for k in _SCOPE_COLUMNS})
 
     reasons = [r for r in (row.get("review_reason") or "").split("; ") if r]
+    spec = scope_row.get("specificity")
 
-    # The one scope fact the reviewer needs when judging the proposed real
-    # name: the name came from the company, and this patent does not depict a
-    # whole aircraft. Architecture-count and specificity confidence are left
-    # in their own columns — they are not reviewed in this pass.
+    if spec == "IllustrativeOnly" and "no aircraft name" in reasons:
+        reasons.remove("no aircraft name")
+        reasons.append("component/subsystem patent — no aircraft expected")
+
     if row.get("aircraft_link") == "CompanyAttributed":
-        reasons.append("proposed name is company-attributed, not depicted")
+        reasons.append("aircraft name is company-attributed, not depicted")
+    if scope_row.get("architecture_pure") is False:
+        reasons.append(f"covers {scope_row.get('architecture_count')} architectures")
+    if (scope_row.get("specificity_confidence") or 0) < NEEDS_REVIEW_BELOW:
+        reasons.append("low-confidence specificity call")
 
     row["needs_review"] = bool(reasons)
     row["review_reason"] = "; ".join(dict.fromkeys(reasons)) or None

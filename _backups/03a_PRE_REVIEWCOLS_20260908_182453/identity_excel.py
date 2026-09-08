@@ -24,56 +24,10 @@ from src.aircraft_specs import SPEC_FIELDS, ELECTRIC_BY_POWERTRAIN, POWERTRAIN_D
 from src.patent_scope import SCOPE_OPTIONS as _SCOPE_OPTIONS_DOC
 from src.identity_schema import (
     IDENTITY_COLUMNS, EVIDENCE_COLUMNS, PROMPT_COLUMNS, HUMAN_COLUMNS,
-    FINAL_RULES, HUMAN_OPTIONS, apply_finals, _CONF_HUMAN,
+    _CONF_HUMAN,
 )
-from src.text_citation import TAKEOFF_OPTIONS
 
 _README_ROWS = [
-    ("HOW TO REVIEW", "Work down the Identity sheet. For each patent decide three things "
-                      "and type them into the *_human columns: aircraft_name_human, "
-                      "is_electric_human, takeoff_human. Then set review_status = done "
-                      "(or skip). Re-running the notebook keeps every *_human cell, "
-                      "review_status, reviewed_by, reviewed_at and notes, and recomputes "
-                      "the *_final columns from them."),
-    ("aircraft_group", "The working aircraft name — never empty. Source order: the "
-                       "wizard's aircraftName > inherited from the duplicate's original "
-                       "(D1/D2 = same aircraft) > original's name + letter (D3 = variant) "
-                       "> '<assignee> <N>' generated, N unique across the whole corpus. "
-                       "aircraft_group_source says which; aircraft_group_note flags a "
-                       "D1/D2 whose wizard name differs from its original's."),
-    ("aircraft_name", "The machine's PROPOSAL for the real aircraft (S4, Vertiia...). "
-                      "A gazetteer proposal is inferred from company + filing year and "
-                      "usually does NOT appear in the patent — see aircraft_name_in_text. "
-                      "It is never copied into *_final by itself."),
-    ("aircraft_name_in_text / _section / _quote",
-     "Whether the proposed name literally appears in the loaded text, and where. "
-     "Searchable sections: Title, Abstract, First claim, Summary of invention, "
-     "Description of drawings. The full Description is NOT loaded, so 'No' means "
-     "'not in those five sections'."),
-    ("aircraft_name_human", HUMAN_OPTIONS["aircraft_name_human"]),
-    ("aircraft_name_final", "aircraft_name_human if you typed one, else aircraft_group."),
-    ("is_electric / powertrain", "Machine reading of the energy source; is_electric is "
-                                 "derived from powertrain (Yes | Hybrid | No | Unknown). "
-                                 "powertrain_section / powertrain_quote is the sentence the "
-                                 "keyword pass fired on; a gazetteer or SBERT value has no "
-                                 "sentence and the section column says so."),
-    ("is_electric_human", HUMAN_OPTIONS["is_electric_human"] + " — 'No' is your disapproval."),
-    ("takeoff_mode", "Keyword reading of the take-off vocabulary: " + TAKEOFF_OPTIONS + ". "
-                     "V/STOL = the text uses BOTH vocabularies; for STOL and V/STOL the "
-                     "quote is the STOL sentence — read it before disapproving. Empty = "
-                     "no take-off vocabulary in the loaded sections."),
-    ("takeoff_human", HUMAN_OPTIONS["takeoff_human"] + " — 'STOL' is your disapproval."),
-    ("review_status", HUMAN_OPTIONS["review_status"]),
-    ("wizard_*", "The human T1 record from the wizard export (03c): isApproved, "
-                 "disapproval reason, aircraftName, duplicateType (1/2/3), duplicateId. "
-                 "Use wizard_approved == TRUE to restrict any statistic to the approved "
-                 "corpus."),
-    ("Dates", "priority_year < app_year (filing) < pub_year (publication). "
-              "snapshot_date is the PatSeer export date; anything with a priority "
-              "date within ~2 years of it (US/DE/JP/KR publish ~18 months after "
-              "priority; CN faster) is under-counted, so truncate time series there. "
-              "This export has no grant-date column: grant_lag_years is empty on purpose."),
-    ("", ""),
     ("SHEET: Identity", "One row per patent — the table to join onto your label data."),
     ("SHEET: Evidence", "Every candidate every signal proposed, with its context. "
                         "Use it to audit or override a value in Identity."),
@@ -158,11 +112,8 @@ _README_ROWS = [
     ("industry_primary", "|".join(INDUSTRY_DEFS)),
     ("region", "From the assignee's country code; falls back to the publication office."),
     ("Units", "mass kg | speed km/h | range km | endurance minutes | pax persons"),
-    ("needs_review", "TRUE when one of the three reviewed fields needs a decision: a "
-                     "generated group name, a proposed name not found in the text, an "
-                     "unknown powertrain or take-off mode, STOL/CTOL language, or a "
-                     "company-attributed proposal. review_reason says which. Specs, "
-                     "scope and architecture never raise it."),
+    ("needs_review", "TRUE when a key field is missing or low-confidence. "
+                     "review_reason says which."),
     ("Specs caution", "A spec with source='regex' came from the patent text and is "
                       "usually an illustrative embodiment, not the built aircraft. "
                       "Verify before citing."),
@@ -236,33 +187,7 @@ def merge_preserving_human(new_df, out_path: Path):
     merged["is_electric"] = merged["powertrain"].map(
         lambda p: ELECTRIC_BY_POWERTRAIN.get(p, "Unknown") if p else "Unknown"
     )
-    merged = merged.reset_index()
-    return recompute_finals(merged)
-
-
-def recompute_finals(df):
-    """*_final = *_human when typed, else the machine column (FINAL_RULES)."""
-    for final, human, machine in FINAL_RULES:
-        if human not in df.columns:
-            df[human] = None
-        if machine not in df.columns:
-            df[machine] = None
-        df[final] = [
-            (str(h).strip() if not _is_blank(h) else m)
-            for h, m in zip(df[human], df[machine])
-        ]
-    return df
-
-
-def _is_blank(v) -> bool:
-    if v is None:
-        return True
-    try:
-        if v != v:
-            return True
-    except Exception:
-        pass
-    return str(v).strip() == ""
+    return merged.reset_index()
 
 
 def export_identity_excel(
@@ -317,11 +242,8 @@ def export_identity_excel(
         ws = writer.sheets["Identity"]
         ws.freeze_panes = "B2"
         for idx, col in enumerate(IDENTITY_COLUMNS, start=1):
-            width = 60 if col.endswith("_quote") else \
-                    42 if col in ("title", "llm_reasoning", "aircraft_name_alternatives") else \
-                    28 if col in ("assignee_raw", "company_canonical", "review_reason",
-                                  "aircraft_group", "aircraft_group_note",
-                                  "wizard_disapprove_reason", "aircraft_name_human") else 16
+            width = 42 if col in ("title", "llm_reasoning", "aircraft_name_alternatives") else \
+                    28 if col in ("assignee_raw", "company_canonical", "review_reason") else 16
             ws.column_dimensions[ws.cell(row=1, column=idx).column_letter].width = width
 
     return out_path

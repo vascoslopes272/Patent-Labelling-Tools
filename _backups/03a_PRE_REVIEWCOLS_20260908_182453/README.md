@@ -34,26 +34,22 @@ legacy 00 → 01 flow.
 
 `03a_aircraft_identity.ipynb` (a ~100-line recipe; all the logic lives in
 `src/`) answers a different question from the rest of the
-pipeline: not *what does this drawing show*, but *which real aircraft is this
-patent about, is it electric, is it VTOL* — the three things the reviewer
-decides, each shown next to the sentence the machine answer came from — plus
-the informative tail: scope and architecture predictions, specs, blade counts,
-geography, dates, legal stage and citations.
+pipeline: not *what does this drawing show*, but *what is this patent about, at
+what level, which architecture, is it tied to one real aircraft, is that
+aircraft electric, what are its numbers, how many blades its propellers have,
+how far along the patent is, and where and for what industry it was filed*.
 
-It reads `batches.xlsx`, the PatSeer export and the wizard's human exports
-(`03c_CORRECTED_wizard_exports`, for approval / `aircraftName` / duplicates) —
-no images, no figure crops — so it runs independently of 00a/00b/01a and writes
-exactly one file of its own per batch:
+It reads `batches.xlsx` and the PatSeer export only — no images, no figure
+crops — so it runs independently of 00a/00b/01a and writes exactly one file of
+its own per batch:
 
 ```
 <data_matched>/<Batch_NN>/aircraft_identity_<Batch_NN>.xlsx
-    Identity     one row per patent (join on patent_id): wizard_*, aircraft_group,
-                 the three proposals with *_section / *_quote, the *_human cells
-                 the reviewer types into, and *_final = human else machine
+    Identity     one row per patent (join on patent_id)
     Figures      one row per figure — what KIND of view each one is
     Evidence     every candidate every signal proposed, with its context
     LLM_Prompts  a ready-made question per patent for the chat step
-    README       column dictionary and the review contract
+    README       column dictionary
 ```
 
 #### Where the code lives
@@ -65,9 +61,7 @@ own small module, so you can read or change one without touching the rest.
 |---|---|
 | `identity_pipeline.py` | The runner: load → analyse → export → report. What the notebook calls. |
 | `aircraft_identity.py` | The **merge** — combines every signal into one row by a fixed precedence. Re-exports the rest, so the notebook needs one import. |
-| `identity_schema.py` | Column order, source precedence, confidence constants, the review contract (`HUMAN_COLUMNS`, `FINAL_RULES`). |
-| `wizard_link.py` | Reads the wizard's T1 record across every batch; assigns `aircraft_group` (wizard name → inherited D1/D2 → D3 variant → `<assignee> <N>`). |
-| `text_citation.py` | "Where does it say that?": section + sentence for a value; the VTOL / STOL keyword pass. |
+| `identity_schema.py` | Column order, source precedence, confidence constants. |
 | `patent_geography.py` | Applicant country, publication office, region. |
 | `aircraft_naming.py` | Candidate aircraft names mined from the text. |
 | `aircraft_specs.py` | Powertrain, industry, performance figures, blade counts. |

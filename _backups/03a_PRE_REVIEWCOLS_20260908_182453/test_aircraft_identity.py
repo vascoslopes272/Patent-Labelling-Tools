@@ -430,13 +430,8 @@ def test_row_with_nothing_known_is_flagged_not_invented():
     assert row["powertrain"] is None
     assert row["is_electric"] == "Unknown"
     assert row["needs_review"] is True
-    # Only the three reviewed fields raise a flag now. No real-name proposal is
-    # the EXPECTED outcome for most patents, so it is not a reason; missing
-    # powertrain / take-off vocabulary is.
-    assert "powertrain unknown" in row["review_reason"]
-    assert "take-off mode unknown" in row["review_reason"]
-    assert "no specifications" not in row["review_reason"]
-    assert row["aircraft_name_final"] is None          # no group given -> nothing to fall back on
+    assert "no aircraft name" in row["review_reason"]
+    assert "no specifications" in row["review_reason"]
 
 
 def test_row_columns_match_the_declared_schema():

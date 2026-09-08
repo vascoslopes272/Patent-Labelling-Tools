@@ -442,16 +442,15 @@ def test_attach_scope_flags_company_attributed_names():
 
 
 def test_attach_scope_does_not_demand_a_name_from_a_component_patent():
-    """A missing real-name proposal is the expected outcome for most patents
-    and never a review reason; a component patent with no name must not be
-    flagged for its name at all, before or after attach_scope."""
+    """Flagging 'no aircraft name' on a component patent would flag most of the
+    corpus and bury the rows that actually need a human."""
     from src import aircraft_identity as ai
 
     row, _ = ai.build_identity_row(
         patent_id="US2", batch="Batch_01",
         meta={"assignee": "SOME SUPPLIER GMBH (DE)", "app_year": "2021"},
     )
-    assert "name" not in (row["review_reason"] or "")
+    assert "no aircraft name" in row["review_reason"]
 
     scope_row, _, _ = ps.build_scope_row(
         patent_id="US2",
@@ -467,5 +466,6 @@ def test_attach_scope_does_not_demand_a_name_from_a_component_patent():
     )
     ai.attach_scope(row, scope_row)
 
-    assert "name" not in (row["review_reason"] or "")
+    assert "no aircraft name" not in (row["review_reason"] or "")
+    assert "no aircraft expected" in row["review_reason"]
     assert row["aircraft_link"] == "None"

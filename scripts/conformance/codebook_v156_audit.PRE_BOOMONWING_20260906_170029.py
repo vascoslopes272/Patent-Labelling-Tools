@@ -99,31 +99,6 @@ def rec(p):
     return R
 
 # ── the vectoring-mix primitives, mirrored from the wizard ──────────────────
-def boom_rides_tilting_wing(R, g):
-    """Does boom group `g` rotate with a tilting wing WITHOUT its own tilt tick?
-
-    2026-09-06: a boom bolted to the wing goes where the wing goes. If the wing
-    is set to Tilt, that boom's propulsors tilt with it, so the aircraft is still
-    a Tilt Wing — "Booms tilt" records a boom that articulates relative to its
-    mount, which such a boom does not, so annotators correctly leave it unticked.
-    Reading an unticked box as "this thrust is fixed" flagged genuine tilt-wings
-    as CVT under N2. Only WING-referenced groups qualify; a fuselage- or
-    empennage-attached boom is unaffected by what the wing does.
-    """
-    f = R['f']
-    if code(f.get(f'boom{g}_attach')) not in ('Wings', 'Both'):
-        return False
-    if not R['tiltw']:
-        return False
-    wi = code(f.get(f'boom{g}_wingIdx'))
-    if wi is None or wi == 'Multi':
-        # Single-panel aircraft never ask wingIdx, and 'Multi' bridges panels —
-        # in both cases the group hangs off a tilting panel if any panel tilts.
-        return True
-    m = re.match(r'W(\d+)$', str(wi))
-    return bool(m) and int(m.group(1)) in R['tiltw']
-
-
 def non_tilting_thrust(R):
     """twNonTiltingThrustStations() + hasFixedBoomThrust()."""
     f, out_ = R['f'], []
@@ -136,8 +111,7 @@ def non_tilting_thrust(R):
         if R['scount'](k) > 0: out_.append(nm)
     if R['boomsPresent'] and R['scount']('boom') > 0:
         fixed = [g for g in R['booms'] if g not in R['boomTilt']
-                 and str(f.get(f'boom{g}_hasProps')) != 'False'
-                 and not boom_rides_tilting_wing(R, g)]
+                 and str(f.get(f'boom{g}_hasProps')) != 'False']
         if fixed: out_.append('boom group ' + '/'.join(fixed) + ' (not ticked "booms tilt")')
     return out_
 
@@ -149,11 +123,7 @@ def tilting_thrust(R):
         if 'Tilt' in R['pks'](k): out_.append(f'{k} propKin=Tilt')
     if R['boomsPresent'] and R['scount']('boom') > 0:
         t = [g for g in R['boomTilt'] if str(f.get(f'boom{g}_hasProps')) != 'False']
-        # Same 2026-09-06 rule from the other side: a boom carried by a tilting
-        # wing is a vectoring structure even with its own tilt box unticked.
-        t += [g for g in R['booms'] if g not in R['boomTilt']
-              and str(f.get(f'boom{g}_hasProps')) != 'False' and boom_rides_tilting_wing(R, g)]
-        if t: out_.append('boom group ' + '/'.join(sorted(set(t))) + ' (booms tilt)')
+        if t: out_.append('boom group ' + '/'.join(sorted(t)) + ' (booms tilt)')
     return out_
 
 for p in live:
@@ -358,7 +328,7 @@ _new_fields = {
     'boomN_retracts (BOOM-6, booms that stow)': r'boom\d+_retracts',
     'ctrlOnly (#12, control-only propulsors)':  r'.*_ctrlOnly$',
     "wingN_plan = 'Trap' (v15.6 taper)":        None,
-    'edgeTags ElectricSimilar (v15.7)':         None,
+    't1EdgeTags ElectricSimilar (v15.7)':       None,
 }
 _seen = collections.Counter()
 for p in sorted(F):
@@ -366,7 +336,7 @@ for p in sorted(F):
         if re.fullmatch(r'boom\d+_retracts', k) and truthy(v): _seen['boomN_retracts (BOOM-6, booms that stow)'] += 1
         if k.endswith('_ctrlOnly') and truthy(v):               _seen['ctrlOnly (#12, control-only propulsors)'] += 1
         if re.fullmatch(r'wing\d_plan', k) and code(v) == 'Trap': _seen["wingN_plan = 'Trap' (v15.6 taper)"] += 1
-        if k in ('edgeTags', 't1EdgeTags') and 'ElectricSimilar' in str(v): _seen['edgeTags ElectricSimilar (v15.7)'] += 1
+        if k == 't1EdgeTags' and 'ElectricSimilar' in str(v):    _seen['t1EdgeTags ElectricSimilar (v15.7)'] += 1
 for lbl in _new_fields:
     if not _seen[lbl]:
         flag('N17', 'a dimension added on 2026-09-05 that no record in this batch carries — '

@@ -358,7 +358,7 @@ _new_fields = {
     'boomN_retracts (BOOM-6, booms that stow)': r'boom\d+_retracts',
     'ctrlOnly (#12, control-only propulsors)':  r'.*_ctrlOnly$',
     "wingN_plan = 'Trap' (v15.6 taper)":        None,
-    'edgeTags ElectricSimilar (v15.7)':         None,
+    't1EdgeTags ElectricSimilar (v15.7)':       None,
 }
 _seen = collections.Counter()
 for p in sorted(F):
@@ -366,7 +366,7 @@ for p in sorted(F):
         if re.fullmatch(r'boom\d+_retracts', k) and truthy(v): _seen['boomN_retracts (BOOM-6, booms that stow)'] += 1
         if k.endswith('_ctrlOnly') and truthy(v):               _seen['ctrlOnly (#12, control-only propulsors)'] += 1
         if re.fullmatch(r'wing\d_plan', k) and code(v) == 'Trap': _seen["wingN_plan = 'Trap' (v15.6 taper)"] += 1
-        if k in ('edgeTags', 't1EdgeTags') and 'ElectricSimilar' in str(v): _seen['edgeTags ElectricSimilar (v15.7)'] += 1
+        if k == 't1EdgeTags' and 'ElectricSimilar' in str(v):    _seen['t1EdgeTags ElectricSimilar (v15.7)'] += 1
 for lbl in _new_fields:
     if not _seen[lbl]:
         flag('N17', 'a dimension added on 2026-09-05 that no record in this batch carries — '

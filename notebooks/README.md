@@ -63,27 +63,40 @@ run these**; they write to paths the current pipeline no longer uses.
 ## Stage 03a in detail
 
 `03a_aircraft_identity` is the newest stage and the only one that reads no
-images. It answers, per patent:
+images. It joins the wizard's human T1 record (approval, `aircraftName`,
+duplicates, read from `03c_CORRECTED_wizard_exports`) onto the PatSeer
+metadata and asks the reviewer three questions per patent, each with the
+sentence the machine answer came from:
 
-| Question | Key columns |
-|---|---|
-| What is the patent about, at what level? | `scope` — whole aircraft / subsystem / component |
-| Which architecture(s)? | `architecture_primary`, `architecture_all`, `architecture_count`, `architecture_pure` |
-| Tied to one real aircraft? | `specificity`, **`aircraft_link`** |
-| Which aircraft? | `aircraft_name` |
-| Electric? | `is_electric`, `powertrain` |
-| Its numbers? | `pax`, `mtow_kg`, `range_km`, …, `blades_primary`, `blades_all` |
-| Where / what for? | `assignee_country`, `region`, `pub_office`, `industry_primary` |
-| Accepted, or only filed? | `legal_stage`, `maturity_tier`, `impact_tier`, citations |
+| Decision | Machine columns | Citation | Reviewer types into |
+|---|---|---|---|
+| Real aircraft name | `aircraft_group` (never empty), `aircraft_name` (proposal), `aircraft_name_in_text` | `aircraft_name_section` / `_quote` | `aircraft_name_human` |
+| Electric? | `is_electric`, `powertrain` | `powertrain_section` / `_quote` | `is_electric_human` (No = disapproved) |
+| VTOL? | `takeoff_mode` VTOL / STOL / V/STOL / CTOL | `takeoff_section` / `_quote` | `takeoff_human` (STOL = disapproved) |
+
+`*_final` = the human value when typed, else the machine value. Every
+`*_human` cell, `review_status`, `notes` survives a re-run
+(`identity_excel.merge_preserving_human`).
+
+`aircraft_group` follows the annotator's naming scheme (`src/wizard_link.py`):
+wizard `aircraftName` → inherited from the duplicate's original (D1/D2 = same
+aircraft) → original + letter (D3 = variant) → `<assignee> <N>` generated, `N`
+unique across the whole corpus. A D1/D2 whose wizard name differs from its
+original's is flagged in `aircraft_group_note`.
+
+Also on the sheet, informative only: geography, dates (`priority_year`,
+`app_year`, `pub_year`, `snapshot_date`), legal stage from the export's
+*Legal Status Current* column, citations and maturity tiers, scope /
+architecture predictions, specs, blade counts.
 
 Output: `<data_matched>/<Batch_NN>/aircraft_identity_<Batch_NN>.xlsx` — sheets
 **Identity** (one row per patent), **Figures** (one row per figure),
 **Evidence** (every candidate every signal proposed), **LLM_Prompts**, and
-**README** (the column dictionary).
+**README** (the column dictionary and the review contract).
 
-**The one rule:** filter `aircraft_link == "Depicted"` before any statistic
-grouped by aircraft. `CompanyAttributed` means "Joby filed this and Joby makes
-the S4" — real evidence about the *company*, not about that aircraft's design.
+Quotes are searched in five sections only — Title, Abstract, First claim,
+Summary of invention, Description of drawings. The full Description is not
+loaded, so `aircraft_name_in_text = No` means "not in those five".
 
 Full explanation of the signals and their precedence: the repo `README.md`.
 

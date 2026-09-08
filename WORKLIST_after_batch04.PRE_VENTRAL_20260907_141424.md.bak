@@ -181,32 +181,4 @@ Two different situations, and the notes already tell them apart:
   (which `None` now legitimately covers since v15.8) — but it could equally be
   a mis-set `orient`. Open it and decide:
 
-- [x] B05 US2024300644A1 — CLOSED 2026-09-07: annotator set Thrust Kinematics to Horizontal and kept `None`, i.e. case (b)/(c), not a mis-set orient.
-
-## 6. Vertical rotors mounted BELOW their structure (7) — chord says Front, rule says Back
-
-Added 2026-09-07. Tractor/pusher is about which side of the supporting structure the disc
-sits, not about a fore-aft axis: disc ABOVE its structure blows down onto it and the
-structure sits in the slipstream (Front / tractor); disc BELOW ingests the structure's wake
-(Back / pusher). See CODEBOOK_EDITS.md item 18.
-
-These seven record `orient = Vertical`, `chord = Front`, and a **Ventral** mounting zone —
-their own recorded zone contradicts their chord answer. No figure needed to see the
-contradiction, but the annotator is checking each one rather than flipping by script.
-
-- [x] B01 US11072423B1 — hull_array — CLOSED 2026-09-07, now `None`
-- [x] B03 DE202015007089U1 — fuselage — CLOSED 2026-09-07, now `None`
-- [x] B03 DE202016005012U1 — fuselage — CLOSED 2026-09-07, now `None`
-- [x] B04 FR3033363A1 — fuselage — CLOSED 2026-09-07, now `None`
-- [x] B04 IT202300024612A1 — fuselage — CLOSED 2026-09-07, now `None`
-- [x] B04 RU2764311C1 — fuselage — CLOSED 2026-09-07, now `None`
-- [x] B04 US2012056040A1_arch2 — hull_array — CLOSED 2026-09-07, now `None`
-
-> B03 CN109263947A is the eighth ventral card and already reads Back — correct, no action.
-> The other ~400 vertical Front/Back cards carry no Dorsal/Ventral zone, so nothing can be
-> inferred for them without the figures; they stay as they are under item 18's
-> low-confidence note.
-
-> **Sections 5 and 6 CLOSED 2026-09-07.** All seven ventral cards now read `No chordwise
-> sense`, verified in the 03c copies. The remaining ~400 vertical Front/Back cards carry no
-> Dorsal/Ventral zone and stay as they are under CODEBOOK_EDITS item 18's low-confidence note.
+- [ ] B05 US2024300644A1 — fuselage card, CVT, no note.

@@ -39,8 +39,6 @@ import pandas as pd
 from src import aircraft_identity as ai
 from src import patent_scope as ps
 from src import patent_maturity as pm
-from src import wizard_link as wl
-from src.text_citation import classify_takeoff
 from src.extractor import load_patseer_excel
 
 
@@ -54,9 +52,6 @@ class Stage03aInputs:
     batch_meta: dict                 # patent_id -> company_canonical / prototype_label
     gazetteer: list[dict]
     enrichment: dict = field(default_factory=dict)   # which optional columns were found
-    wizard: dict = field(default_factory=dict)       # patent_id -> T1 human record (all batches)
-    groups: dict = field(default_factory=dict)       # patent_id -> aircraft_group (whole corpus)
-    snapshot_date: "str | None" = None               # PatSeer export date, ISO
 
     def classify_text(self, pid: str) -> str:
         """Title + abstract + first claim + summary.
@@ -92,50 +87,29 @@ class Stage03aResults:
 # ─── 1. Load ─────────────────────────────────────────────────────────────────
 
 def load_inputs(cfg: dict, batch_id: int, limit: int | None = None,
-                repo_root: "Path | None" = None, verbose: bool = True,
-                snapshot_date: "str | None" = None,
-                wizard_dir: "str | Path | None" = None) -> Stage03aInputs:
-    """Read batches.xlsx, the PatSeer export, the gazetteer and the wizard record.
-
-    `snapshot_date` is the ISO date of the PatSeer export; ages are measured to
-    it (see patent_maturity.build_maturity_row). `wizard_dir` defaults to
-    cfg paths.corrected_wizard_exports (03c) — the live human record.
-
-    The wizard files and the aircraft-group index are built over EVERY batch,
-    not just `batch_id`: a duplicate's original may sit in another batch, and
-    a generated "<assignee> <N>" must be unique corpus-wide.
-    """
+                repo_root: "Path | None" = None, verbose: bool = True) -> Stage03aInputs:
+    """Read batches.xlsx, the PatSeer export and the gazetteer."""
     batch = f"Batch_{batch_id:02d}"
     batches_path = cfg["paths"]["batches_xlsx"]
     if not Path(batches_path).exists():
         raise FileNotFoundError(
             f"batches.xlsx not found at {batches_path} — run 00b1_grouping first.")
 
-    # company_canonical / prototype_label are already on the batch sheets
-    # (written by 00b1_grouping). Reusing them keeps this workbook's company
-    # column identical to the one every other stage sees.
-    sheets = pd.read_excel(batches_path, sheet_name=None, dtype=str)
-    batch_sheets = {k: v.fillna("") for k, v in sheets.items() if k.startswith("Batch_")}
-    if batch not in batch_sheets:
-        raise KeyError(f"{batch} is not a sheet of {batches_path}: {sorted(batch_sheets)}")
-
-    def _meta(df):
-        return {
-            str(r["patent_id"]).strip(): {
-                "company_canonical": (r.get("company_canonical") or "").strip() or None,
-                "prototype_label": (r.get("prototype_label") or "").strip() or None,
-                "batch": (r.get("batch_id") or "").strip() or None,
-            }
-            for _, r in df.iterrows()
-        }
-    all_meta: dict = {}
-    for df in batch_sheets.values():
-        all_meta.update(_meta(df))
-    all_ids = list(all_meta)
-
-    patent_ids = batch_sheets[batch]["patent_id"].str.strip().tolist()
+    batch_df = pd.read_excel(batches_path, sheet_name=batch, dtype=str).fillna("")
+    patent_ids = batch_df["patent_id"].str.strip().tolist()
     if limit:
         patent_ids = patent_ids[:limit]
+
+    # company_canonical / prototype_label are already on the batch sheet (written
+    # by 00b1_grouping). Reusing them keeps this workbook's company column
+    # identical to the one every other stage sees.
+    batch_meta = {
+        str(r["patent_id"]).strip(): {
+            "company_canonical": (r.get("company_canonical") or "").strip() or None,
+            "prototype_label": (r.get("prototype_label") or "").strip() or None,
+        }
+        for _, r in batch_df.iterrows()
+    }
 
     excel_index = load_patseer_excel(cfg["paths"]["patseer_excel"])
     # Maturity columns are merged in here rather than by widening
@@ -145,12 +119,8 @@ def load_inputs(cfg: dict, batch_id: int, limit: int | None = None,
     root = Path(repo_root) if repo_root else Path(__file__).resolve().parents[1]
     gazetteer = ai.load_gazetteer(root / "reference" / "evtol_gazetteer.csv")
 
-    wdir = Path(wizard_dir) if wizard_dir else Path(cfg["paths"].get("corrected_wizard_exports", ""))
-    wizard = wl.load_wizard_reviews(wdir, verbose=verbose) if str(wdir) else {}
-    groups = wl.assign_aircraft_groups(all_ids, all_meta, excel_index, wizard)
-
-    inputs = Stage03aInputs(cfg, batch, patent_ids, excel_index, all_meta,
-                            gazetteer, enrichment, wizard, groups, snapshot_date)
+    inputs = Stage03aInputs(cfg, batch, patent_ids, excel_index, batch_meta,
+                            gazetteer, enrichment)
     if verbose:
         _print_load_summary(inputs, limit)
     return inputs
@@ -180,13 +150,6 @@ def _print_load_summary(inputs: Stage03aInputs, limit: int | None) -> None:
     if missing:
         print(f"⚠  {len(missing)} patent(s) have no PatSeer row: {missing[:5]}")
 
-    gs = wl.group_summary(inputs.groups, inputs.patent_ids)
-    print("Aircraft group names: " + ", ".join(f"{k}={v}" for k, v in sorted(gs.items())))
-    if inputs.snapshot_date:
-        print(f"Snapshot date: {inputs.snapshot_date} (ages and citation rates measured to it)")
-    else:
-        print("⚠  No SNAPSHOT_DATE — ages measured to today, not to the export date.")
-
 
 # ─── 2. Analyse ──────────────────────────────────────────────────────────────
 
@@ -213,9 +176,6 @@ def analyse(inputs: Stage03aInputs, sbert=None,
             spec_hints=ai.extract_spec_hints(ctext),
             blade_hits=ai.extract_blade_counts(ctext),
             llm_answer=llm_answers.get(pid),
-            takeoff_pred=classify_takeoff(meta),
-            wizard=inputs.wizard.get(pid),
-            group=inputs.groups.get(pid),
         )
 
         scope_row, figs, scope_ev = ps.build_scope_row(
@@ -226,8 +186,7 @@ def analyse(inputs: Stage03aInputs, sbert=None,
             aircraft_name_source=row["aircraft_name_source"],
         )
         ai.attach_scope(row, scope_row)
-        ai.attach_maturity(row, pm.build_maturity_row(
-            pid, inputs.excel_index, snapshot_date=inputs.snapshot_date))
+        ai.attach_maturity(row, pm.build_maturity_row(pid, inputs.excel_index))
 
         results.rows.append(row)
         results.evidence.extend(ev)
@@ -332,31 +291,13 @@ def report(results: Stage03aResults) -> pd.DataFrame:
         return f"{k:>5} / {n}  ({k / n:6.1%})"
 
     print(f"=== {ident['batch'].iloc[0]} — {n} patents ===\n")
-    print("REVIEW PROGRESS")
-    status = ident["review_status"].fillna("").astype(str).str.strip().str.lower()
-    print(f"  done            {pct((status == 'done').sum())}")
-    print(f"  skip            {pct((status == 'skip').sum())}")
-    print(f"  still to do     {pct((~status.isin(['done', 'skip'])).sum())}")
-    print(f"  flagged         {pct(ident['needs_review'].sum())}   (needs_review)")
-    print(f"  wizard approved {pct((ident['wizard_approved'] == True).sum())}")
-
-    print("\nAIRCRAFT GROUP (working name) — by source")
-    print(ident["aircraft_group_source"].value_counts(dropna=False).to_string())
-    print(f"  distinct groups in this batch: {ident['aircraft_group'].nunique()}")
-    print("\nREAL NAME PROPOSALS")
-    print(f"  proposed        {pct(ident['aircraft_name'].notna().sum())}")
-    print(f"  ...in text      {pct((ident['aircraft_name_in_text'] == 'Yes').sum())}")
-    print(f"  typed by you    {pct(ident['aircraft_name_human'].notna().sum())}")
-    print("\nELECTRIC (machine)  /  TAKE-OFF (machine)")
-    print(ident["is_electric"].value_counts(dropna=False).to_string())
-    print(ident["takeoff_mode"].value_counts(dropna=False).to_string())
-    print(f"  electric decided by you  {pct(ident['is_electric_human'].notna().sum())}")
-    print(f"  take-off decided by you  {pct(ident['takeoff_human'].notna().sum())}")
-
-    print("\nOTHER COLUMNS (informative, not reviewed)")
+    print("ANSWERED")
+    print(f"  aircraft name   {pct(ident['aircraft_name'].notna().sum())}")
+    print(f"  powertrain      {pct(ident['powertrain'].notna().sum())}")
     print(f"  scope           {pct(ident['scope'].notna().sum())}")
     print(f"  blade count     {pct(ident['blades_primary'].notna().sum())}")
     print(f"  any spec value  {pct(ident[ai.SPEC_FIELDS].notna().any(axis=1).sum())}")
+    print(f"  needs review    {pct(ident['needs_review'].sum())}")
 
     # The headline number: how many patents actually support a per-aircraft
     # claim. Everything else is company-level or architecture-level evidence.
@@ -366,11 +307,16 @@ def report(results: Stage03aResults) -> pd.DataFrame:
     print("    CompanyAttributed rows are company-level evidence only.")
 
     for title, col in [
+        ("SCOPE — what the patents are about", "scope"),
+        ("SPECIFICITY", "specificity"),
+        ("AIRCRAFT LINK", "aircraft_link"),
+        ("ARCHITECTURE (primary)", "architecture_primary_label"),
+        ("IS ELECTRIC", "is_electric"),
+        ("POWERTRAIN", "powertrain"),
+        ("INDUSTRY", "industry_primary"),
         ("REGION", "region"),
         ("LEGAL STAGE — accepted, or only filed?", "legal_stage"),
-        ("RIGHT ACTIVE", "right_active"),
         ("MATURITY TIER", "maturity_tier"),
-        ("AIRCRAFT LINK (of the proposed name)", "aircraft_link"),
         ("NAME SOURCE", "aircraft_name_source"),
     ]:
         print(f"\n{title}")
@@ -388,17 +334,18 @@ def report(results: Stage03aResults) -> pd.DataFrame:
     print("\nTOP COMPANIES")
     print(ident["company_canonical"].value_counts().head(10).to_string())
 
-    print("\nREVIEW REASONS")
-    reasons = (ident["review_reason"].dropna().str.split("; ").explode().value_counts())
-    print(reasons.to_string() if len(reasons) else "  none")
+    borderline = ident[ident["specificity_confidence"].fillna(0) < ai.NEEDS_REVIEW_BELOW]
+    print(f"\nBorderline specificity calls worth a human glance: {len(borderline)}")
+    if len(borderline):
+        print(borderline[["patent_id", "scope", "specificity", "specificity_score",
+                          "specificity_reason"]].head(8).to_string(index=False))
     return ident
 
 
 # ─── Whole-corpus convenience ────────────────────────────────────────────────
 
 def run_all_batches(cfg: dict, sbert=None, repo_root: "Path | None" = None,
-                    limit: int | None = None, snapshot_date: "str | None" = None,
-                    wizard_dir: "str | Path | None" = None) -> pd.DataFrame:
+                    limit: int | None = None) -> pd.DataFrame:
     """Every Batch_NN sheet in batches.xlsx, one workbook each plus a combined
     table for the thesis. The LLM step is skipped: the export/paste loop is
     per batch, and an unattended API sweep over the whole corpus should be a
@@ -410,8 +357,7 @@ def run_all_batches(cfg: dict, sbert=None, repo_root: "Path | None" = None,
     all_rows = []
     for sheet in [s for s in sheets if s.startswith("Batch_")]:
         batch_id = int(sheet.split("_")[1])
-        inputs = load_inputs(cfg, batch_id, limit=limit, repo_root=repo_root, verbose=False,
-                             snapshot_date=snapshot_date, wizard_dir=wizard_dir)
+        inputs = load_inputs(cfg, batch_id, limit=limit, repo_root=repo_root, verbose=False)
         results = analyse(inputs, sbert, verbose=False)
         export(inputs, results)
         all_rows.extend(results.rows)

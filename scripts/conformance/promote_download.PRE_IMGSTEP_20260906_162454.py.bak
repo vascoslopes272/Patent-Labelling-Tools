@@ -49,13 +49,7 @@ STEPS = [["python", str(REPO / "scripts/conformance/migrate_boom_long.py"), "--a
          ["python", str(REPO / "scripts/conformance/migrate_tp_to_tr.py"), "--apply"],
          # Symmetry pairs (2026-09-06): tick sym on default-false cards holding
          # exactly 2 propulsors. Cards with 4+ are deliberately left for review.
-         ["python", str(REPO / "scripts/conformance/migrate_sym_pairs.py"), "--apply"],
-         # Image_Path resolve + extension repair (2026-09-06). Was being run by
-         # hand after every promotion and therefore lost by the next one: the
-         # rebuild takes the raw download, whose 📎-attached figures always come
-         # back with a blank path. Registered so the wizard can render them on
-         # the next load without anyone remembering to do it.
-         ["python", str(REPO / "scripts/conformance/fix_image_paths.py"), "--apply"]]
+         ["python", str(REPO / "scripts/conformance/migrate_sym_pairs.py"), "--apply"]]
 
 
 def md5(p: Path) -> str:
