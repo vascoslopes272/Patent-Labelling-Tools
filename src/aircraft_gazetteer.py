@@ -64,6 +64,26 @@ def _year_int(v) -> int | None:
         return None
 
 
+def all_electric_companies(gazetteer: list[dict]) -> set:
+    """Companies whose ENTIRE curated portfolio is BatteryElectric.
+
+    Not a new list of opinions — it is read off the gazetteer, so it grows when
+    the gazetteer does and never disagrees with it. Used as a last-resort
+    company-level verdict for is_electric: if every aircraft a company has ever
+    flown is battery-electric, a patent of theirs about an aircraft is about a
+    battery-electric aircraft. That is company-level evidence, recorded as
+    source "company" — weaker than the patent's own words, far stronger than a
+    0.30 similarity score, and never used for the aircraft NAME (which is what
+    aircraft_link exists to keep honest).
+    """
+    by_company: dict[str, set] = {}
+    for row in gazetteer:
+        comp = (row.get("company_canonical") or "").strip()
+        if comp:
+            by_company.setdefault(comp, set()).add((row.get("powertrain") or "").strip())
+    return {c for c, kinds in by_company.items() if kinds == {"BatteryElectric"}}
+
+
 def match_gazetteer(
     company_canonical: str | None,
     app_year: str | None,

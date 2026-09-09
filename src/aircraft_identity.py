@@ -51,13 +51,14 @@ from src.patent_geography import (          # noqa: F401
 from src.aircraft_naming import mine_name_candidates          # noqa: F401
 from src.aircraft_specs import (             # noqa: F401
     classify_powertrain, classify_industry, extract_spec_hints,
-    extract_blade_counts, summarise_blade_counts,
+    extract_blade_counts, summarise_blade_counts, electric_verdict,
+    detect_powertrain_families,
     POWERTRAIN_DEFS, POWERTRAIN_KEYWORDS, ELECTRIC_BY_POWERTRAIN,
     IS_ELECTRIC_OPTIONS, INDUSTRY_DEFS, SPEC_FIELDS, BLADE_COLUMNS,
     _CONF_REGEX_SPEC, _to_float,
 )
 from src.aircraft_gazetteer import (         # noqa: F401
-    load_gazetteer, match_gazetteer, GAZETTEER_COLUMNS,
+    load_gazetteer, match_gazetteer, all_electric_companies, GAZETTEER_COLUMNS,
     _CONF_GAZETTEER_EXACT, _CONF_GAZETTEER_LOOSE,
 )
 from src.identity_llm import (               # noqa: F401
@@ -71,14 +72,18 @@ from src.patent_scope import SCOPE_COLUMNS as _SCOPE_COLUMNS
 from src.patent_maturity import MATURITY_COLUMNS as _MATURITY_COLUMNS
 from src.identity_schema import (           # noqa: F401
     IDENTITY_COLUMNS, EVIDENCE_COLUMNS, PROMPT_COLUMNS, HUMAN_COLUMNS,
-    FINAL_RULES, HUMAN_OPTIONS, REVIEW_COLUMNS, apply_finals,
+    FINAL_RULES, FINAL_COLUMNS, HUMAN_OPTIONS, REVIEW_COLUMNS, COLUMN_GROUPS,
+    apply_finals, review_flags, variant_names, propagate_duplicate_finals,
     SOURCE_PRECEDENCE, NEEDS_REVIEW_BELOW, _CONF_HUMAN,
 )
 from src.text_citation import (             # noqa: F401
-    find_quote, literal_pattern, classify_takeoff, TAKEOFF_OPTIONS, SECTIONS,
+    find_quote, literal_pattern, classify_takeoff, classify_uav, enrich_full_text,
+    UAV_HINT_OPTIONS,
+    TAKEOFF_OPTIONS, SECTIONS, SIGNAL_SECTIONS, BODY_SECTIONS, NAME_SECTIONS,
 )
 from src.wizard_link import (               # noqa: F401
     load_wizard_reviews, assign_aircraft_groups, group_summary, split_group_name,
+    human_truth, HUMAN_TRUTH_REASONS,
 )
 from src.grouper import _normalise_company
 
@@ -118,6 +123,9 @@ def build_identity_row(
     takeoff_pred: dict | None = None,
     wizard: dict | None = None,
     group: dict | None = None,
+    company_all_electric: bool = False,
+    uav_pred: dict | None = None,
+    presume_electric: bool = True,
 ) -> tuple[dict, list[dict]]:
     """Merge every signal for one patent into (identity_row, evidence_rows).
 
@@ -136,8 +144,14 @@ def build_identity_row(
     name_candidates = name_candidates or []
     blade_hits = blade_hits or []
     takeoff_pred = takeoff_pred or {}
+    uav_pred = uav_pred or {}
     wizard = wizard or {}
     group = group or {}
+    variants = wizard.get("variants") or []
+    edge_tags = wizard.get("edge_tags") or []
+    # What the annotator's own disapproval reason already settled. Never
+    # re-asked; see wizard_link.human_truth for why "Out of Domain" is excluded.
+    truth = human_truth(wizard)
     evidence: list[dict] = []
 
     def _ev(field, value, source, conf, context=""):
@@ -204,7 +218,17 @@ def build_identity_row(
     ])
     # is_electric is derived from powertrain rather than predicted separately —
     # one source of truth, so the two columns can never contradict each other.
-    is_electric = ELECTRIC_BY_POWERTRAIN.get(powertrain, "Unknown") if powertrain else "Unknown"
+    # It abstains on a low-confidence SBERT powertrain, and on a text that
+    # states two families; a text that states nothing is PRESUMED electric
+    # (this is an approved eVTOL corpus) — see electric_verdict().
+    families = powertrain_pred.get("families") or {}
+    stated = any(not h.get("hedged") for h in families.values())
+    is_electric, elec_src = electric_verdict(powertrain, pt_src, pt_conf,
+                                             company_all_electric,
+                                             stated=stated, presume_electric=presume_electric)
+    if truth.get("electric"):
+        is_electric, elec_src = truth["electric"], "human"
+        _ev("is_electric", is_electric, "human", _CONF_HUMAN, truth["electric_evidence"])
 
     # ── "where does it say that?" — the citations the reviewer reads ─────────
     # Name: does the proposed real name literally appear in the loaded text?
@@ -212,7 +236,9 @@ def build_identity_row(
     # and the reviewer must know that before accepting it.
     name_in_text, name_section, name_quote = None, None, None
     if name:
-        cite = find_quote(meta, literal_pattern(str(name)))
+        # NAME_SECTIONS, not the body: a patent's Description routinely names
+        # other people's aircraft in its prior-art discussion.
+        cite = find_quote(meta, literal_pattern(str(name)), sections=NAME_SECTIONS)
         if cite:
             name_in_text, name_section, name_quote = "Yes", cite["section"], cite["quote"]
         else:
@@ -220,10 +246,18 @@ def build_identity_row(
     # Powertrain: the keyword pass reports the pattern that fired; SBERT and
     # the gazetteer have no sentence to point at, and the column says so.
     pt_section, pt_quote = None, None
+    pt_other, pt_other_quote = None, None
     if pt_src == "keyword" and powertrain_pred.get("pattern"):
         cite = find_quote(meta, powertrain_pred["pattern"])
         if cite:
             pt_section, pt_quote = cite["section"], cite["quote"]
+        # The second family the text also states (a turbine next to an electric
+        # motor, the battery inside a hybrid): quoted so the reviewer reads both.
+        if powertrain_pred.get("other") and powertrain_pred.get("other_pattern"):
+            pt_other = powertrain_pred["other"]
+            cite2 = find_quote(meta, powertrain_pred["other_pattern"])
+            if cite2:
+                pt_other_quote = f"{cite2['section']}: {cite2['quote']}"
     elif pt_src == "gazetteer":
         pt_section = "gazetteer (company-level, no sentence)"
     elif pt_src in ("sbert", "llm"):
@@ -231,8 +265,23 @@ def build_identity_row(
 
     # ── take-off mode (VTOL / STOL) ──────────────────────────────────────────
     takeoff = takeoff_pred.get("value")
-    _ev("takeoff_mode", takeoff, takeoff_pred.get("source"), takeoff_pred.get("confidence"),
-        f"{takeoff_pred.get('section')}: {takeoff_pred.get('quote')}" if takeoff else "")
+    takeoff_src, takeoff_conf = takeoff_pred.get("source"), takeoff_pred.get("confidence")
+    takeoff_section, takeoff_quote = takeoff_pred.get("section"), takeoff_pred.get("quote")
+    _ev("takeoff_mode", takeoff, takeoff_src, takeoff_conf,
+        f"{takeoff_section}: {takeoff_quote}" if takeoff else "")
+    if truth.get("takeoff"):
+        # The annotator threw this patent out for not being VTOL. That is a
+        # decision, not a prediction — it outranks the keyword pass.
+        takeoff, takeoff_src, takeoff_conf = truth["takeoff"], "human", _CONF_HUMAN
+        takeoff_section, takeoff_quote = "wizard disapproval", truth["takeoff_evidence"]
+        _ev("takeoff_mode", takeoff, "human", _CONF_HUMAN, truth["takeoff_evidence"])
+
+    # ── UAV language (a hint for the UAVSimilar edge tag) ────────────────────
+    uav = uav_pred.get("value")
+    _ev("uav_hint", uav, uav_pred.get("source"), uav_pred.get("confidence"),
+        f"{uav_pred.get('section')}: {uav_pred.get('quote')}" if uav else "")
+    if truth.get("uav"):
+        _ev("uav_hint", truth["uav"], "human", _CONF_HUMAN, truth["uav_evidence"])
 
     # ── industry ─────────────────────────────────────────────────────────────
     industry_pred = industry_pred or {}
@@ -286,6 +335,9 @@ def build_identity_row(
     # raise a flag. Specs, scope and architecture are informative columns and
     # flagging them would mark every row.
     reasons: list[str] = []
+    if wizard.get("approved") is False:
+        reasons.append(f"disapproved by the annotator ({wizard.get('disapprove_reason')}) "
+                       f"— not in the review queue")
     if group.get("aircraft_group_source") == "generated":
         reasons.append("group name generated — no wizard aircraftName")
     if group.get("aircraft_group_note", "") and "differs from original" in str(group.get("aircraft_group_note")):
@@ -296,14 +348,36 @@ def build_identity_row(
         reasons.append("low-confidence name")
     if gaz_hit.get("_match") == "ambiguous":
         reasons.append("multiple gazetteer aircraft for this company")
-    if not powertrain:
+    # Ordered by what the reviewer would DO about it: a decided verdict first
+    # (say where it came from), then the ones still open.
+    if elec_src == "company":
+        reasons.append("electric from the company's all-electric portfolio, not this text")
+    elif elec_src == "human":
+        pass                       # the annotator already decided; nothing to ask
+    elif elec_src == "presumed":
+        reasons.append("no propulsion stated — presumed electric (approved eVTOL corpus), not queued")
+    elif pt_other and is_electric == "Unknown":
+        reasons.append(f"text states BOTH {powertrain} and {pt_other} — read both quotes")
+    elif is_electric in ("No", "Hybrid"):
+        reasons.append(f"{powertrain} stated — confirm before disapproving")
+    elif not powertrain:
         reasons.append("powertrain unknown")
+    elif is_electric == "Unknown":
+        reasons.append(f"powertrain is a low-confidence {pt_src} guess ({powertrain})")
     elif (pt_conf or 0) < NEEDS_REVIEW_BELOW:
         reasons.append("low-confidence powertrain")
     if not takeoff:
         reasons.append("take-off mode unknown")
-    elif takeoff in ("STOL", "V/STOL", "CTOL"):
+    elif takeoff in ("STOL", "V/STOL", "CTOL") and takeoff_src != "human":
         reasons.append(f"take-off language says {takeoff}")
+    if uav and "UAVSimilar" not in edge_tags and wizard.get("approved") is not False:
+        reasons.append(f"{uav} vocabulary, no UAVSimilar tag in the wizard")
+    if wizard.get("arch_count", 1) and int(wizard.get("arch_count") or 1) > 1:
+        reasons.append(f"{wizard['arch_count']} aircraft variants in this patent "
+                       f"({row_variant_types(variants)})"
+                       + (" — several candidate real names, assign them"
+                          if _variant_proposals(wizard.get("arch_count"), name, alternatives)
+                          else ""))
 
     row = {
         "patent_id": patent_id,
@@ -314,14 +388,29 @@ def build_identity_row(
         "app_year": meta.get("app_year"),
         "pub_year": meta.get("pub_year"),
         "title": meta.get("title"),
+        "pdf_link": meta.get("pdf_link"),
         "wizard_approved": wizard.get("approved"),
         "wizard_disapprove_reason": wizard.get("disapprove_reason"),
         "wizard_aircraft_name": wizard.get("aircraft_name"),
         "wizard_duplicate_type": wizard.get("duplicate_type"),
         "wizard_duplicate_of": wizard.get("duplicate_of"),
+        "wizard_arch_count": wizard.get("arch_count"),
+        "wizard_variant_types": (" | ".join(v.get("top_type") or "?" for v in variants) or None),
+        "wizard_edge_tags": ("|".join(edge_tags) or None),
+        "duplicate_root": None, "duplicate_root_note": None,
+        "duplicate_root_aircraft": None, "duplicate_root_variant": None,
+        "duplicate_ambiguous": None,
         "aircraft_group": group.get("aircraft_group"),
         "aircraft_group_source": group.get("aircraft_group_source"),
         "aircraft_group_note": group.get("aircraft_group_note"),
+        "aircraft_group_variants": variant_names(group.get("aircraft_group"), wizard.get("arch_count")),
+        # For a patent that describes several aircraft: every real name the
+        # gazetteer or the text offers for this company, so the reviewer can
+        # say which variant is which product. Empty unless there ARE variants
+        # and there IS more than one candidate — one candidate is just the
+        # patent's name, and the letters already handle that.
+        "aircraft_name_variant_proposals": _variant_proposals(
+            wizard.get("arch_count"), name, alternatives),
         "pub_office": office,
         "assignee_country": country,
         "assignee_country_source": country_src,
@@ -334,23 +423,52 @@ def build_identity_row(
         "aircraft_name_quote": name_quote,
         "aircraft_name_alternatives": alternatives or None,
         "aircraft_name_human": None,
+        "aircraft_name_human_variants": None,
+        "name_uncertain": None,
         "aircraft_name_final": None,
+        "aircraft_name_final_variants": None,
         "is_electric": is_electric,
+        "is_electric_source": elec_src,
         "powertrain": powertrain,
         "powertrain_source": pt_src,
         "powertrain_confidence": round(pt_conf, 4) if pt_conf is not None else None,
         "powertrain_section": pt_section,
         "powertrain_quote": pt_quote,
+        "powertrain_other": pt_other,
+        "powertrain_other_quote": pt_other_quote,
         "is_electric_human": None,
+        "is_electric_human_variants": None,
+        "electric_uncertain": None,
         "is_electric_final": None,
+        "is_electric_final_variants": None,
+        "electric_similar_human": None,
+        "electric_similar_human_variants": None,
+        "electric_similar_final": None,
+        "electric_similar_final_variants": None,
         "takeoff_mode": takeoff,
-        "takeoff_source": takeoff_pred.get("source"),
-        "takeoff_confidence": (round(float(takeoff_pred["confidence"]), 4)
-                               if takeoff and takeoff_pred.get("confidence") is not None else None),
-        "takeoff_section": takeoff_pred.get("section") if takeoff else None,
-        "takeoff_quote": takeoff_pred.get("quote") if takeoff else None,
+        "takeoff_source": takeoff_src,
+        "takeoff_confidence": (round(float(takeoff_conf), 4)
+                               if takeoff and takeoff_conf is not None else None),
+        "takeoff_section": takeoff_section if takeoff else None,
+        "takeoff_quote": takeoff_quote if takeoff else None,
         "takeoff_human": None,
+        "takeoff_human_variants": None,
+        "takeoff_uncertain": None,
         "takeoff_final": None,
+        "takeoff_final_variants": None,
+        "uav_hint": uav,
+        "uav_source": uav_pred.get("source") if uav else None,
+        "uav_confidence": (round(float(uav_pred["confidence"]), 4)
+                           if uav and uav_pred.get("confidence") is not None else None),
+        "uav_section": uav_pred.get("section") if uav else None,
+        "uav_quote": uav_pred.get("quote") if uav else None,
+        "uav_human": None,
+        "uav_human_variants": None,
+        "uav_uncertain": None,
+        "uav_final": None,
+        "uav_final_variants": None,
+        "review_queue": None, "name_review": None,
+        "electric_review": None, "takeoff_review": None, "uav_review": None,
         "review_status": None,
         "industry_primary": industry,
         "industry_source": ind_src,
@@ -372,7 +490,25 @@ def build_identity_row(
         "notes": None,
     }
     apply_finals(row)
+    row.update(review_flags(row))
     return row, evidence
+
+
+def _variant_proposals(arch_count, name, alternatives) -> "str | None":
+    try:
+        n = int(float(arch_count)) if arch_count is not None else 1
+    except (TypeError, ValueError):
+        n = 1
+    if n < 2:
+        return None
+    cands = [c.strip() for c in ([name] if name else []) + str(alternatives or "").split(";")
+             if c and c.strip()]
+    cands = list(dict.fromkeys(cands))
+    return "; ".join(cands) if len(cands) > 1 else None
+
+
+def row_variant_types(variants: list[dict]) -> str:
+    return " | ".join(v.get("top_type") or "?" for v in variants) or "types unknown"
 
 
 def attach_maturity(row: dict, maturity_row: dict) -> dict:

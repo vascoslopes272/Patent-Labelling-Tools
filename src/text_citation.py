@@ -20,14 +20,31 @@ from __future__ import annotations
 import re
 
 # (index key, label the reviewer sees). Order = search order = trust order:
-# a hit in the title outranks one buried in the drawings description.
-SECTIONS: list[tuple[str, str]] = [
+# a hit in the title outranks one buried in the body.
+#
+# SIGNAL_SECTIONS are what load_patseer_excel() loads: short, dense, and about
+# THIS invention. BODY_SECTIONS are the full Description and Claims, loaded only
+# by enrich_full_text() — tens of thousands of characters that also contain the
+# prior-art discussion, so a hit there is real evidence but weaker, and the
+# section column always says which it was.
+SIGNAL_SECTIONS: list[tuple[str, str]] = [
     ("title",                   "Title"),
     ("abstract",                "Abstract"),
     ("first_claim",             "First claim"),
     ("innovation_objective",    "Summary of invention"),
     ("description_of_drawings", "Description of drawings"),
 ]
+BODY_SECTIONS: list[tuple[str, str]] = [
+    ("claims_full",  "Claims"),
+    ("description",  "Description"),
+]
+SECTIONS = SIGNAL_SECTIONS + BODY_SECTIONS
+
+# The aircraft NAME is searched in the signal sections only. A patent's
+# Description routinely names other people's aircraft ("unlike the V-22
+# Osprey…"), and counting that as "this patent names its aircraft" would put
+# every such row in the review queue for nothing.
+NAME_SECTIONS = SIGNAL_SECTIONS
 
 QUOTE_WINDOW = 140          # characters kept on each side of the match
 
@@ -57,17 +74,19 @@ def _clip(text: str, lo: int, hi: int) -> str:
 
 
 def find_quote(meta: dict | None, pattern: "str | re.Pattern",
-               flags: int = re.IGNORECASE) -> dict | None:
-    """First section (in SECTIONS order) where `pattern` matches.
+               flags: int = re.IGNORECASE, sections: list | None = None) -> dict | None:
+    """First section (in trust order) where `pattern` matches.
 
     Returns {"section", "quote", "match"} or None. `meta` is one entry of the
     PatSeer index. Pass a compiled pattern or a regex string; use
     `literal_pattern()` for a name you want matched as a whole word.
+    `sections` defaults to every section present — pass NAME_SECTIONS to keep
+    the search out of the prior-art body.
     """
     if not meta:
         return None
     rx = pattern if isinstance(pattern, re.Pattern) else re.compile(pattern, flags)
-    for key, label in SECTIONS:
+    for key, label in (sections or SECTIONS):
         text = meta.get(key)
         if not text:
             continue
@@ -88,6 +107,81 @@ def literal_pattern(name: str) -> re.Pattern:
     parts = [re.escape(t) for t in tokens if t]
     body = r"[\s\-]?".join(parts) if parts else re.escape(str(name))
     return re.compile(rf"(?<![A-Za-z0-9]){body}(?![A-Za-z0-9])", re.IGNORECASE)
+
+
+# ─── The full body text ──────────────────────────────────────────────────────
+# extractor.load_patseer_excel() deliberately loads only the short, dense
+# fields — widening it would change every other notebook's SBERT input. The
+# body is read here instead, for Stage 03a alone, and used for two things only:
+# a propulsion keyword that the abstract never stated, and the sentence to
+# quote for it. Measured 2026-09-08: it answers the powertrain for 432 of the
+# 577 patents the signal sections leave open.
+
+_BODY_COLUMNS = [("description", ["Description"]), ("claims_full", ["Claims"])]
+
+
+def enrich_full_text(index: dict[str, dict], path, verbose: bool = True) -> dict:
+    """Merge the Description and Claims columns into a load_patseer_excel index.
+
+    Mutates `index` in place. Optional: an export without those columns simply
+    leaves the keys unset and every caller degrades to the signal sections.
+    """
+    import pandas as pd
+
+    df = pd.read_excel(path, dtype=str)
+    by_norm = {" ".join(str(c).split()).lower(): c for c in df.columns}
+    found = {key: by_norm[v.lower()] for key, variants in _BODY_COLUMNS
+             for v in variants if v.lower() in by_norm}
+    if not found:
+        if verbose:
+            print("⚠  No Description/Claims columns in this export — "
+                  "powertrain will be read from the abstract and claim only.")
+        return {"found": {}, "enriched": 0}
+
+    enriched = 0
+    for _, row in df.iterrows():
+        pid = str(row.get("Record Number", "")).strip()
+        if not pid or pid == "nan" or pid not in index:
+            continue
+        for key, col in found.items():
+            val = str(row.get(col, "")).strip()
+            index[pid][key] = None if val in ("", "nan") else val
+        enriched += 1
+    if verbose:
+        chars = sum(len(index[p].get("description") or "") for p in index)
+        print(f"Full text: {', '.join(sorted(found))} for {enriched} patents "
+              f"({chars/1e6:.0f} M characters of Description).")
+    return {"found": found, "enriched": enriched}
+
+
+# ─── UAV language ────────────────────────────────────────────────────────────
+# The annotator tags an approved patent "UAVSimilar" when the aircraft is a UAV
+# in an eVTOL-like configuration — and, by their own account, forgot some. This
+# pass finds the language so those rows can be offered for tagging. It is a
+# HINT: only the annotator's tag or a *_human cell ever reaches uav_final.
+# Signal sections only — nearly every Description says "manned or unmanned"
+# somewhere in its boilerplate, which would flag the whole corpus.
+
+_UAV_RE = (r"\bunmanned\b|\bUAVs?\b|\bUASs?\b|\bdrones?\b|\bremotely[\s-]+piloted\b"
+           r"|\bunpiloted\b|\bpilotless\b|\bautonomous\s+aerial\b")
+_CREWED_RE = (r"\bpassengers?\b|\boccupants?\b|(?<!un)\bmanned\b|\bcrew\b|\bair\s+taxi\b"
+              r"|\bcockpit\b|\bhuman[\s-]carrying\b|\bpersonal\s+air\b")
+UAV_HINT_OPTIONS = "UAV|UAV-language"
+
+
+def classify_uav(meta: dict | None) -> dict:
+    """UAV = the signal sections use UAV vocabulary and never mention people
+    aboard. UAV-language = both vocabularies appear ("manned or unmanned"),
+    worth a look but weaker. None = no UAV vocabulary at all."""
+    uav = find_quote(meta, _UAV_RE, sections=SIGNAL_SECTIONS)
+    if not uav:
+        return {"value": None, "confidence": 0.0, "source": None, "section": None, "quote": None}
+    crewed = find_quote(meta, _CREWED_RE, sections=SIGNAL_SECTIONS)
+    if crewed:
+        return {"value": "UAV-language", "confidence": 0.50, "source": "keyword",
+                "section": uav["section"], "quote": uav["quote"]}
+    return {"value": "UAV", "confidence": 0.80, "source": "keyword",
+            "section": uav["section"], "quote": uav["quote"]}
 
 
 # ─── Take-off mode ───────────────────────────────────────────────────────────

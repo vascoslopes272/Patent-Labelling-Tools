@@ -39,6 +39,16 @@ disagreement between a file and the HTML.
 | C4 | required gap | a now-mandatory field absent on rows where its precondition holds |
 | C5 | convention drift | a *valid* field whose answer distribution differs sharply between batches (total variation distance) — same options, different habit |
 | C6 | META coverage | approved patents with no `codebook_version` / `timestamp` |
+| C7 | mirror coverage | every exported field classified validated / non-coded / **validated by nothing**; also validates the seven fields C1 never looked at (four of them have option lists built by render-time *functions*, which the extractor now pulls out by name) |
+| C8 | free-text leak | prose stored in a categorical field, and the `Other` + sibling-note escape hatch — with fuzzy clustering, so one answer typed three ways reads as one missing option |
+| C9 | dead columns | fields the export declares that no file carries, fields present but always empty or constant, option ids nobody ever picked |
+| C10 | label drift | the stored `id — Label`'s label half vs the label the wizard renders today (Phase 0 renamed eight of them on 2026-09-08) |
+
+C7–C10 (added 2026-09-08, Phase 3) widen C1–C6 from the 30 fields in
+`FIELD_LIST` to **every** Field/Value in the files, which is what the stage-04
+master sheet needs. They are report-only. `FIELD_LIST_EXTRA` is deliberately kept
+separate from `FIELD_LIST` so the C1/C2 numbers stay comparable with every earlier
+report — verified byte-identical against the pre-C7 script.
 
 C5 is the one that finds problems nobody wrote down. Everything else compares
 against a declared rule; C5 compares batches against each other, so it surfaces

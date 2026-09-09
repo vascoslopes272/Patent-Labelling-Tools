@@ -98,6 +98,35 @@ Quotes are searched in five sections only — Title, Abstract, First claim,
 Summary of invention, Description of drawings. The full Description is not
 loaded, so `aircraft_name_in_text = No` means "not in those five".
 
+**Reviewing without Excel:** open `notebooks/03a_identity_review.html` in Chrome
+(same SheetJS CDN as the wizard, so it needs the network once), pick the
+`1639_LABELLED/labels` folder, choose a batch. It walks the `review_queue` rows
+one patent at a time with the figures on the left and the four decisions on
+the right — each with the machine's proposal and the sentence it came from —
+and buttons instead of typed codes. Answers persist in the browser; **Export**
+writes `aircraft_identity_Batch_NN.xlsx` to Downloads with the `*_human`
+columns filled. Move it over `labels/Batch_NN/` and re-run notebook cells 4–9
+to refresh the queue and the colours.
+
+**Electric is decided by the burden of proof** (`PRESUME_ELECTRIC = True`). It is
+easy to show an aircraft is *not* electric — one committed sentence naming a
+turbine or piston engine as the propulsion — and nearly impossible to show it
+*is*, because every aircraft has an electric motor somewhere. So
+`classify_powertrain` collects every family the text states: a combustion
+statement decides (queued for confirmation, a machine never disapproves); a
+hybrid statement is Hybrid; both combustion and electric stated abstains and
+quotes both (`powertrain_other_quote`); nothing stated is *presumed* electric
+(`is_electric_source = presumed`) and not queued. Prior-art sentences and
+"or an engine" hedges never count as statements.
+
+`USE_SBERT = True` (the default) fills `powertrain`, `scope`, `innovation_field`
+and `industry_primary` for the rows the keyword pass could not answer — with it
+off, roughly 70 % of `powertrain` cells stay Unknown. Those values come from
+cosine similarity rather than a literal match, so their `*_section` reads
+`sbert (no literal sentence)` and there is no quote to read. The name proposal,
+the take-off mode and a keyword-matched powertrain always cite a real sentence,
+SBERT or not.
+
 Full explanation of the signals and their precedence: the repo `README.md`.
 
 ---

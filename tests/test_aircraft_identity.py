@@ -430,13 +430,21 @@ def test_row_with_nothing_known_is_flagged_not_invented():
     assert row["powertrain"] is None
     assert row["is_electric"] == "Unknown"
     assert row["needs_review"] is True
-    # Only the three reviewed fields raise a flag now. No real-name proposal is
-    # the EXPECTED outcome for most patents, so it is not a reason; missing
-    # powertrain / take-off vocabulary is.
-    assert "powertrain unknown" in row["review_reason"]
+    # No real-name proposal is the EXPECTED outcome for most patents, so it is
+    # not a reason. A text stating NO propulsion is presumed electric (approved
+    # eVTOL corpus) and says so; missing take-off vocabulary is still open.
+    assert (row["is_electric"], row["is_electric_source"]) == ("Unknown", "presumed")
+    assert "presumed electric" in row["review_reason"]
+    assert row["electric_review"] is False
     assert "take-off mode unknown" in row["review_reason"]
     assert "no specifications" not in row["review_reason"]
     assert row["aircraft_name_final"] is None          # no group given -> nothing to fall back on
+    # ...and with the presumption off, the old behaviour: nothing known is queued
+    row2, _ = ai.build_identity_row(
+        patent_id="US2021123456A1", batch="Batch_01",
+        meta={"assignee": "SOME INVENTOR", "app_year": "2020"}, presume_electric=False)
+    assert "powertrain unknown" in row2["review_reason"]
+    assert row2["electric_review"] is True
 
 
 def test_row_columns_match_the_declared_schema():

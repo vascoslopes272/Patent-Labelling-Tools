@@ -63,10 +63,57 @@ POWERTRAIN_DEFS: dict[str, str] = {
 # that a keyword hit is usually more reliable than the cosine score, so a
 # keyword win is trusted and never margin-flagged (same convention as
 # reviewer._margin_flag, which exempts source == "keyword").
+# A keyword in the short, dense fields is about this invention; one in the body
+# may sit in a prior-art passage. Both are literal and quotable, so both decide
+# is_electric (they clear _CONF_ELECTRIC_FLOOR) — the section column says which.
+_CONF_KEYWORD_SIGNAL = 0.80
+_CONF_KEYWORD_BODY = 0.65
+# A body sentence that does not COMMIT — "an electric motor or an engine", "such
+# drones are typically battery powered". The proposal and its quote are kept so
+# the reviewer can see what was found, but the confidence stays under
+# _CONF_ELECTRIC_FLOOR so is_electric abstains and the row stays in the queue.
+_CONF_KEYWORD_BODY_HEDGED = 0.35
+
+# An explicit disjunction: the sentence offers this energy source as one option
+# among others. "or an engine" needs its own test — a bare "engine" matches none
+# of POWERTRAIN_KEYWORDS, so counting families would miss exactly the phrasing
+# patent attorneys reach for most.
+_NONCOMMITTAL_RE = re.compile(
+    r"\bor\s+(?:an?\s+|any\s+|some\s+)?(?:other\s+)?"
+    r"(?:engines?|motors?|combustion|turbines?|prime\s+movers?|"
+    r"power\s*(?:plants?|sources?|units?)|energy\s+sources?)\b"
+    r"|\bor\s+the\s+like\b"
+    r"|\bany\s+other\s+(?:known\s+)?(?:type|kind|form|source|means)\b",
+    re.IGNORECASE)
+
+# For a COMBUSTION family only: a modal, an enumeration, an alternative
+# embodiment or a contrast is not a statement that THIS aircraft burns fuel.
+# Asymmetric on purpose — the burden of proof is on NOT electric, so a
+# combustion mention must be firm ("the rotor is driven by a turboshaft
+# engine", "wherein the engine is a gas turbine") before it decides anything,
+# while an electric mention only ever confirms the presumption. Measured on the
+# corpus: without this, 7 of 8 "both families stated" rows were background
+# prose ("fixed-wing aircraft ... thrust from one or more jet engines or
+# propellers") or options ("152 may include a gas turbine").
+_MODAL_COMBUSTION_RE = re.compile(
+    r"\b(?:may|might|can|could|would|should|alternatively|optionally|such\s+as|for\s+example|"
+    r"e\.g\.|contemplated|envisaged|in\s+(?:some|other|another|certain|alternative|various|"
+    r"further|one|an|any)\s+embodiments?|have\s+been\s+developed|recently|historically|"
+    r"are\s+known|unlike|as\s+opposed\s+to|compared\s+(?:to|with)|rather\s+than|instead\s+of|"
+    r"fixed[-\s]wing\s+aircraft|helicopters\s+(?:are|use|have))\b", re.IGNORECASE)
+
+# Prior-art framing: the sentence is about what other aircraft do.
+_PRIOR_ART_RE = re.compile(
+    r"\b(typically|conventional(?:ly)?|prior\s+art|traditional(?:ly)?|generally|"
+    r"commonly|hitherto|in\s+the\s+past|existing\s+\w+\s+(?:are|use)|well[-\s]known|"
+    r"other\s+(?:known\s+)?(?:vtol\s+)?aircraft\s+(?:are|use))\b", re.IGNORECASE)
+
 POWERTRAIN_KEYWORDS: list[tuple[str, str]] = [
     (r"\bfuel\s*cell\b|\bhydrogen\b|\bH2\s+(?:tank|storage)\b", "HydrogenFuelCell"),
     (r"\bhybrid[-\s]?electric\b|\bturbo\s*generator\b|\bturbogenerator\b"
-     r"|\brange\s+extender\b|\bseries\s+hybrid\b|\bgenerator\s+set\b", "HybridElectric"),
+     r"|\brange\s+extender\b|\bseries\s+hybrid\b|\bgenerator\s+set\b"
+     # an engine driving a generator IS a hybrid, whether or not the word appears
+     r"|\bengine\b[^.;]{0,80}\bgenerator\b|\bgenerator\b[^.;]{0,80}\bengine\b", "HybridElectric"),
     (r"\bbatter(?:y|ies)\b|\ball[-\s]?electric\b|\belectrically[-\s]+(?:powered|driven|propelled)\b"
      r"|\belectric(?:al)?[-\s]+(?:motors?|propulsion|powertrain|drive|power\s+(?:source|supply|plant)|engines?|aircraft|vehicle|VTOL)\b"
      r"|\bdistributed\s+electric\s+propulsion\b|\bDEP\b|\beVTOL\b|\be-?motor\b", "BatteryElectric"),
@@ -92,6 +139,58 @@ ELECTRIC_BY_POWERTRAIN: dict[str, str] = {
     "Unspecified":      "Unknown",
 }
 IS_ELECTRIC_OPTIONS = "Yes|Hybrid|No|Unknown"
+
+# Below this, a powertrain that SBERT alone proposed is not allowed to decide
+# is_electric. Mirrors identity_schema.NEEDS_REVIEW_BELOW, which cannot be
+# imported here (identity_schema imports THIS module) — the duplication is
+# pinned by test_electric_floor_matches_the_review_threshold.
+_CONF_ELECTRIC_FLOOR = 0.55
+
+
+def electric_verdict(powertrain: str | None, source: str | None = None,
+                     confidence: float | None = None,
+                     company_all_electric: bool = False,
+                     stated: bool = True,
+                     presume_electric: bool = False) -> tuple[str, str | None]:
+    """is_electric from powertrain — refusing to answer on a near-chance guess.
+
+    Anything below _CONF_ELECTRIC_FLOOR abstains, whatever its source.
+    Measured on the real corpus (2026-09-08): PatentSBERTa's zero-shot
+    powertrain scores have a median margin of 0.30 and a maximum of 0.59, so
+    letting them through would put "No" — the reviewer's disapproval verdict —
+    on 209 patents on the strength of a coin-flip. The same floor catches a body
+    sentence that names an option rather than a commitment. The proposal still
+    shows in `powertrain` with its own source and confidence; only the derived
+    verdict abstains, because that is the column a human acts on.
+
+    A keyword (0.80) or gazetteer (0.70-0.95) powertrain always decides. Where
+    it would otherwise abstain, a company that builds nothing but battery-
+    electric aircraft decides instead (`company_all_electric`, from
+    aircraft_gazetteer.all_electric_companies).
+
+    `stated` is whether ANY propulsion family was committed to in the text.
+    With `presume_electric`, a patent that states nothing at all is marked
+    ("Unknown", "presumed"): this is an eVTOL corpus the annotator approved
+    patent by patent, so the burden is on finding evidence it is NOT electric,
+    and a row with no such evidence is not queued. The verdict stays Unknown —
+    "presumed" is a source, not a fact.
+
+    Returns (verdict, source) — the source is what the sheet shows in
+    `is_electric_source`, so an abstention and a company call never look alike.
+    """
+    verdict, verdict_source = "Unknown", None
+    if powertrain:
+        # The floor is about the strength of the evidence, not where it came
+        # from: it catches a 0.30 SBERT similarity and an equally weak
+        # non-committal body sentence ("an electric motor or an engine") alike.
+        if (confidence or 0) >= _CONF_ELECTRIC_FLOOR:
+            verdict = ELECTRIC_BY_POWERTRAIN.get(powertrain, "Unknown")
+            verdict_source = source if verdict != "Unknown" else None
+    if verdict == "Unknown" and company_all_electric:
+        return "Yes", "company"
+    if verdict == "Unknown" and presume_electric and not stated:
+        return "Unknown", "presumed"
+    return verdict, verdict_source
 
 
 # ─── Application-domain (industry) taxonomy ──────────────────────────────────
@@ -141,31 +240,131 @@ INDUSTRY_DEFS: dict[str, str] = {
 
 # ─── Powertrain / industry classification ────────────────────────────────────
 
-def classify_powertrain(text: str | None, sbert_model=None) -> dict:
-    """Classify the energy source. Keyword prior first, SBERT as the fallback.
+def _sentence_around(text: str, lo: int, hi: int, window: int = 220) -> str:
+    """The sentence the match sits in — the unit a commitment is judged on."""
+    start, end = max(0, lo - window), min(len(text), hi + window)
+    head, tail = text[start:lo], text[hi:end]
+    m = list(re.finditer(r"[.;:!?]\s+|\n", head))
+    if m:
+        head = head[m[-1].end():]
+    m = re.search(r"[.;!?](?:\s|$)|\n", tail)
+    if m:
+        tail = tail[:m.end()]
+    return " ".join((head + text[lo:hi] + tail).split())
 
-    Returns the pipeline's standard prediction dict —
-    {"value", "confidence", "source", "margin"} — so it merges the same way
-    every other prediction in this codebase does.
 
-    The keyword pass runs first and wins outright when it hits: propulsion
-    language in patents is formulaic ("a plurality of electric motors powered
-    by a battery pack"), so a literal match is stronger evidence than a cosine
-    score over a 384-token truncation of the same text.
+def _families_in(sentence: str) -> set:
+    """Which powertrain families this one sentence names.
+
+    A hybrid statement names its parts ("a turbogenerator charging the battery
+    that feeds the motors") — that is a commitment to HYBRID, not a hedge
+    between three families, so hybrid absorbs the others."""
+    fams = {label for pattern, label in POWERTRAIN_KEYWORDS
+            if re.search(pattern, sentence, re.IGNORECASE)}
+    return {"HybridElectric"} if "HybridElectric" in fams else fams
+
+
+ELECTRIC_FAMILIES = {"BatteryElectric", "HydrogenFuelCell"}
+COMBUSTION_FAMILIES = {"Turbine", "Piston"}
+# A committed combustion sentence next to a committed electric one: the
+# combustion one is the statement that could disapprove the patent, so it is
+# reported — but under the floor, so is_electric abstains and a human reads both.
+_CONF_KEYWORD_CONFLICT = 0.40
+
+
+def _committed_hits(text: str | None, conf_ok: float) -> dict:
+    """Every propulsion family named in `text`, with its best sentence.
+
+    For each family: the first COMMITTED sentence if there is one, else the
+    first hedged one (kept so the reviewer can see what was found, at a
+    confidence that decides nothing).
     """
+    out: dict = {}
     if not text or not str(text).strip():
-        return {"value": None, "confidence": 0.0, "source": None}
-
-    lowered = str(text)
+        return out
+    text = str(text)
     for pattern, label in POWERTRAIN_KEYWORDS:
-        m = re.search(pattern, lowered, re.IGNORECASE)
-        if m:
-            # "pattern"/"match" let text_citation.find_quote() point the
-            # reviewer at the sentence that decided is_electric.
-            return {"value": label, "confidence": 0.80, "source": "keyword", "margin": 1.0,
-                    "pattern": pattern, "match": m.group(0)}
+        best = None
+        for m in re.finditer(pattern, text, re.IGNORECASE):
+            sentence = _sentence_around(text, m.start(), m.end())
+            hedged = (len(_families_in(sentence)) > 1
+                      or bool(_NONCOMMITTAL_RE.search(sentence))
+                      or bool(_PRIOR_ART_RE.search(sentence))
+                      or (label in COMBUSTION_FAMILIES
+                          and bool(_MODAL_COMBUSTION_RE.search(sentence))))
+            hit = {"pattern": pattern, "match": m.group(0), "hedged": hedged,
+                   "confidence": _CONF_KEYWORD_BODY_HEDGED if hedged else conf_ok}
+            if not hedged:
+                best = hit
+                break
+            best = best or hit
+        if best:
+            out[label] = best
+    return out
 
-    return _margin_flag(_sbert_best(text, POWERTRAIN_DEFS, sbert_model))
+
+def detect_powertrain_families(text: str | None, body_text: str | None = None) -> dict:
+    """{family: hit} across the signal text and the body — the signal text
+    wins for a family both mention, unless only the body commits."""
+    fam = _committed_hits(text, _CONF_KEYWORD_SIGNAL)
+    for label, hit in _committed_hits(body_text, _CONF_KEYWORD_BODY).items():
+        if label not in fam or (fam[label]["hedged"] and not hit["hedged"]):
+            fam[label] = hit
+    return fam
+
+
+def classify_powertrain(text: str | None, sbert_model=None,
+                        body_text: str | None = None) -> dict:
+    """Energy source, decided the way a reviewer would decide it.
+
+    It is easy to show an aircraft is NOT electric — one committed sentence
+    naming a turbine or a piston engine as the propulsion — and nearly
+    impossible to show it IS, because every aircraft has an electric motor
+    somewhere. So every family is collected first (`detect_powertrain_families`)
+    and then, in order:
+
+        hybrid stated                       -> HybridElectric
+        combustion AND electric stated      -> the combustion one, under the
+                                               floor: is_electric abstains, the
+                                               reviewer reads both sentences
+        combustion stated                   -> Turbine / Piston (the row is
+                                               queued: a machine never disapproves)
+        fuel cell / battery / electric only -> the electric one
+        only hedged mentions                -> the first one, under the floor
+        nothing                             -> SBERT's guess, under the floor
+                                               (and is_electric may be PRESUMED
+                                               electric — see electric_verdict)
+
+    "other" names the second family when two were stated, so the sheet can
+    quote both. Returns the pipeline's standard prediction dict.
+    """
+    fam = detect_powertrain_families(text, body_text)
+    committed = [label for label, h in fam.items() if not h["hedged"]]
+
+    def pick(label, other=None, conf=None):
+        h = fam[label]
+        return {"value": label, "source": "keyword", "margin": 1.0,
+                "confidence": h["confidence"] if conf is None else conf,
+                "pattern": h["pattern"], "match": h["match"],
+                "families": fam, "other": other,
+                "other_pattern": fam[other]["pattern"] if other else None}
+
+    elec = [l for l in committed if l in ELECTRIC_FAMILIES]
+    comb = [l for l in committed if l in COMBUSTION_FAMILIES]
+    if "HybridElectric" in committed:
+        return pick("HybridElectric", other=(comb or elec or [None])[0])
+    if comb and elec:
+        return pick(comb[0], other=elec[0], conf=_CONF_KEYWORD_CONFLICT)
+    if comb:
+        return pick(comb[0])
+    if elec:
+        return pick(elec[0])
+    if fam:                                            # hedged mentions only
+        label = next(iter(fam))
+        return {**pick(label, conf=_CONF_KEYWORD_BODY_HEDGED), "hedged": True}
+    if not text or not str(text).strip():
+        return {"value": None, "confidence": 0.0, "source": None, "families": {}}
+    return {**_margin_flag(_sbert_best(text, POWERTRAIN_DEFS, sbert_model)), "families": {}}
 
 
 def classify_industry(text: str | None, sbert_model=None) -> dict:

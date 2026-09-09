@@ -40,8 +40,58 @@ from src import aircraft_identity as ai
 from src import patent_scope as ps
 from src import patent_maturity as pm
 from src import wizard_link as wl
-from src.text_citation import classify_takeoff
+from src.text_citation import classify_takeoff, classify_uav, enrich_full_text
 from src.extractor import load_patseer_excel
+
+
+# ─── The source PDF ──────────────────────────────────────────────────────────
+# PatSeer's "PDF Link" column shows the words "PDF Link" and hides the URL in
+# the cell's HYPERLINK, which pandas never sees. Reading hyperlinks needs the
+# whole workbook in memory, so the result is cached beside the export and the
+# slow read happens once.
+
+def load_pdf_links(patseer_path, cache_dir=None, verbose: bool = True) -> dict:
+    """{patent_id: url} from the export's PDF Link hyperlinks."""
+    import csv
+
+    src = Path(patseer_path)
+    cache = Path(cache_dir or src.parent) / f"{src.stem}.pdf_links.csv"
+    if cache.exists() and cache.stat().st_mtime >= src.stat().st_mtime:
+        with open(cache, newline="") as f:
+            links = {r["patent_id"]: r["pdf_link"] for r in csv.DictReader(r for r in f)}
+        if verbose:
+            print(f"PDF links: {len(links)} (cached)")
+        return links
+
+    import openpyxl
+    try:
+        ws = openpyxl.load_workbook(src)[openpyxl.load_workbook(src, read_only=True).sheetnames[0]]
+    except Exception as exc:                                  # noqa: BLE001
+        if verbose:
+            print(f"⚠  Could not read PDF links ({type(exc).__name__}) — the column stays empty.")
+        return {}
+    header = [c.value for c in ws[1]]
+    if "PDF Link" not in header or "Record Number" not in header:
+        return {}
+    col, rec = header.index("PDF Link") + 1, header.index("Record Number") + 1
+    links = {}
+    for r in range(2, ws.max_row + 1):
+        cell = ws.cell(row=r, column=col)
+        target = cell.hyperlink.target if cell.hyperlink else None
+        pid = str(ws.cell(row=r, column=rec).value or "").strip()
+        if pid and target:
+            links[pid] = target
+    try:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        with open(cache, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["patent_id", "pdf_link"])
+            w.writerows(sorted(links.items()))
+    except OSError:
+        pass
+    if verbose:
+        print(f"PDF links: {len(links)} read from the export (cached for next time)")
+    return links
 
 
 @dataclass
@@ -70,6 +120,16 @@ class Stage03aInputs:
                                      m.get("first_claim"),
                                      m.get("innovation_objective")) if x)
 
+    def body_text(self, pid: str) -> str:
+        """Full Description + Claims, when enrich_full_text() loaded them.
+
+        Only the powertrain keyword pass reads this. It is where most patents
+        actually state their energy source, and a hit here still quotes a real
+        sentence — see text_citation.BODY_SECTIONS.
+        """
+        m = self.excel_index.get(pid, {})
+        return "\n".join(x for x in (m.get("claims_full"), m.get("description")) if x)
+
     def name_text(self, pid: str) -> str:
         """Same, plus the drawings description — a trade name, when it appears
         at all, tends to appear in the figure captions."""
@@ -94,7 +154,8 @@ class Stage03aResults:
 def load_inputs(cfg: dict, batch_id: int, limit: int | None = None,
                 repo_root: "Path | None" = None, verbose: bool = True,
                 snapshot_date: "str | None" = None,
-                wizard_dir: "str | Path | None" = None) -> Stage03aInputs:
+                wizard_dir: "str | Path | None" = None,
+                full_text: bool = True) -> Stage03aInputs:
     """Read batches.xlsx, the PatSeer export, the gazetteer and the wizard record.
 
     `snapshot_date` is the ISO date of the PatSeer export; ages are measured to
@@ -141,6 +202,13 @@ def load_inputs(cfg: dict, batch_id: int, limit: int | None = None,
     # Maturity columns are merged in here rather than by widening
     # load_patseer_excel(), so no other notebook's behaviour changes.
     enrichment = pm.enrich_from_excel(excel_index, cfg["paths"]["patseer_excel"])
+    for pid, url in load_pdf_links(cfg["paths"]["patseer_excel"], verbose=verbose).items():
+        if pid in excel_index:
+            excel_index[pid]["pdf_link"] = url
+    # The full Description/Claims, for the powertrain keyword pass only.
+    if full_text:
+        enrichment["full_text"] = enrich_full_text(
+            excel_index, cfg["paths"]["patseer_excel"], verbose=verbose)
 
     root = Path(repo_root) if repo_root else Path(__file__).resolve().parents[1]
     gazetteer = ai.load_gazetteer(root / "reference" / "evtol_gazetteer.csv")
@@ -191,10 +259,17 @@ def _print_load_summary(inputs: Stage03aInputs, limit: int | None) -> None:
 # ─── 2. Analyse ──────────────────────────────────────────────────────────────
 
 def analyse(inputs: Stage03aInputs, sbert=None,
-            llm_answers: dict | None = None, verbose: bool = True) -> Stage03aResults:
-    """Run every signal over the batch and assemble one row per patent."""
+            llm_answers: dict | None = None, verbose: bool = True,
+            presume_electric: bool = True) -> Stage03aResults:
+    """Run every signal over the batch and assemble one row per patent.
+
+    `presume_electric`: a patent whose text states no propulsion family at all
+    is marked is_electric_source = "presumed" and left out of the review queue
+    (the burden is on evidence of NOT electric — see electric_verdict).
+    """
     llm_answers = llm_answers or {}
     results = Stage03aResults()
+    all_electric = ai.all_electric_companies(inputs.gazetteer)
 
     for i, pid in enumerate(inputs.patent_ids, 1):
         meta = inputs.excel_index.get(pid, {})
@@ -207,7 +282,8 @@ def analyse(inputs: Stage03aInputs, sbert=None,
                 inputs.batch_meta.get(pid, {}).get("company_canonical"),
                 meta.get("app_year"), inputs.gazetteer,
                 assignee_raw=meta.get("assignee"), text=ntext),
-            powertrain_pred=ai.classify_powertrain(ctext, sbert),
+            powertrain_pred=ai.classify_powertrain(ctext, sbert,
+                                                   body_text=inputs.body_text(pid)),
             industry_pred=ai.classify_industry(ctext, sbert),
             name_candidates=ai.mine_name_candidates(ntext, pid, sbert),
             spec_hints=ai.extract_spec_hints(ctext),
@@ -216,6 +292,10 @@ def analyse(inputs: Stage03aInputs, sbert=None,
             takeoff_pred=classify_takeoff(meta),
             wizard=inputs.wizard.get(pid),
             group=inputs.groups.get(pid),
+            company_all_electric=(
+                inputs.batch_meta.get(pid, {}).get("company_canonical") in all_electric),
+            uav_pred=classify_uav(meta),
+            presume_electric=presume_electric,
         )
 
         scope_row, figs, scope_ev = ps.build_scope_row(
@@ -239,6 +319,11 @@ def analyse(inputs: Stage03aInputs, sbert=None,
 
     # Percentiles need every row, so this is a second pass over the finished set.
     pm.add_corpus_percentiles(results.rows)
+    # A D1/D2 is the same aircraft as its original: it inherits the root's
+    # answers and drops out of the review queue.
+    ai.propagate_duplicate_finals(results.rows)
+    for row in results.rows:
+        row.update(ai.review_flags(row))
     return results
 
 
@@ -294,7 +379,7 @@ def read_pasted_answers(xlsx_path: "str | Path") -> dict[str, dict]:
 # ─── 4. Export ───────────────────────────────────────────────────────────────
 
 def export(inputs: Stage03aInputs, results: Stage03aResults,
-           prompts: dict[str, str] | None = None) -> Path:
+           prompts: dict[str, str] | None = None, write_figures: bool = True) -> Path:
     """Write aircraft_identity_<batch>.xlsx next to the batch's other artefacts."""
     prompt_rows = [
         {"patent_id": pid,
@@ -307,7 +392,8 @@ def export(inputs: Stage03aInputs, results: Stage03aResults,
     out_path = data_matched / inputs.batch / f"aircraft_identity_{inputs.batch}.xlsx"
 
     ai.export_identity_excel(results.rows, results.evidence, prompt_rows, out_path,
-                             preserve_human=True, figures=results.figures)
+                             preserve_human=True, figures=results.figures,
+                             write_figures=write_figures)
     print(f"Wrote {len(results.rows)} patent row(s), {len(results.figures)} figure row(s), "
           f"{len(results.evidence)} evidence row(s)\n  -> {out_path}")
     return out_path
@@ -332,7 +418,43 @@ def report(results: Stage03aResults) -> pd.DataFrame:
         return f"{k:>5} / {n}  ({k / n:6.1%})"
 
     print(f"=== {ident['batch'].iloc[0]} — {n} patents ===\n")
-    print("REVIEW PROGRESS")
+
+    # The queue first: it is the number that decides how long the review takes.
+    ap = (ident["wizard_approved"] == True)                      # noqa: E712
+    q = ident["review_queue"].fillna("")
+    print("REVIEW QUEUE — what still needs you")
+    print(f"  in the queue    {pct((q != '').sum())}   "
+          f"(of {int(ap.sum())} the annotator approved)")
+    print(f"    name          {pct(ident['name_review'].fillna(False).sum())}")
+    print(f"    electric      {pct(ident['electric_review'].fillna(False).sum())}")
+    print(f"    take-off      {pct(ident['takeoff_review'].fillna(False).sum())}")
+    print(f"    uav tag       {pct(ident['uav_review'].fillna(False).sum())}")
+    print(f"  settled         {pct(((q == '') & ap).sum())}   (approved, nothing open)")
+    print(f"  disapproved     {pct((ident['wizard_approved'] == False).sum())}   "
+          f"(out of the corpus, never queued)")     # noqa: E712
+    print("\n  by combination:")
+    print(ident.loc[q != '', 'review_queue'].value_counts().to_string())
+    print("\n  electric answered by:")
+    print(ident["is_electric_source"].value_counts(dropna=False).to_string())
+
+    # `duplicateId` names a PATENT. When that patent describes several aircraft
+    # the link does not say which one, so say so on every run rather than
+    # letting the inheritance look exact.
+    multi = ident[ident["duplicate_root_aircraft"].notna()]
+    if len(multi):
+        amb = multi[multi["duplicate_ambiguous"] == True]              # noqa: E712
+        print(f"\n  ⓘ {len(multi)} duplicate(s) point at an original that describes several "
+              f"aircraft; the link names the patent, not one of them.")
+        if len(amb):
+            print(f"    ⚠  {len(amb)} of them inherit from an original whose aircraft DISAGREE — "
+                  f"set duplicate_root_variant (a/b/c) by hand in the xlsx:")
+            print(amb[["patent_id", "duplicate_root", "duplicate_root_aircraft"]]
+                  .to_string(index=False))
+        else:
+            print("    every such original's aircraft agree on every answer, so the "
+                  "inheritance is unambiguous.")
+
+    print("\nREVIEW PROGRESS")
     status = ident["review_status"].fillna("").astype(str).str.strip().str.lower()
     print(f"  done            {pct((status == 'done').sum())}")
     print(f"  skip            {pct((status == 'skip').sum())}")
@@ -398,7 +520,8 @@ def report(results: Stage03aResults) -> pd.DataFrame:
 
 def run_all_batches(cfg: dict, sbert=None, repo_root: "Path | None" = None,
                     limit: int | None = None, snapshot_date: "str | None" = None,
-                    wizard_dir: "str | Path | None" = None) -> pd.DataFrame:
+                    wizard_dir: "str | Path | None" = None,
+                    full_text: bool = True) -> pd.DataFrame:
     """Every Batch_NN sheet in batches.xlsx, one workbook each plus a combined
     table for the thesis. The LLM step is skipped: the export/paste loop is
     per batch, and an unattended API sweep over the whole corpus should be a
@@ -411,7 +534,8 @@ def run_all_batches(cfg: dict, sbert=None, repo_root: "Path | None" = None,
     for sheet in [s for s in sheets if s.startswith("Batch_")]:
         batch_id = int(sheet.split("_")[1])
         inputs = load_inputs(cfg, batch_id, limit=limit, repo_root=repo_root, verbose=False,
-                             snapshot_date=snapshot_date, wizard_dir=wizard_dir)
+                             snapshot_date=snapshot_date, wizard_dir=wizard_dir,
+                             full_text=full_text)
         results = analyse(inputs, sbert, verbose=False)
         export(inputs, results)
         all_rows.extend(results.rows)

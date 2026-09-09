@@ -1,0 +1,121 @@
+coded_field,note_field,note_text,tag
+M1.attach,boomN_attachOth,conects the mid wing to th eempenage,ToEmpennage
+M1.attach,boomN_attachOth,connected to the structural booms,ToOtherBooms
+M1.attach,boomN_attachOth,connnects fuselage ot the booms that have propellers,ToOtherBooms
+M1.attach,boomN_attachOth,to other  booms,ToOtherBooms
+M1.attach,boomN_attachOth,to the boom group 2,ToOtherBooms
+M1.attach,boomN_attachOth,to the boom group 3,ToOtherBooms
+M1.attach,boomN_attachOth,to the longitudinal booms,ToOtherBooms
+M1.attach,boomN_attachOth,to the other 3 booms,ToOtherBooms
+M1.attach,boomN_attachOth,to the other booms,ToOtherBooms
+M1.fusShape,fusShapeOtherNote,"U shaped, propellers in the middle of the U",UShaped
+M1.fusShape,fusShapeOtherNote,double fuselage,DoubleFuselage
+M1.fusShape,fusShapeOtherNote,double oval cockpit ,DoubleFuselage
+M1.fusShape,fusShapeOtherNote,"oval top viewed, rectangular side viewed",MixedSection
+M1.fusShape,fusShapeOtherNote,piramidal shape,Pyramidal
+M1.fusShape,fusShapeOtherNote,strange shape,Irregular
+M1.fusShape,fusShapeOtherNote,"unknow, but seems like a large sqared fuselage that converges to a nose, with 2 wings ",Irregular
+M1.fusShape,fusShapeOtherNote,wing profile shaped like,WingShaped
+M1.fusShape,fusShapeOtherNote,wing shapped,WingShaped
+M1.long,boomN_longOth,in the  middle of the fuselage,Mid
+M1.orient,boomN_orientOth,CONNECTED TO THE BOTTOM OF THE FUSELAGE IN A SQUARE SHAPE HOLDS 4 PROPELLERS,SquareFrame
+M1.orient,boomN_orientOth,Circular,RingFrame
+M1.orient,boomN_orientOth,backwards diagonal,Diagonal
+M1.orient,boomN_orientOth,"circular, holded by the 3 booms of group one",RingFrame
+M1.orient,boomN_orientOth,connects the fuselage to the wing,WingToBodyLink
+M1.orient,boomN_orientOth,connects the wing to the horizontal stabilizer,WingToTailLink
+M1.orient,boomN_orientOth,diagonal shape,Diagonal
+M1.orient,boomN_orientOth,each one segmented by 120 degrees from the others,RingFrame
+M1.orient,boomN_orientOth,it atttaches 3 rotors in triangle shape to the fuselage,TriangularFrame
+M1.orient,boomN_orientOth,sqaure shapped,SquareFrame
+M1.wingRel,boomN_wingRelOth,"at the tipp of the wing, paralell to it",TipParallel
+M1.wingRel,boomN_wingRelOth,bridges 2 wings plus the fuselage,BridgesWingsAndFuselage
+M1.wingRel,boomN_wingRelOth,bridges the wing and the horizontal stabilizer,BridgesWingAndStabiliser
+M1.wingRel,boomN_wingRelOth,bridges two wings plus teh fuselage,BridgesWingsAndFuselage
+M1.wingRel,boomN_wingRelOth,bridges two wings plus the fuselage,BridgesWingsAndFuselage
+M1.wingRel,boomN_wingRelOth,it is circular around the wing,RingAroundWing
+M1.wingRel,boomN_wingRelOth,under the wing,UnderWing
+M2.empType,empTypeOtherNote,+ tail,PlusTail
+M2.empType,empTypeOtherNote,"Conventional cruciform plus a vertical, under the horizontal stabilizer, stabilizer. In + form",CruciformPlusVentral
+M2.empType,empTypeOtherNote,INVERTED CONVENTIONAL,InvertedConventional
+M2.empType,empTypeOtherNote,"Tails are in each wingtip, having a vertical stabilzer and one sidded horizontal one pointing to the sides of the VTOL - not mmminimal stabilizingfins cause these ones are bigger",BoomTipTails
+M2.empType,empTypeOtherNote,Top vertical and out side horizontal stabilizers in each of the booms end,BoomTipTails
+M2.empType,empTypeOtherNote,horizontal stabilizer with a bottom cover for the empenage propeller ,ShroudedPusherTail
+M2.empType,empTypeOtherNote,inverted T conventional,InvertedConventional
+M2.empType,empTypeOtherNote,inverted conventional,InvertedConventional
+M2.empType,empTypeOtherNote,seems a vertical stabilizer on top of the main wing ,FinOnWing
+M2.empType,empTypeOtherNote,semi circualr tail ,SemicircularTail
+M2.empType,empTypeOtherNote,unknown,Unknown
+M2.empType,empTypeOtherNote,x tail,XTail
+M2.plan,wingN_plan_otherNote,Complex,Complex
+M2.plan,wingN_plan_otherNote,INVERTED W SHAPED WING,WShape
+M2.plan,wingN_plan_otherNote,Trap,Trap
+M2.plan,wingN_plan_otherNote,disk shape,Disk
+M2.plan,wingN_plan_otherNote,inverted Delta,InvertedDelta
+M2.plan,wingN_plan_otherNote,inverted swept,InvertedSwept
+M2.plan,wingN_plan_otherNote,it goes around the booms,AroundBooms
+M2.plan,wingN_plan_otherNote,it serves as rotor for hover,RotorWing
+M2.plan,wingN_plan_otherNote,"roud shaped delta, not a pure delta",RoundedDelta
+M2.plan,wingN_plan_otherNote,square format,SquareFormat
+M2.plan,wingN_plan_otherNote,squared format,SquareFormat
+M2.plan,wingN_plan_otherNote,starnge shape,Irregular
+M2.plan,wingN_plan_otherNote,"straigh shape, sufficiently different to be noted",Irregular
+M2.plan,wingN_plan_otherNote,straight with ttwo downards pointing vertical sabilizers at both tips,StraightWithTipFins
+M2.plan,wingN_plan_otherNote,swept with a strange shape arounf the propellers,Irregular
+M2.plan,wingN_plan_otherNote,thin back swepted wing connected at the tips,SweptIrregular
+M2.plan,wingN_plan_otherNote,unknown,Unknown
+M2.plan,wingN_plan_otherNote,w shape,WShape
+M2.plan,wingN_plan_otherNote,w shaped viewed from the front,WShape
+M2.plan,wingN_plan_otherNote,wing that divides int two 90 degrees rotated V minimal wings each one carrying one rotor,SplitVPanels
+M2.plan,wingN_plan_otherNote,wing with the format of a seagle wing like an inverted W,WShape
+M2.role,wingN_role_otherNote,in x fromat with the main one,XFormat
+M2.role,wingN_role_otherNote,middle one,MiddleOfStack
+M2.role,wingN_role_otherNote,"on top of the main aircraft, much bigger than the main one",StackedLarger
+M2.role,wingN_role_otherNote,perpendicular to the main one,Perpendicular
+M2.role,wingN_role_otherNote,x format,XFormat
+M2.wingConf,wingConfOtherNote,"1 canard, 2 in + format",PlusFormat
+M2.wingConf,wingConfOtherNote,"3 wings that connect in the middle of the 3, at the middle wing tip",TipJoined
+M2.wingConf,wingConfOtherNote,INVERTED W SHAPED WING,WShape
+M2.wingConf,wingConfOtherNote,Upper and lower wings connect with a structure,StrutJoined
+M2.wingConf,wingConfOtherNote,"Wings are locked in cruise, but in hover they serve as rotor as there is a rotating mechanism in the middle of the wing",RotorWing
+M2.wingConf,wingConfOtherNote,biplane connected at the tip,TipJoined
+M2.wingConf,wingConfOtherNote,both swept wings (with simetric swept value) connected at the tip,TipJoined
+M2.wingConf,wingConfOtherNote,both the middle and the aft wing connect at their tipds where a propeller is in,TipJoined
+M2.wingConf,wingConfOtherNote,both wings connect at the tip,TipJoined
+M2.wingConf,wingConfOtherNote,conected at the tips,TipJoined
+M2.wingConf,wingConfOtherNote,connected at the tips,TipJoined
+M2.wingConf,wingConfOtherNote,disk shape,Disk
+M2.wingConf,wingConfOtherNote,glider wing on top o  the fuselage,GliderWing
+M2.wingConf,wingConfOtherNote,in x fromat,XFormat
+M2.wingConf,wingConfOtherNote,it has 2 blended wings to the body ,BlendedFairings
+M2.wingConf,wingConfOtherNote,"main wing rotates, the other no ",RotorWing
+M2.wingConf,wingConfOtherNote,minimal canard,MinimalCanard
+M2.wingConf,wingConfOtherNote,minimal sided panels,MinimalPanels
+M2.wingConf,wingConfOtherNote,negative swept aft wings,ForwardSwept
+M2.wingConf,wingConfOtherNote, shaped in a particular way,Misc
+M2.wingConf,wingConfOtherNote,short retractable wings,Folding
+M2.wingConf,wingConfOtherNote,stopped rotor wing,RotorWing
+M2.wingConf,wingConfOtherNote,the center one is w shaped viewed from the front,WShape
+M2.wingConf,wingConfOtherNote,"the fuselage sits in a array of rotors, and the wings are atttatched to that array",RotorWing
+M2.wingConf,wingConfOtherNote,they are blended with everything,FairedIntoDucts
+M2.wingConf,wingConfOtherNote,very narrow,MinimalPanels
+M2.wingConf,wingConfOtherNote,w wing shaped on top view,WShape
+M2.wingConf,wingConfOtherNote,wigns in + format,PlusFormat
+M2.wingConf,wingConfOtherNote,"wing folds in the tips to provide contact interface, and it is also, tiltable in the middle to provide differnte modes of flight",Folding
+M2.wingConf,wingConfOtherNote,wing that divides int two 90 degrees rotated V minimal wings each one carrying one rotor,SplitVPanels
+M2.wingConf,wingConfOtherNote,wing tips connected,TipJoined
+M2.wingConf,wingConfOtherNote,wings are connected at the tips,TipJoined
+M2.wingConf,wingConfOtherNote,wings connect in their tips,TipJoined
+M2.wingConf,wingConfOtherNote,wings fold to help cruise and hover modes,Folding
+M2.wingConf,wingConfOtherNote,wings have swept and connect at the wingtip,TipJoined
+M2.wingConf,wingConfOtherNote,"wings in X format, not paralell to ech other",XFormat
+M2.wingConf,wingConfOtherNote,wings in square format ,SquareFormat
+M2.wingConf,wingConfOtherNote,wings in x shape,XFormat
+M2.wingConf,wingConfOtherNote,"wings profile is very different from common, and he arragment with the propeller too",Misc
+M2.wingConf,wingConfOtherNote,wings propellers are inside the wing making it a complex shape,PropInWing
+M2.wingConf,wingConfOtherNote,wings with swept connect at the wingtip,TipJoined
+M2.wingConf,wingConfOtherNote,x format,XFormat
+M2.wingConf,wingConfOtherNote,x-format,XFormat
+M3.propKin,propKinOth,THIS SECTIO OF THE WING TILTS ,WingSectionTilts
+M3.propKin,propKinOth,"it does not rotate, but seems to have a deflecting method to chage the flow",FlowDeflection
+M3.propKin,propKinOth,"the propeller inside the ""nacelle"" roatets to go from hover to cruise",TiltInsideNacelle

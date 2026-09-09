@@ -25,7 +25,7 @@ Usage:
     python scripts/conformance/check_batches.py --out report/       # + CSV worklists
 """
 from __future__ import annotations
-import argparse, collections, itertools, json, re, subprocess, sys, tempfile
+import argparse, collections, difflib, itertools, json, re, subprocess, sys, tempfile
 from pathlib import Path
 
 import pandas as pd
@@ -103,6 +103,11 @@ DEAD_FIELDS = {
 # grouped per boom index so a per-group requirement is checked per group.
 REQUIRED = [("boom wingRel (mandatory since 2026-08-07 when boom attaches to a wing)",
              r"boom(\d+)_attach", {"Wings", "Both"}, r"boom(\d+)_wingRel"),
+            # v17 DEC-1 (2026-09-08): boomNeedsLong(g) is attach !== 'Wings'. A group
+            # on BOTH wing and fuselage is fuselage-referenced for LONGITUDINAL, so
+            # it must carry long — the mirror of the FORBIDDEN rule below.
+            ("boom long (v17: required on every group except a pure Wings attachment)",
+             r"boom(\d+)_attach", {"Fuselage", "Both", "Other"}, r"boom(\d+)_long"),
             # v15.6 (2026-09-05): spanwise is measured along the WING, so it is now
             # rendered, required and exported only for a wing-referenced group —
             # the exact mirror of what v15.5 did to boomN_long.
@@ -111,8 +116,11 @@ REQUIRED = [("boom wingRel (mandatory since 2026-08-07 when boom attaches to a w
 # The mirror of REQUIRED: a field that must be ABSENT where the precondition holds.
 # v15.5 made boomN_long fuselage-only, so a value surviving on a wing-attached
 # group means the migration has not been run on that batch.
-FORBIDDEN = [("boom long must be blank on a wing-attached group (v15.5: fuselage-only)",
-              r"boom(\d+)_attach", {"Wings", "Both"}, r"boom(\d+)_long")]
+# v17 DEC-1 narrowed this from {Wings, Both} to Wings only: on 2026-09-08 all 12
+# "stray" values the old rule reported sat on Both groups, where long is now
+# REQUIRED. The check was stale, the data was right.
+FORBIDDEN = [("boom long must be blank on a pure Wings-attached group (v17: Both keeps it)",
+              r"boom(\d+)_attach", {"Wings"}, r"boom(\d+)_long")]
 # The other direction: a field that must be absent where the precondition does NOT
 # hold. v15.6 stopped exporting boomN_span for a non-wing-attached group.
 FORBIDDEN_UNLESS = [("boom span must be blank on a non-wing-attached group (v15.6)",
@@ -121,6 +129,152 @@ FORBIDDEN_UNLESS = [("boom span must be blank on a non-wing-attached group (v15.
 # scope are unreviewed SBERT pre-labels that 02a strips at export, so drift in
 # them measures the model, not the labeller.
 DRIFT_IGNORE = {"T1.t1Field", "T1.t1Target", "T1.scope", "T1.labelToken"}
+
+
+# ══ Phase 3 (C7-C10) ═══════════════════════════════════════════════════════
+# C1-C6 only ever looked at the 27 fields listed in FIELD_LIST. Phase 3 asks the
+# wider question the master sheet needs answered: is EVERY Field/Value in the
+# five files still something the wizard would write today?
+#
+#   C7  mirror coverage  every (Section, field) an export carries, classified as
+#                        validated / structurally non-coded / VALIDATED BY
+#                        NOTHING. The seven newly-mappable lists are checked here
+#                        rather than in FIELD_LIST, so the C1/C2 numbers stay
+#                        comparable with every earlier report.
+#   C8  free-text leak   prose sitting where a coded id belongs, plus the
+#                        "Other + sibling note" escape hatch that hides the same
+#                        problem in a place C1 cannot see.
+#   C9  dead columns     fields the wizard's export declares that no file
+#                        carries, fields present but always empty or constant,
+#                        and option ids no record ever picked.
+#   C10 label drift      the "id - Label" composite's label half vs the label
+#                        the wizard renders today. Phase 0 renamed eight of them
+#                        on 2026-09-08, so every file predating that is stale.
+#
+# FIELD_LIST_EXTRA is deliberately separate from FIELD_LIST: these seven fields
+# were validated against NOTHING until now (four of them because their option
+# lists are built by render-time FUNCTIONS below the taxonomy block, which the
+# schema extractor could not see until it learned to pull them out by name).
+FIELD_LIST_EXTRA = {
+    ("G1", "edgeTags"): "T1_EDGE_TAGS",
+    ("M1", "wingIdx"): "BOOM_WING_IDX",
+    ("M3", "orient"): "M3_ORIENT",
+    ("M3", "zone"): "M3_ZONE",
+    ("M3", "zoneChord"): "M3_ZONE_CHORD",
+    ("M3", "zoneSpan"): "M3_ZONE_SPAN",
+    ("T2", "parts"): "T2_PARTS_DEFAULT",
+}
+# Fields the wizard writes as a "|"-joined array (buildExport: parts, edgeTags,
+# zone). Splitting is mandatory or every multi-pick reads as one unknown id.
+MULTI_VALUE = {("M3", "zone"), ("G1", "edgeTags"), ("T2", "parts")}
+# Fields that carry no coded vocabulary and never should. Anything NOT here, not
+# in a FIELD_LIST, and not inferable as a boolean/count is reported by C7 as an
+# unvalidated coded field — which is the finding, not the noise.
+NONCODED = {
+    ("T1", "abstract"): "patent bibliographic text",
+    ("T1", "title"): "patent bibliographic text",
+    ("T1", "assignee"): "patent bibliographic text",
+    ("T1", "description_of_drawings"): "patent bibliographic text",
+    ("T1", "pdf_link"): "PatSeer URL",
+    ("T1", "aircraftName"): "free-text aircraft identity (03a ground truth)",
+    ("T1", "duplicateId"): "patent id",
+    ("META", "labelToken"): "SBERT pre-label token, stripped at 02a export",
+    ("META", "timestamp"): "save stamp",
+    ("META", "codebook_version"): "schema stamp (C6)",
+    ("META", "familyId"): "hardcoded placeholder, identical on every record",
+    ("META", "mainFigure"): "figure id",
+    ("T2", "figKey"): "figure id",
+    ("T2", "dupOf"): "'<patent> FIG. <n>' reference",
+    ("T2", "edgeTags"): "free-form per-figure tag registry (EDGE_TOKENS), NOT "
+                        "the coded G1 edgeTags of the same name",
+    ("M1", "cards"): "structural marker ('boom'), not an answer",
+}
+FREE_TEXT_RE = re.compile(r"(notes?|oth|other|othernote|comment|comments)$", re.I)
+# Coded fields whose vocabulary is real but lives in JS code instead of an option
+# array, so no guard can ever retire a value in them. Reported, with the reason.
+HARDCODED_VOCAB = {
+    ("T2", "status"): "'approved'/'disapproved' written as string literals in buildExport",
+    ("T1", "scope"): "unreviewed SBERT pre-label (02a strips it at export)",
+    ("T1", "t1Field"): "unreviewed SBERT pre-label (02a strips it at export)",
+    ("T1", "t1Target"): "unreviewed SBERT pre-label (02a strips it at export)",
+}
+# C8 - a coded field's sibling free-text field, by naming convention. The wizard
+# keeps the option id ('Oth'/'Other') in the coded field and rides the prose in
+# the sibling, so the categorical column stays clean and the information the
+# reviewer actually typed becomes invisible to every downstream consumer.
+# C10 - fields the export writes as a BARE id on purpose: M3 orient is passed no
+# option list (the comment in buildReviewRows says Horizontal/Vertical/Mixed are
+# already plain English), and G1 edgeTags is "|"-joined straight from the array
+# without withLabel(). Every other mapped field goes through withLabel(), so a
+# bare id there means the row was written by something other than the wizard.
+UNLABELLED_BY_DESIGN = {("M3", "orient"), ("G1", "edgeTags")}
+OTHER_IDS = {"Oth", "Other", "OTHER"}
+SIBLING_SUFFIXES = ("Oth", "_otherNote", "OtherNote")
+
+
+def label_of(v: object) -> str | None:
+    """The 'Label' half of an 'id - Label' composite, or None if unlabelled.
+
+    maxsplit=1 matters: several labels contain the separator themselves
+    ('TW - Vectored Thrust - Tilt Wing', 'FusFront - Fuselage - Front (body)').
+    """
+    s = str(v)
+    return s.split(" — ", 1)[1].strip() if " — " in s else None
+
+
+def split_multi(v: object, multi: bool) -> list[str]:
+    s = str(v).strip()
+    if s in ("", "nan", "None", "NaT"):
+        return []
+    return [p for p in (s.split("|") if multi else [s]) if p.strip()]
+
+
+def declared_fields(html: Path) -> dict[str, set[str]]:
+    """(Section -> field suffixes) the wizard's export function actually writes.
+
+    Parsed out of buildReviewRows' reviewRow() calls: the 4th argument is either
+    a literal field name or a loop variable, in which case the nearest preceding
+    ["a","b",...].forEach list holds the names. Composed names
+    (card.component + "_" + field) resolve to their suffix, which is exactly the
+    granularity suffix() reduces the files to. Used by C9 to find fields the
+    wizard emits that no file has ever carried.
+    """
+    s = html.read_text(encoding="utf-8", errors="replace")
+    call = re.compile(r'reviewRow\(\s*\w+\s*,\s*"(G1|M1|M2|M3|T1|T2|META)"\s*,'
+                      r'\s*(?:[^,]|\([^()]*\))*?,\s*([^,]+?)\s*,', re.S)
+    # Two loop shapes emit rows: a flat ["a","b"].forEach, and M2's
+    # [["plan","Planform",W_PLAN], ...].forEach where only the FIRST element of
+    # each inner array is the field name. Reading the flat shape only made the
+    # five M2 wing fields look undeclared.
+    arr = re.compile(r'\[(?P<body>[^\[\]]*(?:\[[^\[\]]*\][^\[\]]*)*)\]\s*\.forEach', re.S)
+    out: dict[str, set[str]] = {}
+    for m in call.finditer(s):
+        sec, arg = m.group(1), m.group(2).strip()
+        lit = re.fullmatch(r'"([A-Za-z0-9_]+)"', arg)
+        if lit:
+            out.setdefault(sec, set()).add(suffix(lit.group(1)))
+            continue
+        # A composed name is BOTH: "wing" + wi + "_" + field takes its name from
+        # the enclosing forEach list, while "wing" + wi + "_tipJoin" carries it as
+        # a literal in the argument itself — and the two sit inside the same loop.
+        # Reading only the forEach list made tipJoin and plan_otherNote look
+        # retired when the wizard writes them on every save.
+        names = re.findall(r'"_?([A-Za-z0-9_]+)"', arg)
+        back = arr.findall(s[max(0, m.start() - 900):m.start()])
+        if back:
+            body = back[-1]
+            names += [n for grp in ([re.findall(r'"([A-Za-z0-9_]+)"', inner)[:1]
+                                     for inner in re.findall(r'\[([^\[\]]*)\]', body)]
+                                    if body.lstrip().startswith("[")
+                                    else [re.findall(r'"([A-Za-z0-9_]+)"', body)])
+                      for n in grp]
+        for n in names:
+            out.setdefault(sec, set()).add(suffix(n))
+    # Prefix fragments from composed names ("wing" + wi + "_" + field) are not
+    # fields; drop them rather than report a phantom missing column.
+    for sec in out:
+        out[sec] -= {"", "_", "t", "boom", "wing", "wings", "emp", "fuselage"}
+    return out
 
 
 def code(v: object) -> str:
@@ -182,7 +336,264 @@ def retired_ids(schema: dict) -> dict[str, set]:
     return out
 
 
-def run(schema, batches, out_dir: Path | None):
+def run_c7_c10(schema, batches, hit, html: Path):
+    """C7-C10: the full Field/Value mirror the master sheet (stage 04) needs.
+
+    Report only - nothing here writes to a batch file.
+    """
+    lists = {k: set(v) for k, v in schema["lists"].items()}
+    labels = schema.get("labels", {})
+    retired = retired_ids(schema)
+    B = list(batches)
+    span = lambda c: " ".join(f"{b.replace('Batch_', 'B')}={c.get(b, 0):<5}" for b in B)
+    head = lambda t: print(f"\n{'=' * 78}\n{t}\n{'=' * 78}")
+    MAPPED = {**FIELD_LIST, **FIELD_LIST_EXTRA}
+
+    def nonempty(g):
+        v = g.Value.astype(str).str.strip()
+        return g[~v.isin(("", "nan", "None", "NaT"))]
+
+    # per-(section, suffix) census over all five files at once
+    keys: dict[tuple, dict] = {}
+    for b, df in batches.items():
+        for (sec, sfx), g in df.groupby([df.Section.astype(str), df._sfx]):
+            e = keys.setdefault((sec, sfx), dict(rows={}, ne={}, vals=collections.Counter()))
+            ne = nonempty(g)
+            e["rows"][b], e["ne"][b] = len(g), len(ne)
+            e["vals"].update(ne.Value.astype(str))
+
+    # ── C7 ─────────────────────────────────────────────────────────────────
+    head("C7  mirror coverage - is every exported field validated against the wizard?")
+    buckets = collections.defaultdict(list)
+    for (sec, sfx), e in sorted(keys.items()):
+        codes = {code(v) for v in e["vals"]}
+        key = (sec, sfx)
+        if key in FIELD_LIST:
+            buckets["validated by C1/C2"].append((key, FIELD_LIST[key], e))
+        elif key in FIELD_LIST_EXTRA:
+            buckets["validated by C7 (new)"].append((key, FIELD_LIST_EXTRA[key], e))
+        elif key in NONCODED:
+            buckets["not coded (by design)"].append((key, NONCODED[key], e))
+        elif FREE_TEXT_RE.search(sfx):
+            buckets["not coded (by design)"].append((key, "free text (sibling note / comment)", e))
+        elif codes <= {"True", "False"}:
+            buckets["not coded (by design)"].append((key, "boolean", e))
+        elif all(re.fullmatch(r"-?\d+(?:\.\d+)?|True|False", c) for c in codes):
+            buckets["not coded (by design)"].append((key, "count / numeric", e))
+        elif key in HARDCODED_VOCAB:
+            buckets["CODED BUT UNVALIDATED"].append((key, HARDCODED_VOCAB[key], e))
+        else:
+            buckets["CODED BUT UNVALIDATED"].append(
+                (key, f"{len(codes)} distinct values, no option array", e))
+    for name in ("validated by C1/C2", "validated by C7 (new)",
+                 "CODED BUT UNVALIDATED", "not coded (by design)"):
+        items = buckets[name]
+        print(f"\n  {name}: {len(items)} fields")
+        if name == "not coded (by design)":
+            print("      " + ", ".join(f"{s}.{f}" for (s, f), _, _ in items))
+            continue
+        for (sec, sfx), why, e in items:
+            tot = sum(e["ne"].values())
+            print(f"      {sec + '.' + sfx:<28} {why:<46} {tot:>6} values")
+            if name == "CODED BUT UNVALIDATED":
+                sample = ", ".join(f"{code(v)}({n})" for v, n in e["vals"].most_common(5))
+                print(f"          {sample[:150]}")
+                # No per-patent rows: these four fields are unvalidated on EVERY
+                # record, so a worklist entry per patent would be 4,000 rows of
+                # the same schema fact and would bury the actionable findings.
+
+    # the seven newly-mapped fields, validated exactly the way C1/C2 do it
+    print("\n  C7 findings on the newly-mapped fields (unknown / retired ids):")
+    agg = collections.defaultdict(collections.Counter)
+    for b, df in batches.items():
+        for (sec, sfx), lst in FIELD_LIST_EXTRA.items():
+            sub = df[(df.Section == sec) & (df._sfx == sfx)]
+            multi = (sec, sfx) in MULTI_VALUE
+            for _, r in nonempty(sub).iterrows():
+                for part in split_multi(r.Value, multi):
+                    v = code(part)
+                    kind = ("C7 invalid" if v not in lists[lst] else
+                            "C7 retired" if v in retired.get(lst, set()) else None)
+                    if kind:
+                        agg[(kind, f"{sec}.{sfx}", lst, v)][b] += 1
+                        hit(kind, b, patent=r.Patent_ID, field=f"{sec}.{sfx}",
+                            value=v, detail=lst)
+    if not agg:
+        print("      clean - every id in the seven fields is a current option")
+    for (kind, fld, lst, v), c in sorted(agg.items(), key=lambda x: -sum(x[1].values())):
+        print(f"      {kind}  {fld:<20} {lst:<20} {v!r:<28} {span(c)}")
+
+    # ── C8 ─────────────────────────────────────────────────────────────────
+    head("C8  free text where a coded id belongs")
+    print("\n  C8a  prose stored IN a categorical field (a value with no id at all)")
+    found = False
+    for b, df in batches.items():
+        for (sec, sfx), lst in MAPPED.items():
+            sub = nonempty(df[(df.Section == sec) & (df._sfx == sfx)])
+            multi = (sec, sfx) in MULTI_VALUE
+            ok = lists[lst] | EXTRA_OK.get((sec, sfx), set())
+            for _, r in sub.iterrows():
+                for part in split_multi(r.Value, multi):
+                    v = code(part)
+                    if v in ok:
+                        continue
+                    if " " in v or len(v) > 24:      # prose, not a mistyped id
+                        found = True
+                        print(f"      {b} {r.Patent_ID:<24} {sec}.{sfx:<14} {v[:70]!r}")
+                        hit("C8 prose in categorical", b, patent=r.Patent_ID,
+                            field=f"{sec}.{sfx}", value=v[:80], detail=lst)
+    if not found:
+        print("      clean - no categorical field holds prose "
+              "(the leaks are all in the sibling notes below)")
+
+    print("\n  C8b  the 'Other' escape hatch - coded field says Other, the answer "
+          "is in a free-text sibling")
+    print("      picked = records answering Other | noted = of those, with text | "
+          "orphan = text but not Other")
+    for (sec, sfx), lst in sorted(MAPPED.items()):
+        if not (OTHER_IDS & lists[lst]):
+            continue
+        sibs = [s for s in (sfx + x for x in SIBLING_SUFFIXES) if (sec, s) in keys]
+        if not sibs:
+            continue
+        picked, noted, orphan = {}, {}, {}
+        texts: collections.Counter = collections.Counter()
+        for b, df in batches.items():
+            cod = nonempty(df[(df.Section == sec) & (df._sfx == sfx)])
+            sib = nonempty(df[(df.Section == sec) & (df._sfx.isin(sibs))])
+            # pair on (patent, group prefix) so boom1_wingRel meets boom1_wingRelOth
+            gp = lambda s: str(s).rsplit("_", 1)[0] if "_" in str(s) else ""
+            oth = {(p, gp(f)) for p, f, v in zip(cod.Patent_ID, cod.Field, cod._code)
+                   if v in OTHER_IDS}
+            # a sibling's group key is its own name with the coded suffix and the
+            # note suffix stripped: boom1_wingRelOth -> boom1, wing2_plan_otherNote
+            # -> wing2, so it pairs with the coded row from the same group.
+            have = {(p, g) for p, g in zip(sib.Patent_ID, sib.Field.map(
+                lambda f: re.sub(r"_?" + re.escape(sfx) + r"(Oth|_?[oO]therNote)$", "", str(f))))}
+            picked[b], noted[b] = len(oth), len(oth & have)
+            orphan[b] = len(have - oth)
+            for _, r in sib.iterrows():
+                t = str(r.Value).strip()
+                texts[t] += 1
+                hit("C8 other-escape", b, patent=r.Patent_ID, field=f"{sec}.{sfx}",
+                    value=t[:80], detail=f"free text behind {lst} 'Other'")
+        print(f"\n      {sec}.{sfx}  ({lst}, sibling {'/'.join(sibs)})")
+        print(f"          picked Other: {span(picked)}")
+        print(f"          with note:    {span(noted)}")
+        print(f"          orphan notes: {span(orphan)}")
+        for t, n in texts.most_common(40):
+            lo = t.lower().strip()
+            coded = [i for i, l in labels.get(lst, {}).items()
+                     if lo == i.lower() or lo == str(l).lower()]
+            tag = f"   <- already an option: {coded[0]}" if coded else ""
+            print(f"          {n:>3}x {t[:88]!r}{tag}")
+        # Near-duplicates: one concept typed several ways is a MISSING OPTION,
+        # not a note. Fuzzy, not exact — the corpus writes the same answer as
+        # "bridges two wings plus the fuselage", "bridges 2 wings plus the
+        # fuselage" and "bridges two wings plus teh fuselage", which an exact
+        # normalisation counts as three different answers.
+        clusters: list[list[str]] = []
+        for t in sorted(texts):
+            k = re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", "", t.lower())).strip()
+            for cl in clusters:
+                if difflib.SequenceMatcher(None, k, cl[0]).ratio() >= 0.82:
+                    cl.append(t)
+                    break
+            else:
+                clusters.append([k, t])
+        for cl in sorted(clusters, key=lambda c: -len(c)):
+            if len(cl) > 2:
+                n = sum(texts[t] for t in cl[1:])
+                print(f"          !! {n} records, {len(cl) - 1} spellings of ONE "
+                      f"answer this list cannot express: {sorted(cl[1:])}")
+
+    # ── C9 ─────────────────────────────────────────────────────────────────
+    head("C9  dead columns - declared but never written, always empty, constant")
+    decl = declared_fields(html)
+    present = {sec: {f for (s, f) in keys if s == sec} for sec in decl}
+    print("\n  C9a  the wizard's export writes these, no file carries them")
+    for sec in sorted(decl):
+        gone = sorted(decl[sec] - present.get(sec, set()))
+        if gone:
+            print(f"      {sec:<6} {', '.join(gone)}")
+    print("\n  C9b  present in a file but the export no longer writes them "
+          "(survive a load/save round trip)")
+    for sec in sorted(present):
+        extra = sorted(f for f in present[sec] - decl.get(sec, set()))
+        if extra:
+            print(f"      {sec:<6} {', '.join(extra)}")
+    print("\n  C9c  fields with NO non-empty value in a batch (empty column there)")
+    for (sec, sfx), e in sorted(keys.items()):
+        empty = [b for b in B if e["rows"].get(b, 0) and not e["ne"].get(b, 0)]
+        if empty:
+            print(f"      {sec + '.' + sfx:<28} empty in {', '.join(empty)}"
+                  f"   (rows: {span(e['rows'])})")
+            for b in empty:
+                hit("C9 empty column", b, patent="", field=f"{sec}.{sfx}", value="",
+                    detail="field emitted, no non-empty value in this batch")
+    print("\n  C9d  constant fields - one distinct value corpus-wide (no information)")
+    for (sec, sfx), e in sorted(keys.items()):
+        vals = {code(v) for v in e["vals"]}
+        if len(vals) == 1 and sum(e["ne"].values()) > 1:
+            print(f"      {sec + '.' + sfx:<28} always {vals.pop()!r:<28} "
+                  f"{sum(e['ne'].values()):>5} rows")
+    print("\n  C9e  mostly-empty fields (>=90% of emitted rows blank)")
+    for (sec, sfx), e in sorted(keys.items()):
+        rows, ne = sum(e["rows"].values()), sum(e["ne"].values())
+        if rows >= 100 and ne / rows <= 0.10:
+            print(f"      {sec + '.' + sfx:<28} {ne:>5}/{rows:<6} non-empty "
+                  f"({ne / rows * 100:4.1f}%)")
+    print("\n  C9f  option ids the wizard offers that NO record ever picked")
+    for (sec, sfx), lst in sorted(MAPPED.items()):
+        used = set()
+        for b, df in batches.items():
+            sub = nonempty(df[(df.Section == sec) & (df._sfx == sfx)])
+            for v in sub.Value:
+                used |= {code(p) for p in split_multi(v, (sec, sfx) in MULTI_VALUE)}
+        unused = sorted(lists[lst] - used - retired.get(lst, set()))
+        if unused:
+            print(f"      {sec + '.' + sfx:<28} {lst:<22} never picked: {unused}")
+
+    # ── C10 ────────────────────────────────────────────────────────────────
+    head("C10  label drift - the stored 'id - Label' vs the label the wizard renders now")
+    drift = collections.defaultdict(collections.Counter)
+    bare = collections.defaultdict(collections.Counter)
+    for b, df in batches.items():
+        for (sec, sfx), lst in MAPPED.items():
+            lab = labels.get(lst) or {}
+            if not lab or (sec, sfx) in UNLABELLED_BY_DESIGN:
+                continue        # plain string list, or written bare on purpose
+            sub = nonempty(df[(df.Section == sec) & (df._sfx == sfx)])
+            multi = (sec, sfx) in MULTI_VALUE
+            for _, r in sub.iterrows():
+                for part in split_multi(r.Value, multi):
+                    v, stored = code(part), label_of(part)
+                    if v not in lab:
+                        continue               # C1/C7 owns unknown ids
+                    if stored is None:
+                        bare[(f"{sec}.{sfx}", v)][b] += 1
+                        hit("C10 bare id", b, patent=r.Patent_ID, field=f"{sec}.{sfx}",
+                            value=v, detail=f"stored without ' — {lab[v]}'")
+                    elif stored != lab[v]:
+                        drift[(f"{sec}.{sfx}", v, stored, lab[v])][b] += 1
+                        hit("C10 label drift", b, patent=r.Patent_ID,
+                            field=f"{sec}.{sfx}", value=v,
+                            detail=f"{stored!r} -> {lab[v]!r}")
+    print("\n  C10a  stale display label frozen into the file")
+    if not drift:
+        print("      clean")
+    for (fld, v, stored, now), c in sorted(drift.items(), key=lambda x: -sum(x[1].values())):
+        print(f"      {fld:<20} {v:<14} {span(c)}")
+        print(f"          file: {stored!r}")
+        print(f"          now : {now!r}")
+    print("\n  C10b  id stored with NO label, where the wizard writes a composite")
+    if not bare:
+        print("      clean")
+    for (fld, v), c in sorted(bare.items(), key=lambda x: -sum(x[1].values())):
+        print(f"      {fld:<20} {v!r:<20} {span(c)}")
+
+
+def run(schema, batches, out_dir: Path | None, html: Path | None = None):
     lists = {k: set(v) for k, v in schema["lists"].items()}
     retired = retired_ids(schema)
     inv = {v: k for k, v in GUARD_ALIAS.items()}
@@ -344,6 +755,9 @@ def run(schema, batches, out_dir: Path | None):
     print(f"  codebook_version in {'HTML'}: {schema['codebook_version']!r}"
           "   <- never bumped, so this stamp cannot tell two schema revisions apart")
 
+    if html is not None:
+        run_c7_c10(schema, batches, hit, html)
+
     if out_dir:
         out_dir.mkdir(parents=True, exist_ok=True)
         p = out_dir / "conformance_worklist.csv"
@@ -364,7 +778,7 @@ def main():
     batches = load_batches(a.dir, a.batches)
     if not batches:
         sys.exit("no batches loaded")
-    run(schema, batches, a.out)
+    run(schema, batches, a.out, a.html)
 
 
 if __name__ == "__main__":

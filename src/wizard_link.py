@@ -34,7 +34,57 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 WIZARD_FIELDS = ("isApproved", "t1DisapproveReason", "aircraftName",
-                 "isDuplicate", "duplicateType", "duplicateId")
+                 "isDuplicate", "duplicateType", "duplicateId",
+                 # variants: archCount on the base id, topType / notPureArch /
+                 # edgeTags on the <pid>_archN ids the wizard writes per aircraft
+                 "archCount", "topType", "notPureArch", "edgeTags")
+
+# ─── The annotator's disapproval reason as ground truth ──────────────────────
+# When the human threw a patent out FOR a reason, that reason is a decision they
+# already made and must not be asked again. Only reasons that name the thing
+# count, matched case-insensitively on the reason text.
+#
+# "Out of Domain / Out of TD" is deliberately NOT here. It is about to be split
+# into sub-reasons (ELECTRIC / STOL / UAV PURE / OTHER), so today's single label
+# does not say WHICH of them applied — reading it as "not electric" would invent
+# a decision the annotator did not make. Add the sub-reasons below once the
+# wizard writes them.
+HUMAN_TRUTH_REASONS = [
+    # (regex over the reason text, field, value)
+    (r"not\s*-?\s*vtol|\bstol\b|\bctol\b", "takeoff", "STOL"),
+    (r"\bnon[-\s]?electric\b|\bnot\s+electric\b|\bcombustion\b|—\s*electric\b",
+     "electric", "No"),
+    # "Pure UAV" is a disapproval the annotator made on purpose: no passenger /
+    # AAM application. It settles the UAV question for that (disapproved) patent.
+    (r"\bpure\s+uav\b", "uav", "Pure"),
+]
+
+
+def human_truth(record: dict | None) -> dict:
+    """What the annotator's disapproval reason already settles, if anything.
+
+    Returns {} for an approved patent, for a reason that settles nothing, and
+    for every "Out of Domain" reason — see HUMAN_TRUTH_REASONS.
+    """
+    record = record or {}
+    reason = (record.get("disapprove_reason") or "").strip()
+    if not reason or record.get("approved") is True:
+        return {}
+    out = {}
+    for pattern, field, value in HUMAN_TRUTH_REASONS:
+        if re.search(pattern, reason, re.IGNORECASE):
+            out[field] = value
+            out[f"{field}_evidence"] = f"annotator disapproved: {reason}"
+    if out:
+        # A reason that NAMES the thing wins, even under an "Out of TD" heading —
+        # that is exactly what the coming sub-reasons will look like
+        # ("Out of TD — Electric"), and it is a decision the annotator did make.
+        return out
+    if re.search(r"out\s+of\s+(domain|td|technological)", reason, re.IGNORECASE):
+        # A bare out-of-domain reason names nothing yet. Reading it as
+        # "not electric" would invent a decision — leave it for the reviewer.
+        return {}
+    return {}
 
 # Companies whose canonical label is a bucket, not an assignee. A generated
 # name for these uses the actual assignee string instead.
@@ -63,6 +113,29 @@ def _dup_type(v) -> "str | None":
     return m.group(1) if m else None
 
 
+def _id_of(v) -> "str | None":
+    """'MR — Wingless — Multirotor' → 'MR' (the wizard writes 'ID — Label')."""
+    if v is None or str(v).strip() in ("", "nan"):
+        return None
+    return str(v).split(" — ")[0].strip()
+
+
+def _tags(v) -> list[str]:
+    """'UAVSimilar|ElectricSimilar' → ['UAVSimilar', 'ElectricSimilar']."""
+    if v is None or str(v).strip() in ("", "nan"):
+        return []
+    return [t.split(" — ")[0].strip() for t in re.split(r"[|;,]", str(v)) if t.strip()]
+
+
+def _arch_count(raw, n_variant_records: int) -> int:
+    """The wizard writes archCount as 'True' for a single aircraft and '2'..'6'
+    otherwise; the <pid>_archN records are the authoritative count."""
+    if n_variant_records:
+        return max(n_variant_records, 1)
+    s = str(raw).strip() if raw is not None else ""
+    return int(s) if s.isdigit() else 1
+
+
 def _live_files(dir_path: Path) -> list[Path]:
     """The current per-batch exports only — never the PRE_/BACKUP_ copies."""
     out = []
@@ -82,18 +155,34 @@ def load_wizard_reviews(dir_path: "str | Path", verbose: bool = True) -> dict[st
     files = _live_files(dir_path) if dir_path.exists() else []
     for f in files:
         try:
-            df = pd.read_excel(f, sheet_name="Review", usecols=["Patent_ID", "Field", "Value"],
-                               dtype=object)
+            df = pd.read_excel(f, sheet_name="Review",
+                               usecols=["Patent_ID", "Section", "Field", "Value"], dtype=object)
         except ValueError as exc:                      # no 'Review' sheet
             if verbose:
                 print(f"⚠  {f.name}: {exc} — skipped")
             continue
         df = df[df["Field"].isin(WIZARD_FIELDS)]
+        # edgeTags is also a per-IMAGE field on T2 ("Image label is not
+        # corresponding"); only the G1 ones are aircraft edge tags.
+        df = df[~((df["Field"] == "edgeTags") & (df["Section"] != "G1"))]
+        pid_str = df["Patent_ID"].astype(str).str.strip()
+        df = df.assign(_base=pid_str.str.replace(r"_arch\d+$", "", regex=True),
+                       _arch=pid_str.str.extract(r"_arch(\d+)$")[0])
         m = re.search(r"Batch_\d+", f.name)
         batch = m.group(0) if m else f.stem
-        for pid, g in df.groupby("Patent_ID"):
+        for pid, g in df.groupby("_base"):
             pid = str(pid).strip()
-            vals = dict(zip(g["Field"], g["Value"]))
+            base_rows = g[g["_arch"].isna()]
+            vals = dict(zip(base_rows["Field"], base_rows["Value"]))
+            variants = []
+            for n, vg in g[g["_arch"].notna()].groupby("_arch"):
+                vv = dict(zip(vg["Field"], vg["Value"]))
+                variants.append({"n": int(n), "top_type": _id_of(vv.get("topType")),
+                                 "not_pure": _truthy(vv.get("notPureArch")),
+                                 "edge_tags": _tags(vv.get("edgeTags"))})
+            variants.sort(key=lambda v: v["n"])
+            edge_tags = sorted(set(_tags(vals.get("edgeTags")))
+                               | {t for v in variants for t in v["edge_tags"]})
             name = vals.get("aircraftName")
             name = str(name).strip() if name is not None and str(name).strip() not in ("", "nan") else None
             dup_of = vals.get("duplicateId")
@@ -106,6 +195,9 @@ def load_wizard_reviews(dir_path: "str | Path", verbose: bool = True) -> dict[st
                 "is_duplicate": _truthy(vals.get("isDuplicate")),
                 "duplicate_type": _dup_type(vals.get("duplicateType")),
                 "duplicate_of": dup_of,
+                "arch_count": _arch_count(vals.get("archCount"), len(variants)),
+                "variants": variants,            # [{n, top_type, not_pure, edge_tags}]
+                "edge_tags": edge_tags,          # G1 tags across base + variants
                 "batch": batch,
                 "file": f.name,
             }
@@ -152,6 +244,20 @@ def assign_aircraft_groups(
     Call it over the WHOLE corpus (every batch's patent ids) so generated
     numbers are unique corpus-wide, then look rows up per batch.
     """
+    # 0. One spelling per name. The annotator typed "AERHART LLC" on one patent
+    #    and "Aerhart Llc" on its duplicate; those are the same aircraft and must
+    #    not read as two. The most-used spelling wins, ties broken by the order
+    #    the patents come in, and every later lookup goes through canon_name().
+    spellings: dict[str, Counter] = defaultdict(Counter)
+    for w in wizard.values():
+        if w.get("aircraft_name"):
+            n = str(w["aircraft_name"]).strip()
+            spellings[n.lower()][n] += 1
+    canon = {k: c.most_common(1)[0][0] for k, c in spellings.items()}
+
+    def canon_name(name):
+        return canon.get(str(name).strip().lower(), str(name).strip()) if name else name
+
     # 1. What the annotator already typed, and which prefix they used per company,
     #    so a generated "Bell / Textron 31" does not sit next to "Bell Helicopter 30".
     used: dict[str, set] = defaultdict(set)              # prefix.lower() -> {numbers}
@@ -160,7 +266,7 @@ def assign_aircraft_groups(
     for pid, w in wizard.items():
         if not w.get("aircraft_name"):
             continue
-        prefix, num, _ = split_group_name(w["aircraft_name"])
+        prefix, num, _ = split_group_name(canon_name(w["aircraft_name"]))
         key = prefix.lower()
         display_prefix.setdefault(key, prefix)
         used[key].add(num if num is not None else 0)
@@ -180,12 +286,11 @@ def assign_aircraft_groups(
     for pid in ordered:
         w = wizard.get(pid) or {}
         if w.get("aircraft_name"):
-            result[pid] = {"aircraft_group": w["aircraft_name"],
+            result[pid] = {"aircraft_group": canon_name(w["aircraft_name"]),
                            "aircraft_group_source": "wizard", "aircraft_group_note": None}
 
     # 3. Duplicates inherit (D1/D2) or branch (D3) from their original.
     #    Two passes so a chain original->D2->D2 resolves whatever the order.
-    variant_letters: dict[str, set] = defaultdict(set)
     for _ in range(3):
         for pid in ordered:
             if pid in result:
@@ -197,16 +302,23 @@ def assign_aircraft_groups(
                 continue
             root = result[orig]["aircraft_group"]
             if dtype in ("1", "2"):
+                # A D1/D2 IS the original aircraft, so it takes the original's
+                # name even when the annotator typed their own spelling on it.
                 result[pid] = {"aircraft_group": root,
                                "aircraft_group_source": f"inherited_D{dtype}",
                                "aircraft_group_note": f"same aircraft as {orig}"}
             elif dtype == "3":
-                taken = variant_letters[root]
-                letter = next(c for c in "abcdefghijklmnopqrstuvwxyz" if c not in taken)
-                taken.add(letter)
-                result[pid] = {"aircraft_group": f"{root}{letter}",
-                               "aircraft_group_source": "generated_D3_variant",
-                               "aircraft_group_note": f"variant of {orig} ({root})"}
+                # A D3 is a DIFFERENT aircraft (same core invention, visible
+                # differences) and takes its own next number — the ruled
+                # convention. Letters are reserved for the variants INSIDE one
+                # patent (see variant_names).
+                prefix, _, _ = split_group_name(root)
+                key = prefix.lower()
+                n = (max(used[key]) + 1) if used[key] else 1
+                used[key].add(n)
+                result[pid] = {"aircraft_group": f"{display_prefix.get(key, prefix)} {n}",
+                               "aircraft_group_source": "generated_D3",
+                               "aircraft_group_note": f"D3 of {orig} ({root}) — different aircraft, new number"}
 
     # 4. Everything else: "<prefix> <N>", N unique for that prefix corpus-wide.
     for pid in ordered:
@@ -236,6 +348,9 @@ def assign_aircraft_groups(
     for pid in ordered:
         w = wizard.get(pid) or {}
         orig = w.get("duplicate_of")
+        if w.get("aircraft_name") and w.get("duplicate_type") in ("1", "2") and orig in result:
+            # the original's spelling wins, whatever the duplicate says
+            result[pid]["aircraft_group"] = result[orig]["aircraft_group"]
         if (w.get("aircraft_name") and w.get("duplicate_type") in ("1", "2")
                 and orig in result
                 and _same_name(result[orig]["aircraft_group"], w["aircraft_name"]) is False):

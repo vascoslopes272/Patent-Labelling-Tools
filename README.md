@@ -133,7 +133,7 @@ own `*_source` and `*_confidence`:
 |---|---|
 | `gazetteer` | `reference/evtol_gazetteer.csv` — curated company → aircraft table, matched on canonical company + filing year. The only source precise enough to carry a spec number into the thesis. |
 | `llm` | An LLM asked "which aircraft was *company* flying around *year*?" — via exported prompts you paste into a chat (default, no API key), or the Anthropic API. |
-| `sbert` | PatentSBERTa zero-shot over the anchors in `aircraft_identity.py`, reusing `reviewer._sbert_best()`. |
+| `sbert` | PatentSBERTa zero-shot over the anchors in `aircraft_identity.py`, reusing `reviewer._sbert_best()`. On by default (`USE_SBERT`): ~5 s to load, ~1.4 min per batch, and it is what fills `powertrain` / `scope` / `innovation_field` / `industry_primary` for the rows the keyword pass leaves empty — without it about 70 % of `powertrain` cells stay Unknown. It is a similarity judgement, not a literal match, so those rows carry `*_section = "sbert (no literal sentence)"` and no quote. |
 | `keyword` / `regex` | Propulsion keywords, spec numbers next to their unit, candidate model designations. |
 
 Two things about it are deliberate and worth knowing before you read the

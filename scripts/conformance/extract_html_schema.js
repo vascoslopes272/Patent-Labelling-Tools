@@ -37,11 +37,64 @@ const LISTS = ['TOP','WING_CONFIG','W_POS_V','W_POS_L','W_PLAN','W_ROLE','W_TILT
 // block defines is now picked up automatically, so a new guard can never again
 // be invisible to the checks.
 
-const out = { codebook_version: ctx.CODEBOOK_VERSION, lists: {}, choices: {},
-               missing: [], unbound_guards: [] };
+// Render-time option sets (C7). These live in FUNCTIONS far below the taxonomy
+// block — m3ZoneOptions() even branches on which propulsion card is being drawn —
+// so the block eval above never sees them and four exported M3 fields (zone,
+// zoneChord, zoneSpan, orient) were validated against nothing. Pull each function
+// by name, eval it in isolation and call it, so these lists stay derived from the
+// HTML instead of being copied here (a copy is the failure mode this harness exists
+// to catch). isIndependentThrust() is a state predicate, so orient is the UNION of
+// both branches — an export cannot say which mode was on when it was written.
+const src = fs.readFileSync(process.argv[2], 'utf8');
+function fnSource(name) {                       // brace-match one function decl
+  const i = src.indexOf('function ' + name + '(');
+  if (i < 0) return null;
+  let d = 0, j = src.indexOf('{', i);
+  if (j < 0) return null;
+  for (let k = j; k < src.length; k++) {
+    if (src[k] === '{') d++;
+    else if (src[k] === '}' && --d === 0) return src.slice(i, k + 1);
+  }
+  return null;
+}
+const RENDER_FNS = ['m3OrientationOptions', 'm3ZoneOptions', 'm3ZoneChordOptions',
+                    'm3ZoneSpanOptions'];
+const rctx = { console };
+vm.createContext(rctx);
+for (const n of RENDER_FNS) {
+  const body = fnSource(n);
+  if (body) vm.runInContext(body, rctx); else console.error(`WARN ${n} not found`);
+}
+const RENDER_LISTS = {};
+try {
+  // union of the independent-thrust and the vectoring branch
+  rctx.isIndependentThrust = () => true;
+  const a = rctx.m3OrientationOptions();
+  rctx.isIndependentThrust = () => false;
+  const b = rctx.m3OrientationOptions();
+  RENDER_LISTS.M3_ORIENT = b.concat(a.filter(o => !b.some(x => x.id === o.id)));
+  // union of the empennage card's zone vocabulary and every other card's
+  const e = rctx.m3ZoneOptions({ key: 'emp' }), o = rctx.m3ZoneOptions({ key: 'fuselage' });
+  RENDER_LISTS.M3_ZONE = o.concat(e.filter(x => !o.some(y => y.id === x.id)));
+  RENDER_LISTS.M3_ZONE_EMP = e;
+  RENDER_LISTS.M3_ZONE_CHORD = rctx.m3ZoneChordOptions();
+  RENDER_LISTS.M3_ZONE_SPAN = rctx.m3ZoneSpanOptions();
+} catch (e) { console.error('WARN render-time list extraction:', e.message); }
+
+const out = { codebook_version: ctx.CODEBOOK_VERSION, lists: {}, labels: {},
+               choices: {}, missing: [], unbound_guards: [], render_lists: [] };
 const idsOf = a => a.map(o => (o && typeof o === 'object') ? o.id : o);
+// withLabel() writes `id + ' \u2014 ' + (o.n || o.name)`, so the display string a
+// file carries is checkable against the list only if we export it (C10). A plain
+// string list has no separate label and gets an empty map.
+const labelsOf = a => Object.fromEntries(a.filter(o => o && typeof o === 'object')
+                                          .map(o => [o.id, o.n || o.name]));
 for (const n of LISTS) {
-  if (Array.isArray(ctx[n])) out.lists[n] = idsOf(ctx[n]); else out.missing.push(n);
+  if (Array.isArray(ctx[n])) { out.lists[n] = idsOf(ctx[n]); out.labels[n] = labelsOf(ctx[n]); }
+  else out.missing.push(n);
+}
+for (const [n, a] of Object.entries(RENDER_LISTS)) {
+  out.lists[n] = idsOf(a); out.labels[n] = labelsOf(a); out.render_lists.push(n);
 }
 for (const n of Object.keys(ctx))
   if (/_CHOICES$/.test(n) && Array.isArray(ctx[n])) out.choices[n] = ctx[n];
@@ -56,6 +109,7 @@ for (const n of Object.keys(out.choices)) {
 }
 
 fs.writeFileSync(process.argv[3], JSON.stringify(out, null, 1));
-console.error(`extracted ${Object.keys(out.lists).length} lists, ` +
+console.error(`extracted ${Object.keys(out.lists).length} lists ` +
+              `(${out.render_lists.length} render-time), ` +
               `${Object.keys(out.choices).length} guards, missing: ${out.missing.join(',') || 'none'}` +
               (out.unbound_guards.length ? `, UNBOUND GUARDS: ${out.unbound_guards.join(',')}` : ''));

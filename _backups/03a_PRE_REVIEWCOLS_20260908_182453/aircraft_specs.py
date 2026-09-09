@@ -67,13 +67,13 @@ POWERTRAIN_KEYWORDS: list[tuple[str, str]] = [
     (r"\bfuel\s*cell\b|\bhydrogen\b|\bH2\s+(?:tank|storage)\b", "HydrogenFuelCell"),
     (r"\bhybrid[-\s]?electric\b|\bturbo\s*generator\b|\bturbogenerator\b"
      r"|\brange\s+extender\b|\bseries\s+hybrid\b|\bgenerator\s+set\b", "HybridElectric"),
-    (r"\bbattery\s*(?:pack|module|cell)s?\b|\ball[-\s]?electric\b"
-     r"|\belectric\s+(?:motor|propulsion|powertrain)\b|\bdistributed\s+electric\s+propulsion\b"
-     r"|\bDEP\b|\beVTOL\b", "BatteryElectric"),
-    (r"\bturbo\s*shaft\b|\bturboshaft\b|\bturbo\s*prop\b|\bgas\s+turbine\b"
-     r"|\bjet\s+engine\b|\bturbofan\b", "Turbine"),
-    (r"\binternal\s+combustion\s+engine\b|\bpiston\s+engine\b|\breciprocating\s+engine\b",
-     "Piston"),
+    (r"\bbatter(?:y|ies)\b|\ball[-\s]?electric\b|\belectrically[-\s]+(?:powered|driven|propelled)\b"
+     r"|\belectric(?:al)?[-\s]+(?:motors?|propulsion|powertrain|drive|power\s+(?:source|supply|plant)|engines?|aircraft|vehicle|VTOL)\b"
+     r"|\bdistributed\s+electric\s+propulsion\b|\bDEP\b|\beVTOL\b|\be-?motor\b", "BatteryElectric"),
+    (r"\bturbo\s*shaft\b|\bturboshaft\b|\bturbo\s*prop\b|\bgas\s+turbine\b|\bturbine\s+engines?\b"
+     r"|\bjet\s+engines?\b|\bturbofan\b|\bturbojet\b", "Turbine"),
+    (r"\binternal\s+combustion\s+engine\b|\bcombustion\s+engines?\b|\bpiston\s+engine\b"
+     r"|\breciprocating\s+engine\b|\bgasoline\b|\bdiesel\b|\bpetrol\b", "Piston"),
 ]
 
 # A hybrid statement contains battery/electric words too, so the scan must be
@@ -158,8 +158,12 @@ def classify_powertrain(text: str | None, sbert_model=None) -> dict:
 
     lowered = str(text)
     for pattern, label in POWERTRAIN_KEYWORDS:
-        if re.search(pattern, lowered, re.IGNORECASE):
-            return {"value": label, "confidence": 0.80, "source": "keyword", "margin": 1.0}
+        m = re.search(pattern, lowered, re.IGNORECASE)
+        if m:
+            # "pattern"/"match" let text_citation.find_quote() point the
+            # reviewer at the sentence that decided is_electric.
+            return {"value": label, "confidence": 0.80, "source": "keyword", "margin": 1.0,
+                    "pattern": pattern, "match": m.group(0)}
 
     return _margin_flag(_sbert_best(text, POWERTRAIN_DEFS, sbert_model))
 
