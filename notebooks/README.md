@@ -98,7 +98,8 @@ Quotes are searched in five sections only — Title, Abstract, First claim,
 Summary of invention, Description of drawings. The full Description is not
 loaded, so `aircraft_name_in_text = No` means "not in those five".
 
-**Reviewing without Excel:** open `notebooks/03a_identity_review.html` in Chrome
+**Reviewing without Excel:** open `notebooks/post-process/03a_identity_review.html` in Chrome
+(all the review pages — identity, scope sample, 03b architecture, names — live in `notebooks/post-process/`)
 (same SheetJS CDN as the wizard, so it needs the network once), pick the
 `1639_LABELLED/labels` folder, choose a batch. It walks the `review_queue` rows
 one patent at a time with the figures on the left and the four decisions on

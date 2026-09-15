@@ -67,9 +67,9 @@ PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Scope sample 
 header{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;padding:8px 14px;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
 header h1{font-size:15px;margin:0 8px 0 0}header select,header button,header input{font:inherit;padding:4px 8px;border:1px solid var(--line);border-radius:6px;background:#fff}
 header button{cursor:pointer}#prog{color:var(--mut);font-size:13px}
-main{display:grid;grid-template-columns:270px 1fr;min-height:calc(100vh - 46px)}
+main{display:grid;grid-template-columns:200px 1fr;min-height:calc(100vh - 46px)}
 #list{border-right:1px solid var(--line);background:#fff;overflow:auto;max-height:calc(100vh - 46px)}
-#list div{padding:6px 10px;border-bottom:1px solid #f0f1f3;cursor:pointer;font-size:12.5px}
+#list div{padding:5px 10px;border-bottom:1px solid #f0f1f3;cursor:pointer;font-size:12.5px;display:flex;justify-content:space-between;gap:6px}
 #list div.cur{background:#e8efff}#list div.done{color:var(--mut)}
 #panel{padding:14px 18px;overflow:auto;max-width:1100px}
 .rule{background:#fff;border:1px solid var(--line);border-radius:10px;padding:4px 14px;margin-bottom:12px;font-size:13px}
@@ -84,9 +84,6 @@ main{display:grid;grid-template-columns:270px 1fr;min-height:calc(100vh - 46px)}
 .decide button.on{outline:2px solid var(--acc);background:#e8efff}.decide kbd{font-size:11px;color:var(--mut);margin-right:4px}
 .decide input{font:inherit;flex:1;min-width:220px;padding:7px 8px;border:1px solid var(--line);border-radius:8px}
 .mut{color:var(--mut)}.help{color:var(--mut);font-size:12px}
-.ptitle{font-size:15.5px;font-weight:600;margin:4px 0 10px;line-height:1.3}
-.ltitle{color:var(--mut);font-size:11px;display:block;margin-top:1px;line-height:1.25}
-.pick{color:var(--acc);font-weight:600}
 </style></head><body>
 <header><h1>Scope — blind 100-patent check</h1>
 <select id="view"><option value="todo">not decided yet</option><option value="all">all 100</option><option value="done">decided</option></select>
@@ -119,14 +116,14 @@ function claimHTML(r,d){const cite=(d&&d.citation)||r.pre;const i=cite?r.claim.i
  return i<0?esc(r.claim):esc(r.claim.slice(0,i))+'<mark>'+esc(cite)+'</mark>'+esc(r.claim.slice(i+cite.length))}
 function render(){filterRows();const L=document.getElementById('list');L.innerHTML='';
  ROWS.forEach((r,i)=>{const d=DEC[r.pid];const el=document.createElement('div');el.className=(i===CUR?'cur ':'')+(d&&d.choice?'done':'');
-  el.innerHTML=`<span><b>${r.n}. ${esc(r.pid)}</b>${d&&d.choice?' <span class="pick">'+d.choice+'</span>':''}<br><span class="ltitle">${esc((r.title||'—').slice(0,70))}</span></span>`;el.onclick=()=>{CUR=i;render()};L.appendChild(el)});
+  el.innerHTML=`<span>${r.n}. ${esc(r.pid)}</span><span>${d&&d.choice?d.choice:''}</span>`;el.onclick=()=>{CUR=i;render()};L.appendChild(el)});
  const n=DATA.filter(r=>DEC[r.pid]&&DEC[r.pid].choice).length;document.getElementById('prog').textContent=`${n} / ${DATA.length} decided · showing ${ROWS.length}`;
  const c=L.children[CUR];if(c)c.scrollIntoView({block:'nearest'});
  const P=document.getElementById('panel');const r=ROWS[CUR];
  if(!r){P.innerHTML=RULE+'<p class="help">Nothing in this view'+(n===DATA.length?' — all 100 decided. Press Export CSV.':'.')+'</p>';return}
  const d=DEC[r.pid]||{};
  P.innerHTML=RULE+`<div class="head"><h2>${r.n}. ${esc(r.pid)}</h2>${r.pdf?`<a href="${esc(r.pdf)}" target="_blank">PDF ↗</a>`:''}<a href="https://patents.google.com/patent/${esc(r.pid)}/en" target="_blank">Google Patents ↗</a></div>
- <div class="ptitle">${r.title?esc(r.title):'<i class="mut">no title in the export</i>'}</div>
+ <div class="mut" style="margin-bottom:8px">${esc(r.title)}</div>
  <div class="card"><h3>Claim 1</h3><div class="claim" id="claim">${r.claim?claimHTML(r,d):'<i class="mut">no claim text in the export — use the PDF, or choose Cannot tell</i>'}</div>
   ${r.indep?`<details style="margin-top:8px"><summary class="help">other independent claims</summary><div class="claim mut" style="font-size:13px">${esc(r.indep)}</div></details>`:''}</div>
  <div class="card"><h3>Abstract (context)</h3><div>${esc(r.abstract)||'<i class="mut">none</i>'}</div></div>

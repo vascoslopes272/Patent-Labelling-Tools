@@ -608,18 +608,53 @@ def test_no_text_at_all_is_still_unknown():
 # their proposal and their quote but stay under the abstention floor.
 
 @pytest.mark.parametrize("body", [
-    "A drive unit may include an electric motor or an engine.",
-    "The rotors 44 can be electric motors or combustion engines or any other known type.",
-    "The propulsion system comprises an electric motor or the like.",
     "Such drones are typically powered by onboard batteries.",
     "Multicopters are conventionally electrically powered.",
-    "A propulsion unit driven by an electric motor or any other known means.",
 ])
-def test_a_hedged_body_sentence_does_not_decide(body):
+def test_a_prior_art_electric_sentence_does_not_decide(body):
+    """About other aircraft, not this one — the proposal is kept, the verdict abstains."""
     pred = ai.classify_powertrain("An aircraft having a fuselage and wings.", body_text=body)
     assert pred["value"] is not None                       # the proposal is kept
     assert pred["confidence"] < schema.NEEDS_REVIEW_BELOW   # but it decides nothing
     assert electric_verdict(pred["value"], pred["source"], pred["confidence"]) == ("Unknown", None)
+
+
+# Ruling 2026-09-13 (user): "if electric is an alternative, it can still be considered
+# electric". Bell's boilerplate "an electric or hydraulic motor" and the attorney's
+# "may be an internal combustion engine, an electric motor, or any other suitable means"
+# both say the aircraft CAN be electric — that is a Yes, at a confidence the sheet can
+# tell from a firm statement (0.60 vs 0.65 / 0.80).
+@pytest.mark.parametrize("body", [
+    "A drive unit may include an electric motor or an engine.",
+    "The rotors 44 can be electric motors or combustion engines or any other known type.",
+    "The propulsion system comprises an electric motor or the like.",
+    "A propulsion unit driven by an electric motor or any other known means.",
+    "Rotor hub 32 may include a nacelle 36 housing a power supply such as an electric or hydraulic motor.",
+    "Alternatively, engines 108a, 108b could be one or more electric or hydraulic motors.",
+    "An engine may be an internal combustion engine, an electrical power source and associated "
+    "motor, or any other suitable means for powering rotor system 111.",
+])
+def test_an_electric_option_counts_as_electric(body):
+    pred = ai.classify_powertrain("An aircraft having a fuselage and wings.", body_text=body)
+    assert pred["value"] == "BatteryElectric"
+    assert pred["basis"] == "alternative"
+    assert pred["confidence"] == 0.60
+    assert electric_verdict(pred["value"], pred["source"], pred["confidence"]) == ("Yes", "keyword")
+
+
+def test_a_stated_combustion_with_an_electric_option_is_electric_and_quotes_both():
+    """Bell US2019144109A1: the illustrated embodiment burns fuel, electric is the alternative."""
+    row = _elec_row("In the illustrated embodiment, engines 108a, 108b, 114a, 114b are internal "
+                    "combustion engines operable to burn a liquid fluid. Alternatively, engines "
+                    "108a, 108b, 114a, 114b could be one or more electric or hydraulic motors.")
+    assert row["powertrain"] == "BatteryElectric"
+    assert (row["is_electric"], row["is_electric_source"]) == ("Yes", "keyword")
+    assert row["powertrain_other"] == "Piston"
+    assert "internal combustion" in row["powertrain_other_quote"]
+    assert "electric or hydraulic" in row["powertrain_quote"]
+    assert row["electric_review"] is False
+    assert "counts as electric (rule 2026-09-13)" in row["review_reason"]
+    assert "also states Piston" in row["review_reason"]
 
 
 @pytest.mark.parametrize("body, expected", [
@@ -644,11 +679,11 @@ def test_a_committed_sentence_is_preferred_over_an_earlier_hedged_one():
 
 
 def test_a_hedged_row_is_visible_but_presumed_electric():
-    """"an electric motor or an engine" states nothing — the proposal stays
-    visible, the verdict abstains, and under the burden-of-proof rule the row is
-    presumed electric rather than queued."""
+    """A prior-art sentence states nothing about this aircraft — the proposal
+    stays visible, the verdict abstains, and under the burden-of-proof rule the
+    row is presumed electric rather than queued."""
     meta = {"abstract": "An aircraft having a fuselage.",
-            "description": "A drive unit may include an electric motor or an engine."}
+            "description": "Such multicopters are typically driven by electric motors."}
     pred = ai.classify_powertrain(meta["abstract"], body_text=meta["description"])
     tk = {"value": "VTOL", "source": "keyword", "confidence": 0.8, "section": "Title", "quote": "VTOL"}
     row, _ = ai.build_identity_row(patent_id="US1", batch="Batch_01", meta=meta,
@@ -785,6 +820,23 @@ def test_classify_uav(text, expected):
     assert tc.classify_uav({"abstract": text})["value"] == expected
 
 
+def test_the_description_field_paragraph_counts_for_the_uav_hint():
+    """US11780576B1 said "unmanned" only in the opening TECHNICAL FIELD paragraph
+    and the page reported "no UAV vocabulary". Everything after BACKGROUND is
+    still ignored — nearly every Description says "manned or unmanned" there."""
+    meta = {"abstract": "An aircraft having a tiltable propulsion system.",
+            "description": "TECHNICAL FIELD [0001] The present disclosure relates to long-endurance "
+                           "unmanned aerial vehicles having a tiltable propulsion system. "
+                           "BACKGROUND [0002] Manned aircraft carry passengers."}
+    hint = tc.classify_uav(meta)
+    assert hint["value"] == "UAV"
+    assert hint["section"] == "Description (field)"
+    assert "unmanned aerial vehicles" in hint["quote"]
+    only_body = {"abstract": "An aircraft.",
+                 "description": "BACKGROUND [0001] The aircraft may be manned or unmanned."}
+    assert tc.classify_uav(only_body)["value"] is None
+
+
 def test_uav_hint_never_reaches_the_final_by_itself():
     row, _ = ai.build_identity_row(
         patent_id="US1", batch="Batch_01",
@@ -900,16 +952,18 @@ def test_a_stated_turbine_beats_electric_actuators():
     assert "confirm before disapproving" in row["review_reason"]
 
 
-def test_two_families_stated_abstains_and_quotes_both():
-    row = _elec_row("Lift rotors are driven by a piston engine. In another embodiment the "
-                    "rotors are driven by electric motors fed by a battery pack.")
-    assert row["powertrain"] == "Piston"
-    assert row["powertrain_other"] == "BatteryElectric"
-    assert "piston engine" in row["powertrain_quote"]
-    assert "battery pack" in row["powertrain_other_quote"]
-    assert row["is_electric"] == "Unknown" and row["is_electric_source"] is None
-    assert row["electric_review"] is True
-    assert "read both quotes" in row["review_reason"]
+def test_two_families_stated_is_electric_and_quotes_both():
+    """Rule 2026-09-13: electric anywhere about this aircraft wins; the piston
+    sentence is quoted as "other" so the reviewer still sees it."""
+    row = _elec_row("The lift rotors are driven by a piston engine. The cruise propeller is "
+                    "driven by electric motors fed by a battery pack.")
+    assert row["powertrain"] == "BatteryElectric"
+    assert row["powertrain_other"] == "Piston"
+    assert "battery pack" in row["powertrain_quote"]
+    assert "piston engine" in row["powertrain_other_quote"]
+    assert (row["is_electric"], row["is_electric_source"]) == ("Yes", "keyword")
+    assert row["electric_review"] is False
+    assert "both quoted" in row["review_reason"]
 
 
 def test_prior_art_turbine_does_not_count_as_a_statement():
@@ -1448,3 +1502,15 @@ def test_the_queue_is_identical_before_and_after_a_workbook_round_trip(tmp_path)
     back = pd.read_excel(out, sheet_name="Identity", dtype=object).to_dict("records")
     after = {r["patent_id"]: schema.review_flags(r)["review_queue"] for r in back}
     assert after == before, {k: (before[k], after[k]) for k in before if before[k] != after[k]}
+
+
+def test_the_text_beats_the_gazetteer_for_the_powertrain():
+    """Ruling 2026-09-13: a stated turboshaft outranks a company-table guess; the row is
+    still queued because the verdict is non-electric."""
+    meta = {"abstract": ABS, "description": "The rotor is driven by a turboshaft engine."}
+    pred = ai.classify_powertrain(ABS, body_text=meta["description"])
+    row, _ = ai.build_identity_row(patent_id="US1", batch="Batch_01", meta=meta, powertrain_pred=pred,
+                                   takeoff_pred=TK, gaz_hit={"powertrain": "BatteryElectric",
+                                                             "_confidence": 0.95, "_match": "exact"})
+    assert (row["powertrain"], row["powertrain_source"]) == ("Turbine", "keyword")
+    assert row["is_electric"] == "No" and row["electric_review"] is True

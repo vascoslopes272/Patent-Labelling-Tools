@@ -24,10 +24,7 @@ import pandas as pd
 
 ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED")
 SAMPLE = ROOT / "text_scope" / "scope_sample_100.csv"
-# review-page exports live in 1639_LABELLED/review_decisions (2026-09-14); Downloads is the old fallback
-DEFAULT_DECISIONS = next((p for p in [ROOT / "review_decisions" / "scope_sample_decisions.csv",
-                                      Path.home() / "Downloads" / "scope_sample_decisions.csv"] if p.exists()),
-                         ROOT / "review_decisions" / "scope_sample_decisions.csv")
+DEFAULT_DECISIONS = Path.home() / "Downloads" / "scope_sample_decisions.csv"
 N_POP = 695
 Z = 1.959964
 ACC_LOWER_BAR, KAPPA_BAR = 0.80, 0.60

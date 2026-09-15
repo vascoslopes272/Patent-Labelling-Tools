@@ -1605,42 +1605,19 @@ function jumpToPatentQuery(raw) {
   if (!BATCH || !q) { if (status) status.textContent = ''; return; }
   var qLower = q.toLowerCase();
 
-  // (0) A short bare number ("39", "#39") is a batch POSITION, checked before
-  // the ID substring match — otherwise "39" lands on the first ID that merely
-  // contains "39" (US2017203839A1), not patent #39.
-  var numMatch = /^#?(\d+)$/.exec(q);
-  var isPosition = numMatch && (q.charAt(0) === '#' || numMatch[1].length <= 4);
-
-  // (1) Patent ID — exact, then prefix, then substring (so "3594113" finds
-  // "EP3594113A1"). Pasted IDs are normalised first: spaces/hyphens/slashes/
-  // dots dropped ("EP 3 594 113 A1", "US 2021/0371117 A1"), an Espacenet
-  // "pn=" URL reduced to its number, and the long US publication form
-  // US2021 0 371117 tried as US2021371117 (the form the batch uses).
-  if (!isPosition) {
-    var ids = BATCH.ids.map(function(pid){ return String(pid).toLowerCase(); });
-    var pn = /pn(?:%3d|=)([a-z0-9]+)/i.exec(q);
-    var norm = (pn ? pn[1] : q).toLowerCase().replace(/[\s\-\/.,]+/g, '');
-    var cands = [qLower, norm];
-    var us = /^us(\d{4})0(\d{6}[a-z]?\d?)$/.exec(norm);
-    if (us) cands.push('us' + us[1] + us[2]);
-    var idIdx = -1;
-    [function(pid, c){ return pid === c; },
-     function(pid, c){ return pid.indexOf(c) === 0; },
-     function(pid, c){ return pid.indexOf(c) > -1; }].some(function(test){
-      return cands.some(function(c){
-        if (!c) return false;
-        idIdx = ids.findIndex(function(pid){ return test(pid, c); });
-        return idIdx > -1;
-      });
-    });
-    if (idIdx > -1) {
-      if (status) status.textContent = '';
-      loadBatchPatent(idIdx);
-      return;
-    }
+  // (1) Patent ID — exact match first, then prefix match (so "3594113" finds
+  // "EP3594113A1" etc).
+  var idIdx = BATCH.ids.findIndex(function(pid){ return pid.toLowerCase() === qLower; });
+  if (idIdx === -1) idIdx = BATCH.ids.findIndex(function(pid){ return pid.toLowerCase().indexOf(qLower) === 0; });
+  if (idIdx === -1) idIdx = BATCH.ids.findIndex(function(pid){ return pid.toLowerCase().indexOf(qLower) > -1; });
+  if (idIdx > -1) {
+    if (status) status.textContent = '';
+    loadBatchPatent(idIdx);
+    return;
   }
 
   // (2) Bare batch position number, e.g. "39" or "#39" (1-indexed).
+  var numMatch = /^#?(\d+)$/.exec(q);
   if (numMatch) {
     var n = parseInt(numMatch[1], 10);
     if (n >= 1 && n <= BATCH.ids.length) {

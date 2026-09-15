@@ -299,8 +299,7 @@ def main() -> int:
     root = Path(cfg["paths"]["labelled"])
     r = build(labels, root / "joined", write=not a.check,
               corrections=root / CORRECTIONS, answers=root / VARIANT_ANSWERS,
-              names=next((p for p in [root / "review_decisions" / NAME_DECISIONS, root / NAME_DECISIONS]
-                          if p.exists()), root / "review_decisions" / NAME_DECISIONS))
+              names=root / NAME_DECISIONS)
 
     if r["fixes"]:
         print(f"corrections from {CORRECTIONS}, {VARIANT_ANSWERS} and {NAME_DECISIONS}:")

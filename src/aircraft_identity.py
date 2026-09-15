@@ -50,7 +50,7 @@ from src.patent_geography import (          # noqa: F401
 )
 from src.aircraft_naming import mine_name_candidates          # noqa: F401
 from src.aircraft_specs import (             # noqa: F401
-    classify_powertrain, classify_industry, extract_spec_hints,
+    classify_powertrain, classify_industry, extract_spec_hints, _CONF_ELECTRIC_FLOOR,
     extract_blade_counts, summarise_blade_counts, electric_verdict,
     detect_powertrain_families,
     POWERTRAIN_DEFS, POWERTRAIN_KEYWORDS, ELECTRIC_BY_POWERTRAIN,
@@ -210,12 +210,20 @@ def build_identity_row(
     _ev("powertrain", powertrain_pred.get("value"), powertrain_pred.get("source"),
         powertrain_pred.get("confidence"), f"margin={powertrain_pred.get('margin')}")
 
-    powertrain, pt_src, pt_conf = _pick([
-        (gaz_pt, "gazetteer", gaz_hit.get("_confidence")),
-        (llm_pt, "llm", llm_answer.get("confidence")),
-        (powertrain_pred.get("value"), powertrain_pred.get("source"),
-         powertrain_pred.get("confidence")),
-    ])
+    # Ruling 2026-09-13 (user: "the text should win, but I review"): a powertrain
+    # the patent's own words state or offer (keyword, at or above the electric
+    # floor) outranks the company gazetteer, which only guesses from company +
+    # filing year. A non-electric text verdict is still queued for you (a machine
+    # never disapproves alone), so the review happens either way.
+    kw_val, kw_conf = powertrain_pred.get("value"), powertrain_pred.get("confidence") or 0
+    if powertrain_pred.get("source") == "keyword" and kw_val and kw_conf >= _CONF_ELECTRIC_FLOOR:
+        powertrain, pt_src, pt_conf = kw_val, "keyword", kw_conf
+    else:
+        powertrain, pt_src, pt_conf = _pick([
+            (gaz_pt, "gazetteer", gaz_hit.get("_confidence")),
+            (llm_pt, "llm", llm_answer.get("confidence")),
+            (kw_val, powertrain_pred.get("source"), powertrain_pred.get("confidence")),
+        ])
     # is_electric is derived from powertrain rather than predicted separately —
     # one source of truth, so the two columns can never contradict each other.
     # It abstains on a low-confidence SBERT powertrain, and on a text that
@@ -358,6 +366,11 @@ def build_identity_row(
         reasons.append("no propulsion stated — presumed electric (approved eVTOL corpus), not queued")
     elif pt_other and is_electric == "Unknown":
         reasons.append(f"text states BOTH {powertrain} and {pt_other} — read both quotes")
+    elif is_electric in ("Yes", "Hybrid") and powertrain_pred.get("basis") == "alternative":
+        reasons.append(f"{powertrain} offered as one option — counts as electric (rule 2026-09-13)"
+                       + (f"; the text also states {pt_other}" if pt_other else ""))
+    elif is_electric == "Yes" and pt_other:
+        reasons.append(f"{powertrain} stated; the text also states {pt_other} — both quoted")
     elif is_electric in ("No", "Hybrid"):
         reasons.append(f"{powertrain} stated — confirm before disapproving")
     elif not powertrain:

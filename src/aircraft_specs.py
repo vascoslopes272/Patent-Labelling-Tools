@@ -73,6 +73,16 @@ _CONF_KEYWORD_BODY = 0.65
 # the reviewer can see what was found, but the confidence stays under
 # _CONF_ELECTRIC_FLOOR so is_electric abstains and the row stays in the queue.
 _CONF_KEYWORD_BODY_HEDGED = 0.35
+# Ruling 2026-09-13 (user): "if electric is an alternative, it can still be
+# considered electric". An electric family offered as ONE OPTION — "an electric
+# or hydraulic motor", "may be an internal combustion engine, an electric motor,
+# or…" — counts as a statement that the aircraft can be electric. Above the
+# floor so it decides; below a committed sentence so the sheet can tell them
+# apart (confidence 0.60 == "electric by option"). Only prior-art framing
+# ("such drones are typically battery powered") still counts for nothing: it is
+# about other aircraft.
+_CONF_KEYWORD_ALTERNATIVE = 0.60
+ELECTRIC_OPTION_FAMILIES = {"BatteryElectric", "HydrogenFuelCell", "HybridElectric"}
 
 # An explicit disjunction: the sentence offers this energy source as one option
 # among others. "or an engine" needs its own test — a bare "engine" matches none
@@ -116,7 +126,9 @@ POWERTRAIN_KEYWORDS: list[tuple[str, str]] = [
      r"|\bengine\b[^.;]{0,80}\bgenerator\b|\bgenerator\b[^.;]{0,80}\bengine\b", "HybridElectric"),
     (r"\bbatter(?:y|ies)\b|\ball[-\s]?electric\b|\belectrically[-\s]+(?:powered|driven|propelled)\b"
      r"|\belectric(?:al)?[-\s]+(?:motors?|propulsion|powertrain|drive|power\s+(?:source|supply|plant)|engines?|aircraft|vehicle|VTOL)\b"
-     r"|\bdistributed\s+electric\s+propulsion\b|\bDEP\b|\beVTOL\b|\be-?motor\b", "BatteryElectric"),
+     r"|\bdistributed\s+electric\s+propulsion\b|\bDEP\b|\beVTOL\b|\be-?motor\b"
+     # "an electric or hydraulic motor" — the option phrasing Bell's boilerplate uses
+     r"|\belectric(?:al)?\s+(?:or|and|and/or)\s+\w+(?:\s+\w+)?\s+motors?\b", "BatteryElectric"),
     (r"\bturbo\s*shaft\b|\bturboshaft\b|\bturbo\s*prop\b|\bgas\s+turbine\b|\bturbine\s+engines?\b"
      r"|\bjet\s+engines?\b|\bturbofan\b|\bturbojet\b", "Turbine"),
     (r"\binternal\s+combustion\s+engine\b|\bcombustion\s+engines?\b|\bpiston\s+engine\b"
@@ -266,9 +278,9 @@ def _families_in(sentence: str) -> set:
 
 ELECTRIC_FAMILIES = {"BatteryElectric", "HydrogenFuelCell"}
 COMBUSTION_FAMILIES = {"Turbine", "Piston"}
-# A committed combustion sentence next to a committed electric one: the
-# combustion one is the statement that could disapprove the patent, so it is
-# reported — but under the floor, so is_electric abstains and a human reads both.
+# Retired 2026-09-13: a committed combustion sentence next to an electric one
+# used to abstain at this confidence. Under the option rule the electric one
+# decides and the combustion one is quoted as "other". Kept for old pickles.
 _CONF_KEYWORD_CONFLICT = 0.40
 
 
@@ -276,8 +288,12 @@ def _committed_hits(text: str | None, conf_ok: float) -> dict:
     """Every propulsion family named in `text`, with its best sentence.
 
     For each family: the first COMMITTED sentence if there is one, else the
-    first hedged one (kept so the reviewer can see what was found, at a
-    confidence that decides nothing).
+    first sentence that offers the family as an OPTION (electric families only —
+    an option counts, rule 2026-09-13), else the first hedged one (kept so the
+    reviewer can see what was found, at a confidence that decides nothing).
+
+    Each hit carries `hedged` (decides nothing) and `alternative` (electric
+    offered as one option among others: decides, at _CONF_KEYWORD_ALTERNATIVE).
     """
     out: dict = {}
     if not text or not str(text).strip():
@@ -287,17 +303,24 @@ def _committed_hits(text: str | None, conf_ok: float) -> dict:
         best = None
         for m in re.finditer(pattern, text, re.IGNORECASE):
             sentence = _sentence_around(text, m.start(), m.end())
-            hedged = (len(_families_in(sentence)) > 1
+            prior_art = bool(_PRIOR_ART_RE.search(sentence))
+            option = (len(_families_in(sentence)) > 1
                       or bool(_NONCOMMITTAL_RE.search(sentence))
-                      or bool(_PRIOR_ART_RE.search(sentence))
-                      or (label in COMBUSTION_FAMILIES
-                          and bool(_MODAL_COMBUSTION_RE.search(sentence))))
+                      or bool(_MODAL_COMBUSTION_RE.search(sentence))
+                      or bool(re.search(r"\b(?:or|and/or)\b", m.group(0), re.IGNORECASE)))
+            if label in ELECTRIC_OPTION_FAMILIES:
+                hedged, alternative = prior_art, (option and not prior_art)
+            else:
+                hedged, alternative = (prior_art or option), False
+            rank = 2 if hedged else (1 if alternative else 0)
             hit = {"pattern": pattern, "match": m.group(0), "hedged": hedged,
-                   "confidence": _CONF_KEYWORD_BODY_HEDGED if hedged else conf_ok}
-            if not hedged:
+                   "alternative": alternative, "rank": rank,
+                   "confidence": (_CONF_KEYWORD_BODY_HEDGED if hedged
+                                  else _CONF_KEYWORD_ALTERNATIVE if alternative else conf_ok)}
+            if best is None or rank < best["rank"]:
                 best = hit
+            if rank == 0:
                 break
-            best = best or hit
         if best:
             out[label] = best
     return out
@@ -305,10 +328,11 @@ def _committed_hits(text: str | None, conf_ok: float) -> dict:
 
 def detect_powertrain_families(text: str | None, body_text: str | None = None) -> dict:
     """{family: hit} across the signal text and the body — the signal text
-    wins for a family both mention, unless only the body commits."""
+    wins for a family both mention, unless the body's sentence is firmer
+    (committed beats option beats hedged)."""
     fam = _committed_hits(text, _CONF_KEYWORD_SIGNAL)
     for label, hit in _committed_hits(body_text, _CONF_KEYWORD_BODY).items():
-        if label not in fam or (fam[label]["hedged"] and not hit["hedged"]):
+        if label not in fam or hit["rank"] < fam[label]["rank"]:
             fam[label] = hit
     return fam
 
@@ -324,41 +348,43 @@ def classify_powertrain(text: str | None, sbert_model=None,
     and then, in order:
 
         hybrid stated                       -> HybridElectric
-        combustion AND electric stated      -> the combustion one, under the
-                                               floor: is_electric abstains, the
-                                               reviewer reads both sentences
-        combustion stated                   -> Turbine / Piston (the row is
+        electric stated, or offered as an   -> the electric one (Yes). A firmly
+          OPTION among others                  stated turbine / piston next to it
+          (rule 2026-09-13)                    is quoted as "other", not a conflict
+        combustion stated, no electric      -> Turbine / Piston (the row is
                                                queued: a machine never disapproves)
-        fuel cell / battery / electric only -> the electric one
-        only hedged mentions                -> the first one, under the floor
+        only hedged / prior-art mentions    -> the first one, under the floor
         nothing                             -> SBERT's guess, under the floor
                                                (and is_electric may be PRESUMED
                                                electric — see electric_verdict)
 
     "other" names the second family when two were stated, so the sheet can
-    quote both. Returns the pipeline's standard prediction dict.
+    quote both; "basis" is "alternative" when the electric family was only
+    offered as an option. Returns the pipeline's standard prediction dict.
     """
     fam = detect_powertrain_families(text, body_text)
     committed = [label for label, h in fam.items() if not h["hedged"]]
+    firm = [label for label, h in fam.items() if h["rank"] == 0]
 
     def pick(label, other=None, conf=None):
         h = fam[label]
         return {"value": label, "source": "keyword", "margin": 1.0,
                 "confidence": h["confidence"] if conf is None else conf,
                 "pattern": h["pattern"], "match": h["match"],
+                "basis": "alternative" if h.get("alternative") else "stated",
                 "families": fam, "other": other,
                 "other_pattern": fam[other]["pattern"] if other else None}
 
-    elec = [l for l in committed if l in ELECTRIC_FAMILIES]
-    comb = [l for l in committed if l in COMBUSTION_FAMILIES]
-    if "HybridElectric" in committed:
+    elec = sorted((l for l in committed if l in ELECTRIC_FAMILIES), key=lambda l: fam[l]["rank"])
+    comb = [l for l in firm if l in COMBUSTION_FAMILIES]
+    if "HybridElectric" in firm:
         return pick("HybridElectric", other=(comb or elec or [None])[0])
-    if comb and elec:
-        return pick(comb[0], other=elec[0], conf=_CONF_KEYWORD_CONFLICT)
+    if elec:
+        return pick(elec[0], other=(comb or [None])[0])
+    if "HybridElectric" in committed:                  # hybrid offered as an option
+        return pick("HybridElectric", other=(comb or [None])[0])
     if comb:
         return pick(comb[0])
-    if elec:
-        return pick(elec[0])
     if fam:                                            # hedged mentions only
         label = next(iter(fam))
         return {**pick(label, conf=_CONF_KEYWORD_BODY_HEDGED), "hedged": True}

@@ -14,7 +14,6 @@ Output: 1639_LABELLED/text_architecture/variant_reading/inputs_multitype.txt (+ 
 """
 import json
 import re
-import sys
 from pathlib import Path
 import pandas as pd
 
@@ -34,18 +33,9 @@ def fig_number(key) -> str | None:
 ml = pd.read_excel(ROOT / "joined" / "master_labels.xlsx",
                    usecols=["patent_id", "variant", "variant_id", "topType", "is_primary", "is_approved"])
 prim = ml[(ml.is_primary == True) & (ml.is_approved == True)]
-# --sametype (2026-09-15): the multi-aircraft patents whose aircraft all carry the SAME image type. Their
-# architecture was confirmed once per patent and copied to every aircraft; the user wants it per aircraft.
-SAMETYPE = "--sametype" in sys.argv
 multi = prim.groupby("patent_id").topType.nunique()
-n_air = prim.groupby("patent_id").variant_id.nunique()
-if SAMETYPE:
-    pids = sorted(p for p in multi.index if multi[p] == 1 and n_air[p] > 1)
-    print("multi-aircraft patents with one image type:", len(pids))
-else:
-    pids = sorted(multi[multi > 1].index)
-    print("patents with different types:", len(pids))
-STEM = "inputs_sametype" if SAMETYPE else "inputs_multitype"
+pids = sorted(multi[multi > 1].index)
+print("patents with different types:", len(pids))
 
 mf = pd.read_excel(ROOT / "joined" / "master_figures.xlsx")
 mf = mf[mf.patent_id.isin(pids) & (mf.status == "approved")]
@@ -115,8 +105,8 @@ for pid in pids:
     blocks.append("\n".join(lines))
 
 OUT.mkdir(parents=True, exist_ok=True)
-(OUT / f"{STEM}.json").write_text(json.dumps(items, ensure_ascii=False, indent=1), encoding="utf-8")
-(OUT / f"{STEM}.txt").write_text("\n\n".join(blocks) + "\n", encoding="utf-8")
+(OUT / "inputs_multitype.json").write_text(json.dumps(items, ensure_ascii=False, indent=1), encoding="utf-8")
+(OUT / "inputs_multitype.txt").write_text("\n\n".join(blocks) + "\n", encoding="utf-8")
 n_air = sum(len(i["aircraft"]) for i in items)
 n_empty = sum(1 for i in items for a in i["aircraft"] if not a["sentences"])
 print(f"{len(items)} patents, {n_air} aircraft, {n_empty} aircraft with no citing sentence → {OUT}")

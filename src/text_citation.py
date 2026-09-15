@@ -169,14 +169,38 @@ _CREWED_RE = (r"\bpassengers?\b|\boccupants?\b|(?<!un)\bmanned\b|\bcrew\b|\bair\
 UAV_HINT_OPTIONS = "UAV|UAV-language"
 
 
+# The opening "TECHNICAL FIELD" paragraph of the Description ("The present
+# disclosure relates to … unmanned aerial vehicles") is as much about THIS
+# invention as the abstract is, but it is not one of the short PatSeer fields.
+# It is searched too (2026-09-13: US11780576B1 said "unmanned" only there and
+# the page reported "no UAV vocabulary"). Cut at BACKGROUND, capped.
+_FIELD_MAX = 1200
+UAV_SECTIONS: list[tuple[str, str]] = SIGNAL_SECTIONS + [("description_field", "Description (field)")]
+
+
+def field_paragraph(description) -> str | None:
+    """The Description's opening paragraph(s) up to BACKGROUND, or its first 600 chars."""
+    if not description or not str(description).strip():
+        return None
+    text = str(description)
+    m = re.search(r"\bBACKGROUND\b", text)
+    head = text[:m.start()] if m else text[:600]
+    return head[:_FIELD_MAX].strip() or None
+
+
 def classify_uav(meta: dict | None) -> dict:
-    """UAV = the signal sections use UAV vocabulary and never mention people
-    aboard. UAV-language = both vocabularies appear ("manned or unmanned"),
-    worth a look but weaker. None = no UAV vocabulary at all."""
-    uav = find_quote(meta, _UAV_RE, sections=SIGNAL_SECTIONS)
+    """UAV = the signal sections (plus the Description's field paragraph) use
+    UAV vocabulary and never mention people aboard. UAV-language = both
+    vocabularies appear ("manned or unmanned"), worth a look but weaker.
+    None = no UAV vocabulary in those sections (the body may still say so —
+    the review page's evidence pack shows it)."""
+    meta = dict(meta or {})
+    if meta.get("description") and not meta.get("description_field"):
+        meta["description_field"] = field_paragraph(meta["description"])
+    uav = find_quote(meta, _UAV_RE, sections=UAV_SECTIONS)
     if not uav:
         return {"value": None, "confidence": 0.0, "source": None, "section": None, "quote": None}
-    crewed = find_quote(meta, _CREWED_RE, sections=SIGNAL_SECTIONS)
+    crewed = find_quote(meta, _CREWED_RE, sections=UAV_SECTIONS)
     if crewed:
         return {"value": "UAV-language", "confidence": 0.50, "source": "keyword",
                 "section": uav["section"], "quote": uav["quote"]}

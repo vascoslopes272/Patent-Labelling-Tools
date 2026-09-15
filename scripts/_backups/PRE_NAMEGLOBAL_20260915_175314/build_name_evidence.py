@@ -1,0 +1,532 @@
+#!/usr/bin/env python3
+"""Evidence for every aircraft-name proposal on the approved primary patents, and the review page (plan step D).
+
+A row is written for each approved primary patent (D1/D2 duplicates inherit their root's name) that has
+  (a) a machine name proposal (gazetteer attribution or SBERT text hit),
+  (b) per-aircraft name proposals (patents that draw several aircraft), or
+  (c) a name typed in the wizard that is not derived from the assignee (possible wizard slip or a real name).
+
+For each candidate name the evidence is:
+  - where the patent's own text names it: full-text search (title, abstract, claims, summary, drawings
+    description, full Description) with the sentence quoted; a hit in the Description next to prior-art
+    wording is labelled as such, because patents routinely name other companies' aircraft
+  - the company's documented aircraft (gazetteer) with each one's public architecture and years
+  - whether this patent's figure architecture (annotator topType) equals the candidate's public architecture
+  - the patent's approved figures
+
+Outputs:
+  1639_LABELLED/joined/name_evidence_20260911.csv          one row per patent x candidate
+  Patent-Labelling-Tools/notebooks/post-process/name_review.html   the review page
+                                    (Export -> 1639_LABELLED/review_decisions/NAME_DECISIONS.csv -> build_identity_all.py)
+"""
+import json
+import re
+import sys
+from pathlib import Path
+import pandas as pd
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+from src.extractor import load_patseer_excel           # noqa: E402
+from src.text_citation import (enrich_full_text, find_quote, literal_pattern,  # noqa: E402
+                               SIGNAL_SECTIONS, SECTIONS)
+
+ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED")
+PATSEER = Path("/mnt/storage_11tb/Drive_files_to_syncronize/2 - Patente & Validation/"
+               "3 -Raw_Patent_Exports_PatSeer_&Gold_Standard/1639__dataset_08_06_26.xlsx")
+GAZ = REPO / "reference" / "evtol_gazetteer.csv"
+KNOWN = ROOT / "text_architecture" / "known_aircraft_architecture.csv"
+OUT_CSV = ROOT / "joined" / "name_evidence_20260911.csv"
+OUT_HTML = REPO / "notebooks" / "post-process" / "name_review.html"
+MAX_FIGS = 6
+_PRIOR = re.compile(r"prior art|known|conventional|existing|such as|e\.g\.|for example|U\.?S\.? ?Pat|"
+                    r"patent|background|previously|unlike|compared", re.I)
+_SIGNAL_LABELS = {label for _, label in SIGNAL_SECTIONS}
+
+
+def s(v) -> str:
+    return "" if pd.isna(v) else str(v).strip()
+
+
+def norm(t: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", t.lower())
+
+
+# words that mark a sentence as talking about OTHER aircraft (an example, a known design, prior art)
+_OTHERS = re.compile(r"prior art|known|conventional|existing|such as|e\.g\.|for example|examples? of|"
+                     r"well-known|offered by|developing|attempts? to overcome|limitation of|than either|"
+                     r"include the|from [A-Z]", re.I)
+# words that mark a sentence as talking about THIS patent's aircraft
+_OWN = re.compile(r"embodiment|photograph of the|the present|of the invention|according to|shows the|"
+                  r"this aircraft|our aircraft|referred to as", re.I)
+
+
+def light_for(c: dict, company: str, assignee: str) -> tuple[str, str, str]:
+    """(colour, reason, suggestion) for one candidate name.
+    green = the evidence points one way (almost always: clear the proposal); yellow = a real judgement,
+    usually a documented aircraft whose public type equals the figures; red = the wizard name belongs to
+    someone else."""
+    src, hit, q, tm = c["source"], c["text_hit"], c["text_quote"], c["type_match"]
+    if src.startswith("wizard"):
+        # compare in any script (Korean, Cyrillic…), and by first word ("Bell Helicopter 9" vs BELL TEXTRON)
+        clean = lambda t: re.sub(r"[\W_]+", " ", str(t).lower(), flags=re.UNICODE).split()
+        base = clean(re.sub(r"\s*\d+[a-z]?$", "", c["candidate"]))
+        owners = [clean(assignee), clean(company)]
+        joined = " ".join(base)
+        if base and any(joined and (joined in " ".join(o) or (len(base[0]) >= 3 and o and base[0] == o[0]))
+                        for o in owners if o):
+            return "green", "the wizard name is the assignee's own name", "clear"
+        return "red", "the wizard name does not match this patent's assignee", "fix"
+    if hit == "not in the text":
+        if tm == "yes":
+            why = "not in the patent text, but the company's documented aircraft has the same architecture as the figures"
+            return "yellow", why + (" (the company's aircraft differ in architecture)" if c["company_types_differ"] else ""), "known"
+        return "green", ("not in the patent text, and its public architecture differs from the figures" if tm == "no"
+                         else "not in the patent text"), "clear"
+    if _OTHERS.search(q) and not _OWN.search(q):
+        return "green", "the text mentions it as another aircraft or an example", "clear"
+    if src == "sbert" and not _OWN.search(q):
+        return "green", "a word the text search picked up, not an aircraft this patent depicts", "clear"
+    return "yellow", "the text may name this patent's own aircraft — read the sentence", "text"
+
+
+def assignee_derived(wizard_name: str, companies: list[str]) -> bool:
+    base = norm(re.sub(r"\s*\d+[a-z]?$", "", wizard_name))
+    return bool(base) and any(base[:6] in c or c[:6] in base for c in map(norm, companies) if c)
+
+
+def main():
+    idn = pd.read_excel(ROOT / "joined" / "aircraft_identity_ALL.xlsx", sheet_name="Identity")
+    prim = idn[(idn.wizard_approved == True) & ~idn.wizard_duplicate_type.isin([1.0, 2.0])].copy()
+    ml = pd.read_excel(ROOT / "joined" / "master_labels.xlsx",
+                       usecols=["patent_id", "variant", "topType", "is_primary", "is_approved"])
+    ml = ml[(ml.is_primary == True) & (ml.is_approved == True)]
+    types = {pid: [s(t) for t in g.sort_values("variant").topType] for pid, g in ml.groupby("patent_id")}
+    gaz = pd.read_csv(GAZ, comment=None)
+    gaz = gaz[gaz.company_canonical != "#"]
+    known = pd.read_csv(KNOWN)
+    ktype = {(r.company, r.aircraft_name): s(r.known_type) for r in known.itertuples()}
+    kbasis = {(r.company, r.aircraft_name): f"{s(r.confidence)} · {s(r.basis)}" for r in known.itertuples()}
+    portfolio = {}
+    for c, g in gaz.groupby("company_canonical"):
+        portfolio[c] = [{"name": r.aircraft_name, "years": f"{int(r.year_from)}–{int(r.year_to)}", "yf": int(r.year_from),
+                         "type": ktype.get((c, r.aircraft_name), ""), "basis": kbasis.get((c, r.aircraft_name), "")}
+                        for r in g.itertuples()]
+
+    rows = []
+    for r in prim.itertuples():
+        cands = []
+        if s(r.aircraft_name_source) in ("gazetteer", "sbert"):
+            cands.append((s(r.aircraft_name), s(r.aircraft_name_source)))
+        for v in s(r.aircraft_name_variant_proposals).split(";"):
+            if v.strip() and v.strip() not in [c for c, _ in cands]:
+                cands.append((v.strip(), "variant proposal"))
+        wiz = s(r.wizard_aircraft_name)
+        mismatch = bool(wiz) and not assignee_derived(wiz, [s(r.company_canonical), s(r.assignee_raw)])
+        if mismatch:
+            cands.append((wiz, "wizard name, not the assignee"))
+        for name, src in cands:
+            rows.append({"patent_id": r.patent_id, "candidate": name, "source": src})
+    ev = pd.DataFrame(rows)
+    print("candidates:", len(ev), "patents:", ev.patent_id.nunique(), ev.source.value_counts().to_dict())
+
+    index = load_patseer_excel(PATSEER)
+    enrich_full_text(index, PATSEER)
+    pdf = pd.read_csv(PATSEER.with_suffix(".pdf_links.csv")).set_index("patent_id").pdf_link
+    mf = pd.read_excel(ROOT / "joined" / "master_figures.xlsx")
+    mf = mf[(mf.status == "approved") & (mf.file_exists == True)]
+    nfig = mf.groupby(["patent_id", "arch"]).size().to_dict()
+    figs = {}
+    for pid, g in mf.groupby("patent_id"):
+        # up to MAX_FIGS per aircraft, so every aircraft of a multi-aircraft patent has its own figures (2026-09-15)
+        g = g.sort_values(["is_main", "arch"], ascending=[False, True])
+        g = g.groupby(g.arch.fillna(0), sort=False, group_keys=False).head(MAX_FIGS)
+        figs[pid] = [{"src": "file://" + str(x.image_path), "rot": int(x.rotation_deg or 0),
+                      "arch": None if pd.isna(x.arch) else int(x.arch)} for x in g.itertuples()]
+
+    by_pid = prim.set_index("patent_id")
+    out = []
+    for e in ev.itertuples():
+        p = by_pid.loc[e.patent_id]
+        meta = index.get(e.patent_id)
+        hit = find_quote(meta, literal_pattern(e.candidate), sections=SECTIONS) if len(e.candidate) > 1 else None
+        where = ""
+        if hit:
+            if hit["section"] in _SIGNAL_LABELS:
+                where = "names it (" + hit["section"] + ")"
+            elif _PRIOR.search(hit["quote"]):
+                where = "Description, prior-art wording nearby"
+            else:
+                where = "Description"
+        comp = s(p.company_canonical)
+        port = portfolio.get(comp, [])
+        ctype = ktype.get((comp, e.candidate), "")
+        img = types.get(e.patent_id, [])
+        out.append({
+            "patent_id": e.patent_id, "batch": s(p.batch), "candidate": e.candidate, "source": e.source,
+            "text_hit": where or "not in the text", "text_section": hit["section"] if hit else "",
+            "text_quote": hit["quote"] if hit else "",
+            "company": comp, "assignee": s(p.assignee_raw), "wizard_name": s(p.wizard_aircraft_name),
+            "aircraft_group": s(p.aircraft_group), "n_aircraft": len(img) or 1,
+            "image_types": "|".join(img), "candidate_public_type": ctype,
+            "type_match": ("yes" if ctype and ctype in img else "no" if ctype else ""),
+            "company_types_differ": "yes" if len({x["type"] for x in port if x["type"]}) > 1 else "",
+            "company_portfolio": "; ".join(f'{x["name"]} ({x["years"]}, {x["type"] or "?"})' for x in port),
+            "priority_year": "" if pd.isna(p.priority_year) else int(p.priority_year), "title": s(p.title),
+        })
+    df = pd.DataFrame(out)
+    df.to_csv(OUT_CSV, index=False)
+    print("wrote", OUT_CSV, df.text_hit.str.split(" ").str[0].value_counts().to_dict())
+
+    # Ruling 2026-09-14 (user: "two options there, and I don't know to which aircraft it really is"): a name
+    # is only a question when the patent's own text may name it, or the wizard name belongs to someone else.
+    # Company-list guesses (company + filing year, even when the public architecture matches), prior-art
+    # mentions, SBERT word hits and assignee-derived wizard names are cleared automatically, never shown.
+    data, auto = [], []
+    ORDER = {"green": 0, "yellow": 1, "red": 2}
+    for pid, g in df.groupby("patent_id", sort=False):
+        first = g.iloc[0]
+        cands = g[["candidate", "source", "text_hit", "text_section", "text_quote",
+                   "candidate_public_type", "type_match", "company_types_differ"]].to_dict("records")
+        for c in cands:
+            c["light"], c["why"], c["sugg"] = light_for(c, first.company, first.assignee)
+        # 2026-09-15 (user: "I want to review each name for each unique aircraft"): the auto-cleared patents are
+        # shown again. They keep their automatic answer (clear) as the suggestion and in the export when not
+        # decided; `auto` marks them so the page can still show only the 11 real questions.
+        dropped = [c for c in cands if c["sugg"] in ("clear", "known")]
+        real = [c for c in cands if c["sugg"] not in ("clear", "known")]
+        is_auto = not real
+        if is_auto:
+            auto.append({"pid": pid, "cands": " / ".join(c["candidate"] for c in dropped),
+                         "why": "; ".join(sorted({c["why"] for c in dropped}))})
+            worst = max(dropped, key=lambda c: ORDER[c["light"]])
+            plight, psugg = "green", "clear"
+        else:
+            worst = max(real, key=lambda c: ORDER[c["light"]])
+            plight = worst["light"]
+            # the whole patent can be settled from a list only when every candidate says "clear"
+            psugg = "clear" if all(c["sugg"] == "clear" for c in real) else worst["sugg"]
+        why = ("cleared automatically: " + auto[-1]["why"]) if is_auto else worst["why"]
+        # one entry per aircraft the patent draws (variant order = arch number = order of aircraft_group_variants)
+        grp = by_pid.loc[pid]
+        gvars = [x.strip() for x in s(grp.aircraft_group_variants).split(";") if x.strip()]
+        atypes = types.get(pid, []) or [""]
+        aircraft = [{"v": i + 1, "type": t, "gname": (gvars[i] if i < len(gvars) else s(grp.aircraft_group))
+                     if len(atypes) > 1 else s(grp.aircraft_group)} for i, t in enumerate(atypes)]
+        # Proposals PER AIRCRAFT (2026-09-15, user: "it still points at each patent and not at each aircraft"):
+        #  - names from the patent text / the wizard apply to every aircraft (the text does not say which one);
+        #  - company-list names are offered to an aircraft only when that company aircraft has the SAME
+        #    architecture as this aircraft's figures and existed by the filing year (one year of slack).
+        # No proposal left -> the aircraft keeps its generated name (suggest clear, cleared automatically).
+        text_cands = [c for c in cands if c["source"] not in ("gazetteer", "variant proposal")]
+        year = int(first.priority_year) if str(first.priority_year).strip() not in ("", "nan") else None
+        meta = index.get(pid)
+        for a in aircraft:
+            ac = [dict(c) for c in text_cands]
+            for x in portfolio.get(first.company, []):
+                if not (x["type"] and x["type"] == a["type"]) or (year and year < x["yf"] - 1):
+                    continue
+                hit = find_quote(meta, literal_pattern(x["name"]), sections=SECTIONS) if len(x["name"]) > 1 else None
+                where = ""
+                if hit:
+                    where = ("names it (" + hit["section"] + ")" if hit["section"] in _SIGNAL_LABELS
+                             else "Description, prior-art wording nearby" if _PRIOR.search(hit["quote"]) else "Description")
+                c = {"candidate": x["name"], "source": "gazetteer", "text_hit": where or "not in the text",
+                     "text_section": hit["section"] if hit else "", "text_quote": hit["quote"] if hit else "",
+                     "candidate_public_type": x["type"], "type_match": "yes", "company_types_differ": ""}
+                c["light"], c["why"], c["sugg"] = light_for(c, first.company, first.assignee)
+                ac.append(c)
+            a["cands"] = ac
+            real_a = [c for c in ac if c["sugg"] not in ("clear",)]
+            if not real_a:
+                a.update(light="green", sugg="clear", auto=True,
+                         why=("no proposal left for this aircraft: " + "; ".join(sorted({c["why"] for c in ac}))) if ac
+                         else f"no company aircraft with architecture {a['type'] or '?'} existed by {year or 'the filing year'}")
+            else:
+                w = max(real_a, key=lambda c: ORDER[c["light"]])
+                a.update(light=w["light"], sugg=w["sugg"], why=w["why"],
+                         auto=False)
+        # Pre-assign each proposed name to the MOST PROBABLE aircraft of the patent (2026-09-15, user: "pre-assign the
+        # label to the most probable aircraft from the beginning"); a name goes to one aircraft only and an aircraft
+        # takes one name. Score: the name's known architecture = the aircraft's figure type (2) > aircraft a, the
+        # wizard's first profile (0.5) > more approved figures (0.01 each). Wizard-name conflicts are never pre-assigned.
+        pairs = []
+        for a in aircraft:
+            for c in a["cands"]:
+                if c["sugg"] in ("clear", "fix"):
+                    continue
+                sc = ((2 if c["candidate_public_type"] and c["candidate_public_type"] == a["type"] else 0)
+                      + (0.5 if a["v"] == 1 else 0) + 0.01 * nfig.get((pid, float(a["v"])), 0))
+                pairs.append((sc, -a["v"], c["candidate"], a, c))
+        pairs.sort(key=lambda t: (t[0], t[1]), reverse=True)
+        pre_for, taken = {}, set()
+        for _, _, name, a, c in pairs:
+            if name in pre_for or a["v"] in taken:
+                continue
+            pre_for[name] = a["v"]
+            taken.add(a["v"])
+            a.update(pre=name, sugg=c["sugg"], light=c["light"], why=c["why"])
+        for a in aircraft:
+            if "pre" in a:
+                continue
+            a["pre"] = ""
+            lost = [f'{c["candidate"]} → aircraft {"abcdefghij"[pre_for[c["candidate"]] - 1]}'
+                    for c in a["cands"] if c["candidate"] in pre_for]
+            if lost and all(c["candidate"] in pre_for or c["sugg"] == "clear" for c in a["cands"]):
+                a.update(sugg="clear", light="green", why="its names are suggested for another aircraft of this patent: " + "; ".join(lost))
+        data.append({"pid": pid, "company": first.company, "assignee": first.assignee, "wizard": first.wizard_name,
+                     "group": first.aircraft_group, "nvar": int(first.n_aircraft), "types": first.image_types,
+                     "year": first.priority_year, "title": first.title, "pdf": s(pdf.get(pid, "")),
+                     "portfolio": portfolio.get(first.company, []), "figs": figs.get(pid, []),
+                     "light": plight, "sugg": psugg, "why": why, "auto": is_auto, "aircraft": aircraft, "pre_for": pre_for, "cands": cands})
+    from collections import Counter
+    print("per patent:", Counter(d["light"] for d in data), "· of which auto-cleared:", len(auto))
+    ac = [a for d in data for a in d["aircraft"]]
+    print("per aircraft:", len(ac), Counter(a["light"] for a in ac), "· no proposal left:", sum(not a["cands"] for a in ac),
+          "· auto:", sum(a["auto"] for a in ac), "· pre-assigned:", sum(bool(a["pre"]) for a in ac))
+    OUT_HTML.with_name("name_review_images.html").write_text(IMAGES_PAGE, encoding="utf-8")
+    OUT_HTML.write_text(PAGE.replace("__DATA__", json.dumps(data, ensure_ascii=False, default=str))
+                        .replace("__AUTO__", json.dumps(auto, ensure_ascii=False, default=str)), encoding="utf-8")
+    print("wrote", OUT_HTML, len(data), "patents")
+
+
+PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Aircraft names — review</title>
+<style>
+:root{--bg:#f6f7f9;--ink:#1c2128;--mut:#6b7280;--line:#e3e6ea;--acc:#2456c7;--ok:#1a8f4a;--warn:#c2410c}
+*{box-sizing:border-box}body{margin:0;font:14px/1.45 Inter,system-ui,sans-serif;color:var(--ink);background:var(--bg)}
+header{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;padding:8px 14px;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+header h1{font-size:15px;margin:0 8px 0 0}header select,header button,header input{font:inherit;padding:4px 8px;border:1px solid var(--line);border-radius:6px;background:#fff}
+#prog{color:var(--mut);font-size:13px}
+main{display:grid;grid-template-columns:250px 1fr;min-height:calc(100vh - 46px)}
+#list{border-right:1px solid var(--line);background:#fff;overflow:auto;max-height:calc(100vh - 46px)}
+#list div{padding:5px 10px;border-bottom:1px solid #f0f1f3;cursor:pointer;font-size:12.5px}
+#list div.cur{background:#e8efff}#list div.done{color:var(--mut)}
+#panel{padding:14px 18px;overflow:auto}
+.head{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:baseline}.head h2{margin:0;font-size:18px}.head a{color:var(--acc)}
+.mut{color:var(--mut)}.small{font-size:12.5px}
+.figs{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.fig{background:#fff;border:1px solid var(--line);border-radius:8px;padding:5px}.fig img{max-width:300px;max-height:230px;display:block;cursor:zoom-in}
+.fig small{color:var(--mut);font-size:11px}
+.card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:10px}
+.card h3{margin:0 0 6px;font-size:16px}.tag{font-size:11px;padding:1px 6px;border-radius:4px;background:#eef;margin-left:6px}
+.tag.ok{background:#dcfce7;color:#14532d}.tag.warn{background:#ffedd5;color:#7c2d12}
+blockquote{margin:6px 0;padding:7px 10px;background:#f3f6fb;border-left:3px solid var(--acc);border-radius:4px;font-size:13px}
+table{border-collapse:collapse;font-size:12.5px}td,th{border-bottom:1px solid var(--line);padding:3px 8px;text-align:left}
+.decide{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.decide button{font:inherit;padding:7px 11px;border:1px solid var(--line);border-radius:8px;background:#fff;cursor:pointer}
+.decide button.on{outline:2px solid var(--acc);background:#e8efff}.decide button:disabled{opacity:.4}
+.decide input{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:8px;min-width:260px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle}
+.Lgreen{background:#16a34a}.Lyellow{background:#eab308}.Lred{background:#dc2626}
+.band{border-radius:10px;padding:10px 14px;margin:10px 0;display:flex;gap:10px;align-items:center;font-size:14px}
+.band.green{background:#dcfce7;border:1px solid #86efac}.band.yellow{background:#fef9c3;border:1px solid #fde047}.band.red{background:#fee2e2;border:1px solid #fca5a5}
+mark{background:#fde68a;padding:0 2px;border-radius:3px}
+table.batch{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line)}
+table.batch td{border-top:1px solid #eef0f3;padding:8px 10px;vertical-align:top;font-size:13.5px}
+table.batch tr{cursor:pointer}table.batch tr.off td{background:#fef2f2;color:#6b7280}table.batch input{width:18px;height:18px}
+.bt{font-weight:600;margin-bottom:3px}.bname{font-size:17px;font-weight:700}
+.bbar{display:flex;gap:12px;align-items:center;margin:10px 0}.bbar button{font:inherit;font-size:15px;padding:10px 18px;border-radius:8px;border:1px solid #15803d;background:#16a34a;color:#fff;cursor:pointer}
+.sugg{outline:3px solid #16a34a !important}
+.thumb{width:190px;text-align:center}.thumb img{max-width:180px;max-height:150px;cursor:zoom-in;background:#fff;border:1px solid var(--line);border-radius:6px}
+.figs.top .fig img{max-width:420px;max-height:340px}
+details.more summary{cursor:pointer;color:var(--mut);font-size:13px;margin:6px 0}
+#zoom{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:20}#zoom img{max-width:96vw;max-height:96vh;background:#fff}
+</style></head><body>
+<header><h1>Aircraft names — one per aircraft</h1>
+<select id="view"><option value="pre" selected>★ suggested names + 🔴 conflicts — not decided</option><option value="todo">not decided — every aircraft</option><option value="real">only the real questions (not auto-cleared)</option><option value="autoleft">auto-cleared, not yet checked</option><option value="yellow">🟡 the text may name it — one per screen</option><option value="red">🔴 wizard name belongs to someone else</option><option value="all">all</option><option value="done">decided</option><option value="text">name found in the patent text</option><option value="wizard">wizard name ≠ assignee</option></select>
+<span id="prog"></span><label style="font-size:13px" title="After each decision (and on ← →) the next aircraft is searched in one separate image window. Drag that window next to this one once; it stays there and only its search changes."><input type="checkbox" id="gauto" checked> 🔍 image search on next</label><button id="exp">Export CSV</button>
+<label style="font-size:12px">Import CSV <input type="file" id="imp" accept=".csv" style="width:170px"></label></header>
+<main><div id="list"></div><div id="panel"></div></main><div id="zoom"><img></div>
+<script>
+// Save straight into 1639_LABELLED/review_decisions (request 2026-09-14). Chrome's save dialog opens on the
+// folder chosen last time for this id, so after the first save it lands there by default. Browsers without
+// the save dialog fall back to a normal download.
+function saveToFolder(blob, name){
+  function fallback(){ var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); return Promise.resolve('downloads'); }
+  if (!window.showSaveFilePicker) return fallback();
+  return window.showSaveFilePicker({suggestedName: name, id: 'review_decisions'})
+    .then(function(h){ return h.createWritable().then(function(w){ return w.write(blob).then(function(){ return w.close(); }); }); })
+    .then(function(){ return 'folder'; })
+    .catch(function(e){ return (e && e.name === 'AbortError') ? 'cancelled' : fallback(); });
+}
+
+const DATA=__DATA__;const AUTO=__AUTO__;const KEY='namereview_v3';let DEC={};try{DEC=JSON.parse(localStorage.getItem(KEY)||'{}')}catch(e){DEC={}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(DEC))}catch(e){}}
+const esc=t=>String(t??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const LAB={text:'Keep — the patent text names it',known:'Keep — it is this aircraft',other:'Other name',clear:'Clear → generated name',fix:'Fix wizard name'};
+const LNAME={green:'Obvious',yellow:'Needs a look',red:'Wizard name conflict'};
+const LET='abcdefghijklmnopqrstuvwxyz';
+// One entry per AIRCRAFT (request 2026-09-15: "a name per unique aircraft"). A patent drawing N aircraft gives N
+// entries, each with its own figures, figure type, proposals (a.cands, a.light/sugg/why/auto) and one name.
+// Keys: pid for single-aircraft patents, "<pid>#<n>" otherwise. Storage key v3 = fresh start (user reset twice 2026-09-15;
+// the v1 decisions are still in the browser, unused).
+const ITEMS=[];DATA.forEach(r=>{const n=r.aircraft.length;r.aircraft.forEach(a=>ITEMS.push({r,a,n,k:n>1?r.pid+'#'+a.v:r.pid,
+ lab:n>1?`aircraft ${LET[a.v-1]||a.v} of ${n}`:'',}))});
+function dec(it){return DEC[it.k]||null}
+const decided=it=>!!(dec(it)&&dec(it).choice);
+// names whose known architecture equals THIS aircraft's figure type come first
+const ordCands=it=>it.a.cands.slice().sort((x,y)=>(y.candidate_public_type&&y.candidate_public_type===it.a.type)-(x.candidate_public_type&&x.candidate_public_type===it.a.type)).sort((x,y)=>(y.candidate===it.a.pre)-(x.candidate===it.a.pre)).concat(otherCands(it));
+// The company's other aircraft, shown after the proposals, greyed, with the reason they were not proposed
+// (user 2026-09-15: "I can't see the names of the aircraft now, I just see no proposal").
+function otherCands(it){const r=it.r,have=new Set(it.a.cands.map(c=>c.candidate));
+ return (r.portfolio||[]).filter(x=>!have.has(x.name)).map(x=>{const why=[];
+  if(!x.type)why.push('its architecture is not documented');else if(x.type!==it.a.type)why.push(`its architecture ${x.type} ≠ this aircraft ${it.a.type||'?'}`);
+  if(r.year&&x.yf&&+r.year<x.yf-1)why.push(`it appeared in ${x.yf}, this patent was filed in ${r.year}`);
+  return {candidate:x.name,source:'company-other',text_hit:'not in the text',text_section:'',text_quote:'',candidate_public_type:x.type,light:'green',why:'not proposed: '+(why.join('; ')||'—'),weak:true}})}
+let VIEW='pre',CUR=0,ROWS=[];
+function srcPlain(r,c){
+ const p=(r.portfolio||[]).find(x=>x.name===c.candidate);
+ if(c.source==='gazetteer')return `from the company list: ${esc(r.company)} built the ${esc(c.candidate)}${p?' ('+esc(p.years)+')':''} — picked because of the company and the filing year ${esc(r.year)}, not because the patent says so`;
+ if(c.source==='variant proposal')return `from the company list: one of ${esc(r.company)}'s aircraft${p?' ('+esc(p.years)+')':''}, offered for one of the ${r.nvar} aircraft in this patent`;
+ if(c.source==='sbert')return `found in the patent text by the automatic text search (${esc(c.text_section||'text')})`;
+ if(c.source==='company-other'){const p=(r.portfolio||[]).find(x=>x.name===c.candidate);return `another ${esc(r.company)} aircraft${p?' ('+esc(p.years)+')':''}`}
+ if(c.source.startsWith('wizard'))return `the name typed in the labelling wizard — it does not look like the assignee (${esc(r.assignee)})`;
+ return esc(c.source)}
+function hlName(q,name){let h=esc(q);if(!name)return h;const re=new RegExp(esc(name).replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi');return h.replace(re,m=>'<mark>'+m+'</mark>')}
+const intext=it=>it.a.cands.some(c=>c.text_hit!=='not in the text');
+function filt(){const cur=ROWS[CUR];
+ ROWS=ITEMS.filter(it=>{const r=it.r,d=decided(it);switch(VIEW){
+  case 'pre':return !d&&(!!it.a.pre||it.a.light==='red');case 'todo':return !d;case 'real':return !d&&!it.a.auto;case 'autoleft':return !d&&it.a.auto;
+  case 'yellow':case 'red':return !d&&it.a.light===VIEW;case 'done':return d;case 'text':return intext(it);
+  case 'wizard':return it.a.cands.some(c=>c.source.startsWith('wizard'));default:return true}});
+ if(CUR>=ROWS.length)CUR=Math.max(0,ROWS.length-1)}
+function figsFor(it){const f=it.r.figs;if(it.n<=1)return f;const own=f.filter(x=>x.arch===it.a.v);return own.length?own:f}
+function render(){filt();const L=document.getElementById('list');L.innerHTML='';
+ ROWS.forEach((it,i)=>{const r=it.r,d=dec(it),oc=ordCands(it);const el=document.createElement('div');el.className=(i===CUR?'cur ':'')+(d&&d.choice?'done':'');
+  const prop=oc.filter(c=>!c.weak),weak=oc.filter(c=>c.weak);
+  const sibs=prop.filter(c=>it.r.pre_for[c.candidate]&&it.r.pre_for[c.candidate]!==it.a.v);
+  const shown=d&&d.choice?(d.choice==='clear'?it.a.gname:d.name)+' ✓':it.a.pre?`${esc(it.a.pre)} <span class="mut" style="font-weight:400">suggested</span>`:sibs.length?`<span class="mut" style="font-weight:400">→ ${esc(it.a.gname)} · ${esc(sibs.map(c=>c.candidate+' is aircraft '+LET[it.r.pre_for[c.candidate]-1]).join(', '))}</span>`:prop.length?esc(prop[0].candidate)+(oc.length>1?` <span class="mut">+${oc.length-1}</span>`:''):weak.length?`<span class="mut" style="font-weight:400">${esc(weak.map(c=>c.candidate+(c.candidate_public_type?' ('+c.candidate_public_type+')':'')).join(', '))} — none match</span>`:`<span class="mut" style="font-weight:400">${esc(it.a.gname)}</span>`;
+  el.innerHTML=`<span class="dot L${it.a.light}"></span><b>${esc(r.pid)}</b> <span class="mut">${esc(r.company)}</span>${it.n>1?`<br><span class="small mut">${esc(it.lab)} · ${esc(it.a.type||'?')}</span>`:it.a.type?` <span class="small mut">${esc(it.a.type)}</span>`:''}<br><span class="small"><b>${d&&d.choice?esc(shown):shown}</b></span>`;
+  el.onclick=()=>{CUR=i;render();gNext()};L.appendChild(el)});
+ const lf=c=>ITEMS.filter(it=>!decided(it)&&it.a.light===c).length;
+ document.getElementById('prog').textContent=`${ITEMS.filter(decided).length} / ${ITEMS.length} aircraft decided (${DATA.length} patents) · showing ${ROWS.length} · 🟡 ${lf('yellow')} · 🔴 ${lf('red')} · auto-cleared not checked ${ITEMS.filter(it=>it.a.auto&&!decided(it)).length} (exported as clear if you leave them)`;
+ const c=L.children[CUR];if(c)c.scrollIntoView({block:'nearest'});
+ const P=document.getElementById('panel');const it=ROWS[CUR];if(!it){P.innerHTML='<p class="mut">Nothing in this view.</p>';return}
+ const r=it.r,d=dec(it)||{},oc=ordCands(it);const hasText=intext(it);const hasWiz=it.a.cands.some(c=>c.source.startsWith('wizard'));const figs=figsFor(it);
+ P.innerHTML=`<div class="head"><h2>${esc(r.pid)}${it.n>1?` <span style="font-weight:500">· ${esc(it.lab)}</span>`:''}</h2><span>${esc(r.company)} — <i>${esc(r.assignee)}</i></span>${r.pdf?`<a href="${esc(r.pdf)}" target="_blank">PDF ↗</a>`:''}<a href="https://patents.google.com/patent/${esc(r.pid)}/en" target="_blank">Google Patents ↗</a></div>
+ <div style="font-size:16px;font-weight:600;margin:4px 0">${esc(r.title)}</div>
+ <div class="mut small">${esc(r.year)} · this aircraft: figure type <b>${esc(it.a.type||'?')}</b> · generated name <b>${esc(it.a.gname)}</b>${it.n>1?` · the patent draws ${it.n} aircraft (${esc(r.types)})`:''} · wizard name <b>${esc(r.wizard)}</b></div>
+ <div class="band ${it.a.light}"><span class="dot L${it.a.light}" style="width:14px;height:14px"></span><b>${it.a.auto?'Cleared automatically — check it':LNAME[it.a.light]}</b><span>${esc(it.a.why)} · suggested: <b>${esc(LAB[it.a.sugg]||it.a.sugg)}${it.a.pre&&it.a.sugg!=='clear'?' → '+esc(it.a.pre):it.a.sugg==='clear'?' → '+esc(it.a.gname):''}</b> <span class="mut">(Enter)</span></span></div>
+ <div class="figs top">${figs.map(f=>`<div class="fig"><img src="${esc(f.src)}" style="transform:rotate(${f.rot}deg)" loading="lazy"><small>${f.arch&&it.n>1?'aircraft '+(LET[f.arch-1]||f.arch):''}</small></div>`).join('')||'<p class="small mut">no approved figure on disk</p>'}</div>
+ ${oc.map((c,ci)=>`<div class="card"><h3>${esc(c.candidate)} <button class="gimg" data-ci="${ci}" style="font:inherit;font-size:12px;padding:2px 8px;border:1px solid var(--line);border-radius:6px;background:#fff;cursor:pointer">🔍 images</button> ${(()=>{const u=usedBy(it,c.candidate);return `<button class="itis" data-ci="${ci}" style="font:inherit;font-size:12px;padding:2px 8px;border:1px solid ${u?'#b45309':'#15803d'};border-radius:6px;background:${u?'#ffedd5':'#dcfce7'};cursor:pointer">${u?'↪ move it here':'✓ it is this one'}</button>${u?` <span class="tag warn">already aircraft ${LET[u.a.v-1]}</span>`:''}`})()}${c.weak?' <span class="tag warn">not proposed</span>':''}${c.candidate===it.a.pre?' <span class="tag ok">★ suggested for this aircraft</span>':it.r.pre_for[c.candidate]?` <span class="tag">suggested for aircraft ${LET[it.r.pre_for[c.candidate]-1]}</span>`:''}
+   ${c.text_hit.startsWith('names it')?'<span class="tag ok">'+esc(c.text_hit)+'</span>':c.text_hit==='not in the text'?'<span class="tag warn">not in the patent text</span>':'<span class="tag warn">'+esc(c.text_hit)+'</span>'}
+   ${c.candidate_public_type?`<span class="tag ${c.candidate_public_type===it.a.type?'ok':'warn'}">public type ${esc(c.candidate_public_type)} ${c.candidate_public_type===it.a.type?'= this aircraft':'≠ this aircraft ('+esc(it.a.type||'?')+')'}</span>`:''}
+   ${c.company_types_differ?'<span class="tag warn">company aircraft differ in architecture</span>':''}</h3>
+   <div class="small"><b>where it came from:</b> ${srcPlain(r,c)}</div>
+   <div class="small mut"><span class="dot L${c.light}"></span>${esc(c.why)}</div>
+   ${c.text_quote?`<blockquote>“${hlName(c.text_quote,c.candidate)}”</blockquote><div class="small mut">${esc(c.text_section)}</div>`:''}</div>`).join('')}
+ ${r.portfolio.length?`<details class="more"><summary>${esc(r.company)} — documented aircraft (gazetteer)</summary><div class="card"><table><tr><th>aircraft</th><th>years</th><th>public type</th><th>basis</th></tr>${r.portfolio.map(x=>`<tr><td>${esc(x.name)}</td><td>${esc(x.years)}</td><td>${esc(x.type)}</td><td class="mut">${esc(x.basis)}</td></tr>`).join('')}</table></div></details>`:''}
+ <div class="card"><div class="decide">
+  ${['text','known','other','clear','fix'].map(k=>`<button data-c="${k}" class="${d.choice===k?'on':''} ${k===it.a.sugg&&!d.choice?'sugg':''}" ${(k==='text'&&!hasText)||(k==='fix'&&!hasWiz)?'disabled':''}>${LAB[k]}</button>`).join('')}</div>
+  <div class="decide" style="margin-top:8px"><input id="nm" placeholder="name of this aircraft" value="${esc(d.name||'')}">
+  <input id="src" placeholder="source (optional)" value="${esc(d.source||'')}">
+  <input id="cmt" placeholder="comment" value="${esc(d.comment||'')}"></div>
+  <p class="small mut">Keep a real name only when the patent's own text names it as the depicted aircraft, or when you recognise this aircraft from the photos. Otherwise clear: this aircraft keeps its generated name <b>${esc(it.a.gname)}</b>.</p></div>`;
+ P.querySelectorAll('.decide button').forEach(b=>b.onclick=()=>decide(it,b.dataset.c));
+ P.querySelectorAll('button.gimg').forEach(b=>b.onclick=()=>openGimg(it,+b.dataset.ci));
+ P.querySelectorAll('button.itis').forEach(b=>b.onclick=()=>{document.getElementById('nm').value=oc[+b.dataset.ci].candidate;decide(it,'known')});
+ ['nm','src','cmt'].forEach(id=>document.getElementById(id).onchange=e=>{DEC[it.k]=Object.assign({},dec(it)||{},{[{nm:'name',src:'source',cmt:'comment'}[id]]:e.target.value});save()});
+ P.querySelectorAll('.fig img').forEach(im=>im.onclick=()=>{const z=document.getElementById('zoom');z.querySelector('img').src=im.src;z.querySelector('img').style.transform=im.style.transform;z.style.display='flex'});
+}
+const normName=t=>String(t||'').trim().toLowerCase().replace(/\s+/g,' ');
+function usedBy(it,name){const n=normName(name);if(!n||it.n<=1)return null;
+ return ITEMS.find(o=>o.r===it.r&&o!==it&&decided(o)&&dec(o).choice!=='clear'&&normName(dec(o).name)===n)||null}
+function decide(it,c){const r=it.r,nm=document.getElementById('nm').value,src=document.getElementById('src').value;
+ if((c==='other'||c==='fix')&&!nm.trim()){alert('Type the name first.');return}
+ const oc=ordCands(it);let name=nm;
+ if(c==='text'&&!nm.trim()&&oc.some(x=>x.text_hit!=='not in the text'))name=(oc.find(x=>x.light==='yellow'&&x.text_hit!=='not in the text')||oc.find(x=>x.text_hit!=='not in the text')).candidate;
+ if(c==='known'&&!nm.trim()){if(!oc.length){alert('No proposal for this aircraft — type the name.');return}name=it.a.pre||oc[0].candidate}if(c==='clear')name='';
+ // one name per aircraft within a patent (user 2026-09-15: "the names can't be the same for different variant aircraft")
+ const sib=c==='clear'?null:usedBy(it,name);
+ if(sib){if(!confirm(`"${name}" is already aircraft ${LET[sib.a.v-1]} of this patent.\n\nOK = move it to this aircraft (aircraft ${LET[sib.a.v-1]} goes back to undecided)\nCancel = keep it on aircraft ${LET[sib.a.v-1]}`))return;delete DEC[sib.k]}
+ DEC[it.k]={choice:c,name,source:src,comment:document.getElementById('cmt').value,at:new Date().toISOString().slice(0,16)};save();
+ if(['all','text','wizard'].includes(VIEW))CUR=Math.min(CUR+1,ROWS.length-1);render();gNext()}
+// Image search in ONE separate window (request 2026-09-15: compare the patent figures with photos of the named
+// aircraft side by side, and "the previous window should just change"). Google cannot do this: it sends
+// Cross-Origin-Opener-Policy, which cuts the popup off from this page on every load, so each patent opened a NEW
+// window. The window is therefore our own page name_review_images.html (no COOP, the link never breaks) holding
+// Bing Images in a frame (Bing allows framing); this page only posts it the new search. Google stays one click away
+// there, in a normal tab.
+const GNAME='nameReviewImages';let GWIN=null;
+function gQuery(r,c){const own=c.source==='gazetteer'||c.source==='variant proposal'||c.source==='company-other';
+ const co=(r.company||'').split('/')[0].trim();const nm=c.candidate;
+ const withCo=own&&co&&!nm.toLowerCase().includes(co.split(/\s+/)[0].toLowerCase());
+ // short names ("S4", "APT", "H1") return junk when quoted alone: add the company and VTOL instead
+ return nm.length<=4?`${withCo?co+' ':''}${nm} VTOL aircraft`:`"${nm}"${withCo?' '+co:' aircraft'}`}
+function openGimg(it,ci){if(!it)return;const oc=ordCands(it);
+ // no proposal: search what the aircraft is (company + architecture), so the window still follows the list
+ const TYPEWORD={SLC:'lift cruise eVTOL',MR:'multirotor eVTOL',TR:'tiltrotor',TW:'tilt wing',CVT:'tilt rotor eVTOL',TB:'tailsitter',PTC:'eVTOL',HB:'hoverbike',DS:'ducted fan VTOL'};
+ const c=oc[ci||0];const q=c?gQuery(it.r,c):`${(it.r.company||it.r.assignee||'').split('/')[0].trim()} ${TYPEWORD[it.a.type]||'VTOL aircraft'}`;
+ const msg={type:'nameReviewImages',q,label:it.r.pid+(it.n>1?' · '+it.lab:'')+' — '+(c?c.candidate:'no proposal')};
+ if(GWIN&&!GWIN.closed){try{GWIN.postMessage(msg,'*');return}catch(e){}}
+ const url='name_review_images.html#'+encodeURIComponent(JSON.stringify(msg));
+ const left=(window.screenX||0)+(window.outerWidth||900),top=window.screenY||0,w=Math.max(700,window.outerWidth||900),h=window.outerHeight||screen.availHeight;
+ // an image window left over from before a reload has the same name: the browser reuses it and ignores the size
+ GWIN=window.open(url,GNAME,`left=${left},top=${top},width=${w},height=${h}`);
+ if(!GWIN)document.getElementById('prog').textContent='Popup blocked — allow pop-ups for this page to open the image window.';
+ try{window.focus()}catch(e){}}
+function gNext(){if(!document.getElementById('gauto').checked)return;openGimg(ROWS[CUR],0)}
+document.getElementById('view').onchange=e=>{VIEW=e.target.value;CUR=0;render()};
+document.getElementById('zoom').onclick=e=>e.currentTarget.style.display='none';
+document.addEventListener('keydown',e=>{if(e.target.tagName==='INPUT'&&e.target.type!=='checkbox')return;
+ // Enter = accept the suggestion (the pre-assigned name, or clear)
+ if(e.key==='Enter'){const it=ROWS[CUR];if(!it)return;e.preventDefault();const sg=it.a.sugg;
+  if(sg==='clear')return decide(it,'clear');if((sg==='known'||sg==='text')&&it.a.pre){document.getElementById('nm').value=it.a.pre;return decide(it,sg)}
+  document.getElementById('nm').focus();return}
+ if(e.key==='ArrowRight'){CUR=Math.min(CUR+1,ROWS.length-1);render();gNext()}else if(e.key==='ArrowLeft'){CUR=Math.max(CUR-1,0);render();gNext()}});
+const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
+// Export stays ONE ROW PER PATENT (the contract build_identity_all.apply_name_decisions reads): a multi-aircraft
+// patent is written only once every aircraft is decided, names joined with "; " in aircraft order, a cleared aircraft
+// contributing its generated name; all cleared -> decision "clear".
+document.getElementById('exp').onclick=()=>{const L=[['patent_id','decision','name_final','source_note','candidates','comment','decided_at'].join(',')];
+ let partial=[],dupl=[];
+ DATA.forEach(r=>{const its=ITEMS.filter(it=>it.r===r);
+  const cs=[...new Set(its.flatMap(it=>it.a.cands.map(c=>c.candidate)))].join(' / ');
+  // an aircraft you did not decide counts as clear, unless it carries a suggested name (user 2026-09-15: label the
+  // suggested names, then move on — the rest has no probable name)
+  const ds=its.map(it=>{const d=dec(it);return d&&d.choice?d:!it.a.pre&&it.a.light!=='red'?{choice:'clear',name:'',source:'',comment:'auto: '+it.a.why,at:'',auto:true}:null});
+  const mine=its.filter(it=>decided(it)).length;
+  if(ds.some(d=>!d)){partial.push(r.pid);return}
+  const uniq=a=>[...new Set(a.filter(Boolean))].join(' | ');
+  const nn=ds.filter(d=>d.choice!=='clear').map(d=>normName(d.name)).filter(Boolean);
+  if(new Set(nn).size<nn.length){dupl.push(r.pid);return}
+  if(ds.every(d=>d.choice==='clear')){L.push([r.pid,'clear','','',cs,uniq(ds.map(d=>d.comment)),ds.map(d=>d.at).sort().pop()].map(q).join(','));return}
+  const choice=['fix','text','known','other'].find(k=>ds.some(d=>d.choice===k));
+  const names=its.map((it,i)=>ds[i].choice==='clear'?it.a.gname:ds[i].name);
+  L.push([r.pid,choice,names.join('; '),uniq(ds.map(d=>d.source)),cs,uniq(ds.map(d=>d.comment)),ds.map(d=>d.at).sort().pop()].map(q).join(','))});
+ if(dupl.length)alert(dupl.length+' patent(s) give the same name to two aircraft and are left out of the export:\n'+dupl.join(', '));
+ if(partial.length)alert(partial.length+' patent(s) still have a suggested name you have not decided and are left out of the export (view ★ suggested names):\n'+partial.join(', '));
+ saveToFolder(new Blob([L.join('\n')],{type:'text/csv'}),'NAME_DECISIONS.csv')};
+function parseCSV(t){const out=[];let row=[],f='',Q=false;for(let i=0;i<t.length;i++){const c=t[i];
+ if(Q){if(c==='"'){if(t[i+1]==='"'){f+='"';i++}else Q=false}else f+=c}else if(c==='"')Q=true;else if(c===','){row.push(f);f=''}
+ else if(c==='\n'||c==='\r'){if(c==='\r'&&t[i+1]==='\n')i++;row.push(f);out.push(row);row=[];f=''}else f+=c}if(f||row.length){row.push(f);out.push(row)}return out}
+document.getElementById('imp').onchange=e=>{const fl=e.target.files[0];if(!fl)return;const rd=new FileReader();rd.onload=()=>{const rows=parseCSV(rd.result);const h=rows.shift();let n=0;
+ rows.forEach(c=>{const o=Object.fromEntries(h.map((k,i)=>[k,c[i]]));if(!o.patent_id||!o.decision||String(o.comment||'').startsWith('auto: '))return;
+  const its=ITEMS.filter(it=>it.r.pid===o.patent_id);if(!its.length)return;const parts=String(o.name_final||'').split(';').map(x=>x.trim());
+  its.forEach((it,i)=>{const nm=its.length>1?(parts.length===its.length?parts[i]:''):o.name_final;
+   const clr=o.decision==='clear'||nm===it.a.gname;DEC[it.k]={choice:clr?'clear':o.decision,name:clr?'':nm,source:o.source_note,comment:o.comment,at:o.decided_at}});n++});save();render();alert(n+' decisions imported')};rd.readAsText(fl)};
+render();
+</script></body></html>"""
+
+# The image window opened by name_review.html (see openGimg there): one window for the whole session, its search
+# replaced by postMessage, Bing Images in a frame, Google a click away in a normal tab.
+IMAGES_PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Aircraft images</title>
+<style>body{margin:0;font:14px system-ui,sans-serif;display:flex;flex-direction:column;height:100vh}
+header{display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid #ddd;background:#fff;flex-wrap:wrap}
+#lab{font-weight:600}#q{flex:1;min-width:200px;font:inherit;padding:4px 8px;border:1px solid #ccc;border-radius:6px}
+header button,header a{font:inherit;padding:4px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;color:#1c2128;text-decoration:none;cursor:pointer}
+iframe{flex:1;border:0;width:100%}</style></head><body>
+<header><span id="lab">waiting for the review page…</span><input id="q" title="edit the search and press Enter">
+<button id="go">Search</button><a id="g" target="_blank" href="#">Google Images ↗</a></header>
+<iframe id="f" referrerpolicy="no-referrer"></iframe>
+<script>
+const Q=document.getElementById('q'),F=document.getElementById('f'),G=document.getElementById('g'),LAB=document.getElementById('lab');
+function show(m){if(!m||!m.q)return;LAB.textContent=m.label||'';Q.value=m.q;run();document.title=(m.label||m.q)+' — images'}
+function run(){const e=encodeURIComponent(Q.value);F.src='https://www.bing.com/images/search?q='+e;G.href='https://www.google.com/search?udm=2&q='+e}
+document.getElementById('go').onclick=run;Q.onkeydown=e=>{if(e.key==='Enter')run()};
+window.addEventListener('message',e=>{if(e.data&&e.data.type==='nameReviewImages')show(e.data)});
+try{show(JSON.parse(decodeURIComponent(location.hash.slice(1))))}catch(e){}
+</script></body></html>"""
+
+if __name__ == "__main__":
+    main()

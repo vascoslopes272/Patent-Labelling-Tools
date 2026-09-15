@@ -1,0 +1,17 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Aircraft images</title>
+<style>body{margin:0;font:14px system-ui,sans-serif;display:flex;flex-direction:column;height:100vh}
+header{display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid #ddd;background:#fff;flex-wrap:wrap}
+#lab{font-weight:600}#q{flex:1;min-width:200px;font:inherit;padding:4px 8px;border:1px solid #ccc;border-radius:6px}
+header button,header a{font:inherit;padding:4px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;color:#1c2128;text-decoration:none;cursor:pointer}
+iframe{flex:1;border:0;width:100%}</style></head><body>
+<header><span id="lab">waiting for the review page…</span><input id="q" title="edit the search and press Enter">
+<button id="go">Search</button><a id="g" target="_blank" href="#">Google Images ↗</a></header>
+<iframe id="f" referrerpolicy="no-referrer"></iframe>
+<script>
+const Q=document.getElementById('q'),F=document.getElementById('f'),G=document.getElementById('g'),LAB=document.getElementById('lab');
+function show(m){if(!m||!m.q)return;LAB.textContent=m.label||'';Q.value=m.q;run();document.title=(m.label||m.q)+' — images'}
+function run(){const e=encodeURIComponent(Q.value);F.src='https://www.bing.com/images/search?q='+e;G.href='https://www.google.com/search?udm=2&q='+e}
+document.getElementById('go').onclick=run;Q.onkeydown=e=>{if(e.key==='Enter')run()};
+window.addEventListener('message',e=>{if(e.data&&e.data.type==='nameReviewImages')show(e.data)});
+try{show(JSON.parse(decodeURIComponent(location.hash.slice(1))))}catch(e){}
+</script></body></html>

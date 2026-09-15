@@ -54,10 +54,6 @@ CORRECTIONS = "CORRECTIONS_identity.csv"
 # covers every aircraft of the original — "all" leaves the pin empty, which is
 # already the behaviour: the duplicate takes the original's patent-level answers.
 VARIANT_ANSWERS = "DUPLICATE_ROOT_VARIANT.csv"
-# The annotator's rulings from notebooks/post-process/name_review.html (every aircraft-name proposal with its evidence),
-# exported as NAME_DECISIONS.csv and copied into 1639_LABELLED/. They fill the *_human name cells only
-# where the identity review page left them empty — a name typed in that page always wins.
-NAME_DECISIONS = "NAME_DECISIONS.csv"
 # Only fields of the WIZARD record may be corrected here. Everything else is
 # either yours to type in the review page or derived from these.
 CORRECTABLE = {"wizard_duplicate_type", "wizard_duplicate_of", "wizard_arch_count",
@@ -130,89 +126,6 @@ def apply_variant_answers(ident: pd.DataFrame, path: Path) -> list[str]:
     return out
 
 
-def _is_blank(v) -> bool:
-    return v is None or (isinstance(v, float) and pd.isna(v)) or str(v).strip() in ("", "nan", "None")
-
-
-def apply_name_decisions(ident: pd.DataFrame, path: Path) -> list[str]:
-    """Write the name-review rulings into the human name cells that are still empty.
-
-    decision  text | known | other | fix  -> the typed name (';'-separated = one per aircraft)
-              clear                        -> the generated group name, so the question counts as answered
-    """
-    if not path.exists():
-        return []
-    import csv
-
-    by_id = {pid: i for i, pid in enumerate(ident["patent_id"])}
-    out, filled, kept, fixes = [], 0, 0, []
-    with open(path, newline="") as f:
-        for row in csv.DictReader(f):
-            pid = (row.get("patent_id") or "").strip()
-            decision = (row.get("decision") or "").strip()
-            if not pid or not decision:
-                continue
-            if pid not in by_id:
-                out.append(f"⚠  {pid}: not in the corpus — name decision ignored")
-                continue
-            i = by_id[pid]
-            if decision == "clear":
-                name = ident.at[i, "aircraft_group"]
-            elif decision in ("text", "known", "other", "fix"):
-                name = (row.get("name_final") or "").strip()
-            else:
-                out.append(f"⚠  {pid}: unknown name decision {decision!r} — ignored")
-                continue
-            if _is_blank(name):
-                out.append(f"⚠  {pid}: decision {decision!r} without a name — ignored")
-                continue
-            col = "aircraft_name_human_variants" if ";" in str(name) else "aircraft_name_human"
-            if not _is_blank(ident.at[i, "aircraft_name_human"]) or not _is_blank(ident.at[i, "aircraft_name_human_variants"]):
-                kept += 1
-                continue
-            ident.at[i, col] = str(name).strip()
-            filled += 1
-            if decision == "fix":
-                fixes.append(f"   {pid}: wizard name should read {name!r} (was {ident.at[i, 'wizard_aircraft_name']!r})")
-    out.insert(0, f"   {filled} name(s) filled from {path.name}, {kept} left as typed in the review page")
-    return out + fixes
-
-
-# Ruling 2026-09-13: a row whose powertrain was only PRESUMED (the patent never states one) but whose
-# own text carries a turbine / piston sentence contradicts the presumption, so the electric question is
-# re-opened on it. The evidence file is the one embedded in the review page, so page and report agree.
-EVIDENCE = "joined/identity_evidence_20260913.json"
-
-
-def flag_presumed_conflicts(ident: pd.DataFrame, path: Path) -> list[str]:
-    if not path.exists():
-        return []
-    import json
-
-    ev = json.loads(path.read_text(encoding="utf-8"))
-    opened = 0
-    for i, row in ident.iterrows():
-        if str(row.get("is_electric_source") or "") != "presumed":
-            continue
-        if not _is_blank(row.get("aircraft_name_human")) and False:
-            continue
-        if not _is_blank(row.get("is_electric_human")):
-            continue
-        # Only a STATED combustion sentence contradicts the presumption. An option
-        # ("may include a gas turbine") or Bell's background boilerplate ("fixed-wing
-        # aircraft … jet engines or propellers") is graded by build_identity_evidence.py
-        # and does not count — before this check all 41 re-opened rows were such noise.
-        comb = ev.get(row["patent_id"], {}).get("combustion") or []
-        if not any((q[3] if len(q) > 3 else "stated") == "stated" for q in comb):
-            continue
-        ident.at[i, "electric_review"] = True
-        queue = "" if _is_blank(row.get("review_queue")) else str(row["review_queue"])
-        if "electric" not in queue:
-            ident.at[i, "review_queue"] = (queue + "+electric") if queue else "electric"
-        opened += 1
-    return [f"   {opened} presumed-electric row(s) re-opened: their own text mentions a turbine or piston"]
-
-
 def recompute(ident: pd.DataFrame) -> pd.DataFrame:
     """Redo everything derived from the cells the reviewer typed.
 
@@ -229,16 +142,12 @@ def recompute(ident: pd.DataFrame) -> pd.DataFrame:
 
 
 def build(labels: Path, out_dir: Path, write: bool = True,
-          corrections: Path | None = None, answers: Path | None = None,
-          names: Path | None = None) -> dict:
+          corrections: Path | None = None, answers: Path | None = None) -> dict:
     ident = pd.concat([_read(labels, b, "Identity") for b in BATCHES], ignore_index=True)
     fixes = apply_corrections(ident, corrections) if corrections else []
     if answers:
         fixes += apply_variant_answers(ident, answers)
-    if names:
-        fixes += apply_name_decisions(ident, names)
     ident = recompute(ident)
-    fixes += flag_presumed_conflicts(ident, Path(str(corrections).rsplit("/", 1)[0]) / EVIDENCE) if corrections else []
     variants = build_variants_sheet(ident)
 
     approved = ident["wizard_approved"] == True                       # noqa: E712
@@ -298,12 +207,10 @@ def main() -> int:
     labels = Path(cfg["paths"]["data_matched"])
     root = Path(cfg["paths"]["labelled"])
     r = build(labels, root / "joined", write=not a.check,
-              corrections=root / CORRECTIONS, answers=root / VARIANT_ANSWERS,
-              names=next((p for p in [root / "review_decisions" / NAME_DECISIONS, root / NAME_DECISIONS]
-                          if p.exists()), root / "review_decisions" / NAME_DECISIONS))
+              corrections=root / CORRECTIONS, answers=root / VARIANT_ANSWERS)
 
     if r["fixes"]:
-        print(f"corrections from {CORRECTIONS}, {VARIANT_ANSWERS} and {NAME_DECISIONS}:")
+        print(f"corrections from {CORRECTIONS} and {VARIANT_ANSWERS}:")
         print("\n".join(r["fixes"]))
         print()
     print("\n".join(f"{k:22s} {v}" for k, v in r["summary"].items()))

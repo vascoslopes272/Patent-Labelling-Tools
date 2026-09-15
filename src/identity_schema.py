@@ -140,7 +140,11 @@ HUMAN_OPTIONS = {
     "is_electric_human":   "Yes | Hybrid | No | ElectricSimilar  (ElectricSimilar = not electric, "
                            "but architecturally equivalent — keep it in the design space)",
     "takeoff_human":       "VTOL | STOL | CTOL",
-    "uav_human":           "UAVSimilar | No | Pure  (UAVSimilar = the edge tag you would add in the wizard)",
+    # "Pure" is a wizard DISAPPROVAL reason, not an answer here (ruling 2026-09-13):
+    # every patent that reaches this sheet is approved, so the most it can be is
+    # UAVSimilar. wizard_link still reads a "pure UAV" disapproval reason as Pure
+    # on the rows that were thrown out.
+    "uav_human":           "UAVSimilar | No  (UAVSimilar = the edge tag you would add in the wizard)",
     "electric_similar_human": "ElectricSimilar | No — keep a NON-electric aircraft in the corpus "
                               "because its architecture is equivalent to an electric one",
     "duplicate_root_variant": "a | b | c …  — WHICH aircraft of the original this duplicates, "
