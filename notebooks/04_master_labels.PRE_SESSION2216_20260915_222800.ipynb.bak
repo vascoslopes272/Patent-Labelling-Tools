@@ -36,10 +36,10 @@
    "id": "8349c4ce",
    "metadata": {
     "execution": {
-     "iopub.execute_input": "2026-09-15T21:28:02.075224Z",
-     "iopub.status.busy": "2026-09-15T21:28:02.074989Z",
-     "iopub.status.idle": "2026-09-15T21:28:02.380477Z",
-     "shell.execute_reply": "2026-09-15T21:28:02.379946Z"
+     "iopub.execute_input": "2026-09-15T21:19:22.860883Z",
+     "iopub.status.busy": "2026-09-15T21:19:22.860757Z",
+     "iopub.status.idle": "2026-09-15T21:19:23.158074Z",
+     "shell.execute_reply": "2026-09-15T21:19:23.157470Z"
     }
    },
    "outputs": [
@@ -100,10 +100,10 @@
    "id": "4f996ee5",
    "metadata": {
     "execution": {
-     "iopub.execute_input": "2026-09-15T21:28:02.381948Z",
-     "iopub.status.busy": "2026-09-15T21:28:02.381745Z",
-     "iopub.status.idle": "2026-09-15T21:28:22.104922Z",
-     "shell.execute_reply": "2026-09-15T21:28:22.104380Z"
+     "iopub.execute_input": "2026-09-15T21:19:23.159825Z",
+     "iopub.status.busy": "2026-09-15T21:19:23.159630Z",
+     "iopub.status.idle": "2026-09-15T21:19:43.890853Z",
+     "shell.execute_reply": "2026-09-15T21:19:43.890222Z"
     }
    },
    "outputs": [
@@ -230,10 +230,10 @@
    "id": "88134b75",
    "metadata": {
     "execution": {
-     "iopub.execute_input": "2026-09-15T21:28:22.106394Z",
-     "iopub.status.busy": "2026-09-15T21:28:22.106254Z",
-     "iopub.status.idle": "2026-09-15T21:28:22.206264Z",
-     "shell.execute_reply": "2026-09-15T21:28:22.205763Z"
+     "iopub.execute_input": "2026-09-15T21:19:43.892330Z",
+     "iopub.status.busy": "2026-09-15T21:19:43.892168Z",
+     "iopub.status.idle": "2026-09-15T21:19:44.001630Z",
+     "shell.execute_reply": "2026-09-15T21:19:44.000994Z"
     }
    },
    "outputs": [
@@ -292,10 +292,10 @@
    "id": "0a65e383",
    "metadata": {
     "execution": {
-     "iopub.execute_input": "2026-09-15T21:28:22.207731Z",
-     "iopub.status.busy": "2026-09-15T21:28:22.207594Z",
-     "iopub.status.idle": "2026-09-15T21:28:22.213470Z",
-     "shell.execute_reply": "2026-09-15T21:28:22.212964Z"
+     "iopub.execute_input": "2026-09-15T21:19:44.002948Z",
+     "iopub.status.busy": "2026-09-15T21:19:44.002807Z",
+     "iopub.status.idle": "2026-09-15T21:19:44.008857Z",
+     "shell.execute_reply": "2026-09-15T21:19:44.008355Z"
     }
    },
    "outputs": [],
@@ -354,10 +354,10 @@
    "id": "134ff101",
    "metadata": {
     "execution": {
-     "iopub.execute_input": "2026-09-15T21:28:22.214789Z",
-     "iopub.status.busy": "2026-09-15T21:28:22.214591Z",
-     "iopub.status.idle": "2026-09-15T21:28:22.293545Z",
-     "shell.execute_reply": "2026-09-15T21:28:22.292968Z"
+     "iopub.execute_input": "2026-09-15T21:19:44.010310Z",
+     "iopub.status.busy": "2026-09-15T21:19:44.010117Z",
+     "iopub.status.idle": "2026-09-15T21:19:44.085683Z",
+     "shell.execute_reply": "2026-09-15T21:19:44.085136Z"
     }
    },
    "outputs": [
@@ -411,10 +411,10 @@
    "id": "5bdf281b",
    "metadata": {
     "execution": {
-     "iopub.execute_input": "2026-09-15T21:28:22.295020Z",
-     "iopub.status.busy": "2026-09-15T21:28:22.294884Z",
-     "iopub.status.idle": "2026-09-15T21:28:22.330704Z",
-     "shell.execute_reply": "2026-09-15T21:28:22.330131Z"
+     "iopub.execute_input": "2026-09-15T21:19:44.087247Z",
+     "iopub.status.busy": "2026-09-15T21:19:44.087094Z",
+     "iopub.status.idle": "2026-09-15T21:19:44.122614Z",
+     "shell.execute_reply": "2026-09-15T21:19:44.122065Z"
     }
    },
    "outputs": [
@@ -472,10 +472,10 @@
    "id": "398c6935",
    "metadata": {
     "execution": {
-     "iopub.execute_input": "2026-09-15T21:28:22.332252Z",
-     "iopub.status.busy": "2026-09-15T21:28:22.332081Z",
-     "iopub.status.idle": "2026-09-15T21:28:23.060274Z",
-     "shell.execute_reply": "2026-09-15T21:28:23.059767Z"
+     "iopub.execute_input": "2026-09-15T21:19:44.124316Z",
+     "iopub.status.busy": "2026-09-15T21:19:44.124168Z",
+     "iopub.status.idle": "2026-09-15T21:19:44.887581Z",
+     "shell.execute_reply": "2026-09-15T21:19:44.886954Z"
     }
    },
    "outputs": [
@@ -495,41 +495,41 @@
      "name": "stderr",
      "output_type": "stream",
      "text": [
-      "/tmp/ipykernel_416901/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[tcol] = M[note_col].map(_t); tag_cols.append(tcol)\n",
-      "/tmp/ipykernel_416901/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[tcol] = M[note_col].map(_t); tag_cols.append(tcol)\n",
-      "/tmp/ipykernel_416901/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[tcol] = M[note_col].map(_t); tag_cols.append(tcol)\n",
-      "/tmp/ipykernel_416901/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[tcol] = M[note_col].map(_t); tag_cols.append(tcol)\n",
-      "/tmp/ipykernel_416901/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[tcol] = M[note_col].map(_t); tag_cols.append(tcol)\n",
-      "/tmp/ipykernel_416901/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[tcol] = M[note_col].map(_t); tag_cols.append(tcol)\n",
-      "/tmp/ipykernel_416901/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[tcol] = M[note_col].map(_t); tag_cols.append(tcol)\n",
-      "/tmp/ipykernel_416901/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[tcol] = M[note_col].map(_t); tag_cols.append(tcol)\n",
-      "/tmp/ipykernel_416901/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[tcol] = M[note_col].map(_t); tag_cols.append(tcol)\n",
-      "/tmp/ipykernel_416901/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[tcol] = M[note_col].map(_t); tag_cols.append(tcol)\n",
-      "/tmp/ipykernel_416901/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[tcol] = M[note_col].map(_t); tag_cols.append(tcol)\n",
-      "/tmp/ipykernel_416901/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[tcol] = M[note_col].map(_t); tag_cols.append(tcol)\n",
-      "/tmp/ipykernel_416901/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[tcol] = M[note_col].map(_t); tag_cols.append(tcol)\n",
-      "/tmp/ipykernel_416901/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[tcol] = M[note_col].map(_t); tag_cols.append(tcol)\n",
-      "/tmp/ipykernel_416901/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[tcol] = M[note_col].map(_t); tag_cols.append(tcol)\n",
-      "/tmp/ipykernel_416901/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[tcol] = M[note_col].map(_t); tag_cols.append(tcol)\n",
-      "/tmp/ipykernel_416901/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[tcol] = M[note_col].map(_t); tag_cols.append(tcol)\n",
-      "/tmp/ipykernel_416901/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1950329312.py:65: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[tcol] = M[note_col].map(_t); tag_cols.append(tcol)\n"
      ]
     }
@@ -626,10 +626,10 @@
    "id": "4ff6ff0b",
    "metadata": {
     "execution": {
-     "iopub.execute_input": "2026-09-15T21:28:23.061655Z",
-     "iopub.status.busy": "2026-09-15T21:28:23.061515Z",
-     "iopub.status.idle": "2026-09-15T21:28:54.689165Z",
-     "shell.execute_reply": "2026-09-15T21:28:54.688539Z"
+     "iopub.execute_input": "2026-09-15T21:19:44.889003Z",
+     "iopub.status.busy": "2026-09-15T21:19:44.888858Z",
+     "iopub.status.idle": "2026-09-15T21:20:18.544159Z",
+     "shell.execute_reply": "2026-09-15T21:20:18.543491Z"
     }
    },
    "outputs": [
@@ -637,13 +637,13 @@
      "name": "stderr",
      "output_type": "stream",
      "text": [
-      "/tmp/ipykernel_416901/3898037603.py:21: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/3898037603.py:21: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[\"dup_root\"] = np.nan; M[\"labels_inherited_from\"] = np.nan; M[\"is_primary\"] = True; M[\"dup_of_missing\"] = False\n",
-      "/tmp/ipykernel_416901/3898037603.py:21: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/3898037603.py:21: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[\"dup_root\"] = np.nan; M[\"labels_inherited_from\"] = np.nan; M[\"is_primary\"] = True; M[\"dup_of_missing\"] = False\n",
-      "/tmp/ipykernel_416901/3898037603.py:21: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/3898037603.py:21: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[\"dup_root\"] = np.nan; M[\"labels_inherited_from\"] = np.nan; M[\"is_primary\"] = True; M[\"dup_of_missing\"] = False\n",
-      "/tmp/ipykernel_416901/3898037603.py:21: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/3898037603.py:21: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[\"dup_root\"] = np.nan; M[\"labels_inherited_from\"] = np.nan; M[\"is_primary\"] = True; M[\"dup_of_missing\"] = False\n"
      ]
     },
@@ -651,7 +651,7 @@
      "name": "stderr",
      "output_type": "stream",
      "text": [
-      "/tmp/ipykernel_416901/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
+      "/tmp/ipykernel_409782/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
       "  M = pd.concat(out_rows, ignore_index=True)\n"
      ]
     },
@@ -659,7 +659,7 @@
      "name": "stderr",
      "output_type": "stream",
      "text": [
-      "/tmp/ipykernel_416901/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
+      "/tmp/ipykernel_409782/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
       "  M = pd.concat(out_rows, ignore_index=True)\n"
      ]
     },
@@ -667,7 +667,7 @@
      "name": "stderr",
      "output_type": "stream",
      "text": [
-      "/tmp/ipykernel_416901/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
+      "/tmp/ipykernel_409782/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
       "  M = pd.concat(out_rows, ignore_index=True)\n"
      ]
     },
@@ -675,9 +675,73 @@
      "name": "stderr",
      "output_type": "stream",
      "text": [
-      "/tmp/ipykernel_416901/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
+      "/tmp/ipykernel_409782/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
+      "  M = pd.concat(out_rows, ignore_index=True)\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "/tmp/ipykernel_409782/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
+      "  M = pd.concat(out_rows, ignore_index=True)\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "/tmp/ipykernel_409782/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
+      "  M = pd.concat(out_rows, ignore_index=True)\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "/tmp/ipykernel_409782/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
+      "  M = pd.concat(out_rows, ignore_index=True)\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "/tmp/ipykernel_409782/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
+      "  M = pd.concat(out_rows, ignore_index=True)\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "/tmp/ipykernel_409782/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
+      "  M = pd.concat(out_rows, ignore_index=True)\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "/tmp/ipykernel_409782/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
+      "  M = pd.concat(out_rows, ignore_index=True)\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "/tmp/ipykernel_409782/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
+      "  M = pd.concat(out_rows, ignore_index=True)\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "/tmp/ipykernel_409782/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
       "  M = pd.concat(out_rows, ignore_index=True)\n",
-      "/tmp/ipykernel_416901/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
+      "/tmp/ipykernel_409782/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
       "  M = pd.concat(out_rows, ignore_index=True)\n"
      ]
     },
@@ -685,7 +749,7 @@
      "name": "stderr",
      "output_type": "stream",
      "text": [
-      "/tmp/ipykernel_416901/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
+      "/tmp/ipykernel_409782/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
       "  M = pd.concat(out_rows, ignore_index=True)\n"
      ]
     },
@@ -693,7 +757,7 @@
      "name": "stderr",
      "output_type": "stream",
      "text": [
-      "/tmp/ipykernel_416901/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
+      "/tmp/ipykernel_409782/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
       "  M = pd.concat(out_rows, ignore_index=True)\n"
      ]
     },
@@ -701,33 +765,9 @@
      "name": "stderr",
      "output_type": "stream",
      "text": [
-      "/tmp/ipykernel_416901/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
-      "  M = pd.concat(out_rows, ignore_index=True)\n"
-     ]
-    },
-    {
-     "name": "stderr",
-     "output_type": "stream",
-     "text": [
-      "/tmp/ipykernel_416901/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
-      "  M = pd.concat(out_rows, ignore_index=True)\n"
-     ]
-    },
-    {
-     "name": "stderr",
-     "output_type": "stream",
-     "text": [
-      "/tmp/ipykernel_416901/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
-      "  M = pd.concat(out_rows, ignore_index=True)\n"
-     ]
-    },
-    {
-     "name": "stderr",
-     "output_type": "stream",
-     "text": [
-      "/tmp/ipykernel_416901/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
+      "/tmp/ipykernel_409782/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
       "  M = pd.concat(out_rows, ignore_index=True)\n",
-      "/tmp/ipykernel_416901/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
+      "/tmp/ipykernel_409782/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
       "  M = pd.concat(out_rows, ignore_index=True)\n"
      ]
     },
@@ -735,7 +775,7 @@
      "name": "stderr",
      "output_type": "stream",
      "text": [
-      "/tmp/ipykernel_416901/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
+      "/tmp/ipykernel_409782/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
       "  M = pd.concat(out_rows, ignore_index=True)\n"
      ]
     },
@@ -743,7 +783,7 @@
      "name": "stderr",
      "output_type": "stream",
      "text": [
-      "/tmp/ipykernel_416901/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
+      "/tmp/ipykernel_409782/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
       "  M = pd.concat(out_rows, ignore_index=True)\n"
      ]
     },
@@ -751,7 +791,7 @@
      "name": "stderr",
      "output_type": "stream",
      "text": [
-      "/tmp/ipykernel_416901/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
+      "/tmp/ipykernel_409782/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
       "  M = pd.concat(out_rows, ignore_index=True)\n"
      ]
     },
@@ -759,47 +799,7 @@
      "name": "stderr",
      "output_type": "stream",
      "text": [
-      "/tmp/ipykernel_416901/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
-      "  M = pd.concat(out_rows, ignore_index=True)\n"
-     ]
-    },
-    {
-     "name": "stderr",
-     "output_type": "stream",
-     "text": [
-      "/tmp/ipykernel_416901/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
-      "  M = pd.concat(out_rows, ignore_index=True)\n"
-     ]
-    },
-    {
-     "name": "stderr",
-     "output_type": "stream",
-     "text": [
-      "/tmp/ipykernel_416901/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
-      "  M = pd.concat(out_rows, ignore_index=True)\n"
-     ]
-    },
-    {
-     "name": "stderr",
-     "output_type": "stream",
-     "text": [
-      "/tmp/ipykernel_416901/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
-      "  M = pd.concat(out_rows, ignore_index=True)\n"
-     ]
-    },
-    {
-     "name": "stderr",
-     "output_type": "stream",
-     "text": [
-      "/tmp/ipykernel_416901/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
-      "  M = pd.concat(out_rows, ignore_index=True)\n"
-     ]
-    },
-    {
-     "name": "stderr",
-     "output_type": "stream",
-     "text": [
-      "/tmp/ipykernel_416901/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
+      "/tmp/ipykernel_409782/3898037603.py:53: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.\n",
       "  M = pd.concat(out_rows, ignore_index=True)\n"
      ]
     },
@@ -902,10 +902,10 @@
    "id": "d99757dd",
    "metadata": {
     "execution": {
-     "iopub.execute_input": "2026-09-15T21:28:54.690642Z",
-     "iopub.status.busy": "2026-09-15T21:28:54.690507Z",
-     "iopub.status.idle": "2026-09-15T21:29:06.988880Z",
-     "shell.execute_reply": "2026-09-15T21:29:06.988215Z"
+     "iopub.execute_input": "2026-09-15T21:20:18.545661Z",
+     "iopub.status.busy": "2026-09-15T21:20:18.545517Z",
+     "iopub.status.idle": "2026-09-15T21:20:30.567075Z",
+     "shell.execute_reply": "2026-09-15T21:20:30.566372Z"
     }
    },
    "outputs": [
@@ -920,27 +920,27 @@
      "name": "stderr",
      "output_type": "stream",
      "text": [
-      "/tmp/ipykernel_416901/1125751647.py:27: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1125751647.py:27: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[\"edgeTags_wizard\"] = M[\"edgeTags\"]\n",
-      "/tmp/ipykernel_416901/1125751647.py:28: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1125751647.py:28: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[\"group_root\"] = M.labels_inherited_from.where(M.labels_inherited_from.notna(), M.patent_id)\n",
-      "/tmp/ipykernel_416901/1125751647.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1125751647.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c] = np.nan\n",
-      "/tmp/ipykernel_416901/1125751647.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1125751647.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c] = np.nan\n",
-      "/tmp/ipykernel_416901/1125751647.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1125751647.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c] = np.nan\n",
-      "/tmp/ipykernel_416901/1125751647.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1125751647.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c] = np.nan\n",
-      "/tmp/ipykernel_416901/1125751647.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1125751647.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c] = np.nan\n",
-      "/tmp/ipykernel_416901/1125751647.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1125751647.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c] = np.nan\n",
-      "/tmp/ipykernel_416901/1125751647.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1125751647.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c] = np.nan\n",
-      "/tmp/ipykernel_416901/1125751647.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/1125751647.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c] = np.nan\n",
-      "/tmp/ipykernel_416901/1125751647.py:54: FutureWarning: Setting an item of incompatible dtype is deprecated and will raise an error in a future version of pandas. Value 'True' has dtype incompatible with float64, please explicitly cast to a compatible dtype first.\n",
+      "/tmp/ipykernel_409782/1125751647.py:54: FutureWarning: Setting an item of incompatible dtype is deprecated and will raise an error in a future version of pandas. Value 'True' has dtype incompatible with float64, please explicitly cast to a compatible dtype first.\n",
       "  if ucol and is_true(IDT.at[src, ucol]): M.at[i, ucol] = True\n"
      ]
     },
@@ -1099,10 +1099,10 @@
    "id": "effef886",
    "metadata": {
     "execution": {
-     "iopub.execute_input": "2026-09-15T21:29:06.990355Z",
-     "iopub.status.busy": "2026-09-15T21:29:06.990191Z",
-     "iopub.status.idle": "2026-09-15T21:29:13.377089Z",
-     "shell.execute_reply": "2026-09-15T21:29:13.376424Z"
+     "iopub.execute_input": "2026-09-15T21:20:30.568461Z",
+     "iopub.status.busy": "2026-09-15T21:20:30.568325Z",
+     "iopub.status.idle": "2026-09-15T21:20:37.110214Z",
+     "shell.execute_reply": "2026-09-15T21:20:37.109564Z"
     }
    },
    "outputs": [
@@ -1122,83 +1122,83 @@
      "name": "stderr",
      "output_type": "stream",
      "text": [
-      "/tmp/ipykernel_416901/10270628.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c] = M.patent_id.map(V[f]).map(lambda v, k=(f == \"duplicateType\"): clean(v, k)); ml_head.append(c)\n",
-      "/tmp/ipykernel_416901/10270628.py:33: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:33: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c + \"_conf\"] = M.patent_id.map(C[f]).map(conf); ml_head.append(c + \"_conf\")\n",
-      "/tmp/ipykernel_416901/10270628.py:35: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:35: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c + \"_source\"] = M.patent_id.map(S[f]).map(clean); ml_head.append(c + \"_source\")\n",
-      "/tmp/ipykernel_416901/10270628.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c] = M.patent_id.map(V[f]).map(lambda v, k=(f == \"duplicateType\"): clean(v, k)); ml_head.append(c)\n",
-      "/tmp/ipykernel_416901/10270628.py:33: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:33: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c + \"_conf\"] = M.patent_id.map(C[f]).map(conf); ml_head.append(c + \"_conf\")\n",
-      "/tmp/ipykernel_416901/10270628.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c] = M.patent_id.map(V[f]).map(lambda v, k=(f == \"duplicateType\"): clean(v, k)); ml_head.append(c)\n",
-      "/tmp/ipykernel_416901/10270628.py:33: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:33: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c + \"_conf\"] = M.patent_id.map(C[f]).map(conf); ml_head.append(c + \"_conf\")\n",
-      "/tmp/ipykernel_416901/10270628.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c] = M.patent_id.map(V[f]).map(lambda v, k=(f == \"duplicateType\"): clean(v, k)); ml_head.append(c)\n",
-      "/tmp/ipykernel_416901/10270628.py:33: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:33: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c + \"_conf\"] = M.patent_id.map(C[f]).map(conf); ml_head.append(c + \"_conf\")\n",
-      "/tmp/ipykernel_416901/10270628.py:35: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:35: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c + \"_source\"] = M.patent_id.map(S[f]).map(clean); ml_head.append(c + \"_source\")\n",
-      "/tmp/ipykernel_416901/10270628.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c] = M.patent_id.map(V[f]).map(lambda v, k=(f == \"duplicateType\"): clean(v, k)); ml_head.append(c)\n",
-      "/tmp/ipykernel_416901/10270628.py:32: FutureWarning: Downcasting behavior in `replace` is deprecated and will be removed in a future version. To retain the old behavior, explicitly call `result.infer_objects(copy=False)`. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`\n",
+      "/tmp/ipykernel_409782/10270628.py:32: FutureWarning: Downcasting behavior in `replace` is deprecated and will be removed in a future version. To retain the old behavior, explicitly call `result.infer_objects(copy=False)`. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`\n",
       "  if f in C.columns and C[f].replace(\"\", np.nan).notna().any():\n",
-      "/tmp/ipykernel_416901/10270628.py:35: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:35: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c + \"_source\"] = M.patent_id.map(S[f]).map(clean); ml_head.append(c + \"_source\")\n",
-      "/tmp/ipykernel_416901/10270628.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c] = M.patent_id.map(V[f]).map(lambda v, k=(f == \"duplicateType\"): clean(v, k)); ml_head.append(c)\n",
-      "/tmp/ipykernel_416901/10270628.py:32: FutureWarning: Downcasting behavior in `replace` is deprecated and will be removed in a future version. To retain the old behavior, explicitly call `result.infer_objects(copy=False)`. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`\n",
+      "/tmp/ipykernel_409782/10270628.py:32: FutureWarning: Downcasting behavior in `replace` is deprecated and will be removed in a future version. To retain the old behavior, explicitly call `result.infer_objects(copy=False)`. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`\n",
       "  if f in C.columns and C[f].replace(\"\", np.nan).notna().any():\n",
-      "/tmp/ipykernel_416901/10270628.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:30: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c] = M.patent_id.map(V[f]).map(lambda v, k=(f == \"duplicateType\"): clean(v, k)); ml_head.append(c)\n",
-      "/tmp/ipykernel_416901/10270628.py:32: FutureWarning: Downcasting behavior in `replace` is deprecated and will be removed in a future version. To retain the old behavior, explicitly call `result.infer_objects(copy=False)`. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`\n",
+      "/tmp/ipykernel_409782/10270628.py:32: FutureWarning: Downcasting behavior in `replace` is deprecated and will be removed in a future version. To retain the old behavior, explicitly call `result.infer_objects(copy=False)`. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`\n",
       "  if f in C.columns and C[f].replace(\"\", np.nan).notna().any():\n",
-      "/tmp/ipykernel_416901/10270628.py:37: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:37: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[\"ml_n_fig_dup_suggestions\"] = M.patent_id.map(t2d.groupby(\"Patent_ID\").size()).fillna(0).astype(int)\n",
-      "/tmp/ipykernel_416901/10270628.py:38: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:38: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[\"ml_fig_dup_patents\"] = M.patent_id.map(t2d.groupby(\"Patent_ID\").Value.agg(lambda s: \"|\".join(sorted(set(s)))))\n",
-      "/tmp/ipykernel_416901/10270628.py:50: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:50: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c] = M.patent_id.map(Vm[f]).map(lambda v: clean(v, True)); ml_morph.append(c)\n",
-      "/tmp/ipykernel_416901/10270628.py:51: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:51: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  if f in Cm.columns: M[c + \"_conf\"] = M.patent_id.map(Cm[f]).map(conf); ml_morph.append(c + \"_conf\")\n",
-      "/tmp/ipykernel_416901/10270628.py:52: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:52: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  if f in ML_SOURCE_FOR and f in Sm.columns: M[c + \"_source\"] = M.patent_id.map(Sm[f]).map(clean); ml_morph.append(c + \"_source\")\n",
-      "/tmp/ipykernel_416901/10270628.py:50: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:50: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c] = M.patent_id.map(Vm[f]).map(lambda v: clean(v, True)); ml_morph.append(c)\n",
-      "/tmp/ipykernel_416901/10270628.py:51: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:51: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  if f in Cm.columns: M[c + \"_conf\"] = M.patent_id.map(Cm[f]).map(conf); ml_morph.append(c + \"_conf\")\n",
-      "/tmp/ipykernel_416901/10270628.py:50: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:50: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c] = M.patent_id.map(Vm[f]).map(lambda v: clean(v, True)); ml_morph.append(c)\n",
-      "/tmp/ipykernel_416901/10270628.py:51: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:51: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  if f in Cm.columns: M[c + \"_conf\"] = M.patent_id.map(Cm[f]).map(conf); ml_morph.append(c + \"_conf\")\n",
-      "/tmp/ipykernel_416901/10270628.py:50: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:50: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c] = M.patent_id.map(Vm[f]).map(lambda v: clean(v, True)); ml_morph.append(c)\n",
-      "/tmp/ipykernel_416901/10270628.py:51: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:51: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  if f in Cm.columns: M[c + \"_conf\"] = M.patent_id.map(Cm[f]).map(conf); ml_morph.append(c + \"_conf\")\n",
-      "/tmp/ipykernel_416901/10270628.py:50: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:50: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c] = M.patent_id.map(Vm[f]).map(lambda v: clean(v, True)); ml_morph.append(c)\n",
-      "/tmp/ipykernel_416901/10270628.py:51: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:51: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  if f in Cm.columns: M[c + \"_conf\"] = M.patent_id.map(Cm[f]).map(conf); ml_morph.append(c + \"_conf\")\n",
-      "/tmp/ipykernel_416901/10270628.py:50: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:50: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c] = M.patent_id.map(Vm[f]).map(lambda v: clean(v, True)); ml_morph.append(c)\n",
-      "/tmp/ipykernel_416901/10270628.py:51: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:51: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  if f in Cm.columns: M[c + \"_conf\"] = M.patent_id.map(Cm[f]).map(conf); ml_morph.append(c + \"_conf\")\n",
-      "/tmp/ipykernel_416901/10270628.py:50: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:50: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c] = M.patent_id.map(Vm[f]).map(lambda v: clean(v, True)); ml_morph.append(c)\n",
-      "/tmp/ipykernel_416901/10270628.py:51: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:51: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  if f in Cm.columns: M[c + \"_conf\"] = M.patent_id.map(Cm[f]).map(conf); ml_morph.append(c + \"_conf\")\n",
-      "/tmp/ipykernel_416901/10270628.py:50: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:50: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[c] = M.patent_id.map(Vm[f]).map(lambda v: clean(v, True)); ml_morph.append(c)\n",
-      "/tmp/ipykernel_416901/10270628.py:51: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:51: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  if f in Cm.columns: M[c + \"_conf\"] = M.patent_id.map(Cm[f]).map(conf); ml_morph.append(c + \"_conf\")\n",
-      "/tmp/ipykernel_416901/10270628.py:67: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:67: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[\"ml_approved_agrees\"] = agrees(M.ml_isApproved, M.is_approved)\n",
-      "/tmp/ipykernel_416901/10270628.py:68: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:68: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[\"ml_dup_agrees\"] = agrees(M.ml_duplicateId, M.dup_of) if \"ml_duplicateId\" in M.columns else pd.array([None] * len(M), dtype=\"boolean\")\n",
-      "/tmp/ipykernel_416901/10270628.py:71: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/10270628.py:71: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[\"ml_topType_agrees\"] = agrees(M.ml_topType, M.topType); ml_morph.append(\"ml_topType_agrees\")\n"
      ]
     }
@@ -1298,10 +1298,10 @@
    "id": "38479873",
    "metadata": {
     "execution": {
-     "iopub.execute_input": "2026-09-15T21:29:13.378519Z",
-     "iopub.status.busy": "2026-09-15T21:29:13.378383Z",
-     "iopub.status.idle": "2026-09-15T21:29:13.428211Z",
-     "shell.execute_reply": "2026-09-15T21:29:13.427570Z"
+     "iopub.execute_input": "2026-09-15T21:20:37.111707Z",
+     "iopub.status.busy": "2026-09-15T21:20:37.111558Z",
+     "iopub.status.idle": "2026-09-15T21:20:37.165935Z",
+     "shell.execute_reply": "2026-09-15T21:20:37.165276Z"
     }
    },
    "outputs": [
@@ -1309,21 +1309,21 @@
      "name": "stderr",
      "output_type": "stream",
      "text": [
-      "/tmp/ipykernel_416901/2893358946.py:3: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/2893358946.py:3: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[\"_anchor\"] = M.patent_id.map(anchor)\n",
-      "/tmp/ipykernel_416901/2893358946.py:4: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/2893358946.py:4: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[\"_abatch\"] = M._anchor.map(batch_of).fillna(M.batch)\n",
-      "/tmp/ipykernel_416901/2893358946.py:5: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/2893358946.py:5: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[\"_apos\"]   = M._anchor.map(pos_of).fillna(10**9)\n",
-      "/tmp/ipykernel_416901/2893358946.py:6: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/2893358946.py:6: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[\"_self\"]   = (M.patent_id != M._anchor).astype(int)\n",
-      "/tmp/ipykernel_416901/2893358946.py:7: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/2893358946.py:7: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[\"_dt\"]     = M.dup_type.fillna(\"0\")\n",
-      "/tmp/ipykernel_416901/2893358946.py:17: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/2893358946.py:17: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[\"_sub\"]    = M.patent_id.map(sub_anchor)\n",
-      "/tmp/ipykernel_416901/2893358946.py:18: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/2893358946.py:18: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[\"_subpos\"] = M._sub.map(pos_of).fillna(-1)\n",
-      "/tmp/ipykernel_416901/2893358946.py:19: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
+      "/tmp/ipykernel_409782/2893358946.py:19: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`\n",
       "  M[\"_subself\"] = ((M._sub.notna()) & (M.patent_id != M._sub)).astype(int)\n"
      ]
     }
@@ -1366,10 +1366,10 @@
    "id": "9d36c19e",
    "metadata": {
     "execution": {
-     "iopub.execute_input": "2026-09-15T21:29:13.429760Z",
-     "iopub.status.busy": "2026-09-15T21:29:13.429618Z",
-     "iopub.status.idle": "2026-09-15T21:29:15.400865Z",
-     "shell.execute_reply": "2026-09-15T21:29:15.400251Z"
+     "iopub.execute_input": "2026-09-15T21:20:37.167534Z",
+     "iopub.status.busy": "2026-09-15T21:20:37.167374Z",
+     "iopub.status.idle": "2026-09-15T21:20:39.226290Z",
+     "shell.execute_reply": "2026-09-15T21:20:39.225708Z"
     }
    },
    "outputs": [
@@ -1479,10 +1479,10 @@
    "id": "1e5e330f",
    "metadata": {
     "execution": {
-     "iopub.execute_input": "2026-09-15T21:29:15.402317Z",
-     "iopub.status.busy": "2026-09-15T21:29:15.402173Z",
-     "iopub.status.idle": "2026-09-15T21:29:15.409686Z",
-     "shell.execute_reply": "2026-09-15T21:29:15.409168Z"
+     "iopub.execute_input": "2026-09-15T21:20:39.227779Z",
+     "iopub.status.busy": "2026-09-15T21:20:39.227632Z",
+     "iopub.status.idle": "2026-09-15T21:20:39.235451Z",
+     "shell.execute_reply": "2026-09-15T21:20:39.234938Z"
     }
    },
    "outputs": [
@@ -1539,10 +1539,10 @@
    "id": "d5f9604f",
    "metadata": {
     "execution": {
-     "iopub.execute_input": "2026-09-15T21:29:15.411196Z",
-     "iopub.status.busy": "2026-09-15T21:29:15.411067Z",
-     "iopub.status.idle": "2026-09-15T21:29:34.263189Z",
-     "shell.execute_reply": "2026-09-15T21:29:34.262611Z"
+     "iopub.execute_input": "2026-09-15T21:20:39.236846Z",
+     "iopub.status.busy": "2026-09-15T21:20:39.236696Z",
+     "iopub.status.idle": "2026-09-15T21:20:58.881114Z",
+     "shell.execute_reply": "2026-09-15T21:20:58.880423Z"
     }
    },
    "outputs": [
@@ -1564,7 +1564,7 @@
      "name": "stderr",
      "output_type": "stream",
      "text": [
-      "/tmp/ipykernel_416901/89919872.py:74: FutureWarning: Setting an item of incompatible dtype is deprecated and will raise an error in a future version of pandas. Value '/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED/joined/approved_images/Batch_02/AT503689A1/AT503689A1_fig_01_crop_0_F2.png' has dtype incompatible with float64, please explicitly cast to a compatible dtype first.\n",
+      "/tmp/ipykernel_409782/89919872.py:74: FutureWarning: Setting an item of incompatible dtype is deprecated and will raise an error in a future version of pandas. Value '/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED/joined/approved_images/Batch_02/AT503689A1/AT503689A1_fig_01_crop_0_F2.png' has dtype incompatible with float64, please explicitly cast to a compatible dtype first.\n",
       "  F.at[i, \"approved_copy_path\"] = str(dst)\n"
      ]
     },
@@ -1672,10 +1672,10 @@
    "id": "60b49379",
    "metadata": {
     "execution": {
-     "iopub.execute_input": "2026-09-15T21:29:34.264646Z",
-     "iopub.status.busy": "2026-09-15T21:29:34.264509Z",
-     "iopub.status.idle": "2026-09-15T21:29:35.986538Z",
-     "shell.execute_reply": "2026-09-15T21:29:35.986000Z"
+     "iopub.execute_input": "2026-09-15T21:20:58.882684Z",
+     "iopub.status.busy": "2026-09-15T21:20:58.882541Z",
+     "iopub.status.idle": "2026-09-15T21:21:00.729039Z",
+     "shell.execute_reply": "2026-09-15T21:21:00.728518Z"
     }
    },
    "outputs": [
@@ -1696,7 +1696,7 @@
      "name": "stderr",
      "output_type": "stream",
      "text": [
-      "/tmp/ipykernel_416901/446091205.py:18: FutureWarning: DataFrameGroupBy.apply operated on the grouping columns. This behavior is deprecated, and in a future version of pandas the grouping columns will be excluded from the operation. Either pass `include_groups=False` to exclude the groupings or explicitly select the grouping columns after groupby to silence this warning.\n",
+      "/tmp/ipykernel_409782/446091205.py:18: FutureWarning: DataFrameGroupBy.apply operated on the grouping columns. This behavior is deprecated, and in a future version of pandas the grouping columns will be excluded from the operation. Either pass `include_groups=False` to exclude the groupings or explicitly select the grouping columns after groupby to silence this warning.\n",
       "  _pos = pd.Series(range(len(M)), index=M.index); _first = M.groupby(\"patent_id\").apply(lambda g: _pos[g.index].min())\n"
      ]
     },
@@ -1715,7 +1715,7 @@
       "\n",
       "rows per batch: {'Batch_01': 395, 'Batch_02': 451, 'Batch_03': 418, 'Batch_04': 304, 'Batch_05': 231}\n",
       "primary approved variants: 806   inherited D1/D2 rows: 464   rejected: 529\n",
-      "topType (primary approved): {'SLC': 220, 'TR': 198, 'CVT': 128, 'TW': 68, 'MR': 58, 'TB': 40, 'PTC': 30, 'HB': 21, 'RC': 13, 'PFV': 11, 'SRW': 8, 'DS': 8}\n",
+      "topType (primary approved): {'SLC': 219, 'TR': 199, 'CVT': 127, 'TW': 68, 'MR': 58, 'TB': 40, 'PTC': 31, 'HB': 21, 'RC': 13, 'PFV': 11, 'SRW': 8, 'DS': 8}\n",
       "\n",
       "BUILD_LOG.md written; all checks passed.\n"
      ]
@@ -1788,10 +1788,10 @@
    "id": "d9a65d46",
    "metadata": {
     "execution": {
-     "iopub.execute_input": "2026-09-15T21:29:35.988123Z",
-     "iopub.status.busy": "2026-09-15T21:29:35.987955Z",
-     "iopub.status.idle": "2026-09-15T21:29:36.034048Z",
-     "shell.execute_reply": "2026-09-15T21:29:36.033417Z"
+     "iopub.execute_input": "2026-09-15T21:21:00.730496Z",
+     "iopub.status.busy": "2026-09-15T21:21:00.730354Z",
+     "iopub.status.idle": "2026-09-15T21:21:00.779285Z",
+     "shell.execute_reply": "2026-09-15T21:21:00.778713Z"
     }
    },
    "outputs": [

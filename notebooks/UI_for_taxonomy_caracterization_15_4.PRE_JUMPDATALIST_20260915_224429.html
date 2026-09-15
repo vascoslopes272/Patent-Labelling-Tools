@@ -268,7 +268,7 @@ details.m3-readonly[open] summary::after { content: '\2212'; }
       <span id="batch-nav-label" style="font-size:12px;font-family:var(--mono);color:var(--text2);"></span>
       <span id="batch-save-status" style="font-size:11px;font-family:var(--mono);font-weight:600;letter-spacing:.04em;padding:2px 8px;border-radius:999px;border:1px solid var(--border2);background:var(--bg2);color:var(--text2);white-space:nowrap;" title="Whether the patent currently on screen has been written into the reviewed .xlsx buffer">&#8226; Unsaved</span>
       <button type="button" id="batch-next" class="btn" style="padding:4px 10px;font-size:12px;">Next &#9654;</button>
-      <input type="text" id="batch-jump-input" autocomplete="off" placeholder="Jump: ID / # / applicant" style="font-size:12px;padding:4px 8px;width:170px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg2);color:var(--text);" title="Type a patent ID (e.g. EP3594113), a batch position number (e.g. 39), or an applicant/assignee name, then press Enter or click Go.">
+      <input type="text" id="batch-jump-input" list="batch-jump-list" placeholder="Jump: ID / # / applicant" style="font-size:12px;padding:4px 8px;width:170px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg2);color:var(--text);" title="Type a patent ID (e.g. EP3594113), a batch position number (e.g. 39), or an applicant/assignee name, then press Enter or click Go.">
       <datalist id="batch-jump-list"></datalist>
       <button type="button" id="batch-jump-btn" class="btn" style="padding:4px 10px;font-size:12px;">Go</button>
       <span id="batch-jump-status" style="font-size:11px;font-family:var(--mono);color:var(--text3);"></span>
@@ -1575,32 +1575,21 @@ function lookupAssigneeGroup(assignee) {
 // patent ID and applicant/assignee name in the loaded batch, so the browser's
 // native autocomplete surfaces matches as the reviewer types (no custom
 // dropdown code needed). Re-run on every batch load/resume-restore.
-// Large batches get NO datalist: with Batch_ALL (1 639 IDs + ~1 000 applicants)
-// Chrome's native suggestion popup froze the whole tab on paste (2026-09-15).
-// The Jump resolver already does prefix/substring matching, so nothing is lost.
-var JUMP_DATALIST_MAX = 300;
 function populateJumpDatalist() {
   var dl = document.getElementById('batch-jump-list');
-  var input = document.getElementById('batch-jump-input');
   if (!dl || !BATCH) return;
   var seen = {};
-  var opts = [];
+  var html = '';
   BATCH.ids.forEach(function(pid){
     if (seen[pid]) return; seen[pid] = true;
-    opts.push('<option value="' + escHtml(pid) + '">');
+    html += '<option value="' + escHtml(pid) + '">';
   });
   Object.keys(ASSIGNEE_GROUPS).forEach(function(key){
     var disp = ASSIGNEE_GROUPS[key].display;
     if (seen[disp]) return; seen[disp] = true;
-    opts.push('<option value="' + escHtml(disp) + '">');
+    html += '<option value="' + escHtml(disp) + '">';
   });
-  if (opts.length > JUMP_DATALIST_MAX) {
-    if (input) input.removeAttribute('list');
-    dl.innerHTML = '';
-    return;
-  }
-  dl.innerHTML = opts.join('');
-  if (input) input.setAttribute('list', 'batch-jump-list');
+  dl.innerHTML = html;
 }
 
 // Resolves the free-text "Jump" box to a patent and navigates to it. Tries,
@@ -8003,7 +7992,7 @@ document.addEventListener('visibilitychange', function(){ if (document.visibilit
 // so "I reloaded and it still does it" is ambiguous between "the fix doesn't
 // work" and "the fix was never loaded". WIZ_BUILD makes that checkable in one
 // line from the console.
-var WIZ_BUILD = 'v15.9+jumpfix-20260915';
+var WIZ_BUILD = 'v15.3+pasteguard-20260807';
 console.log('%c eVTOL Taxonomy Wizard ' + WIZ_BUILD + ' ', 'background:#1a7f4e;color:#fff;font-weight:600;');
 
 // Records what ran immediately before a stall. If the renderer hangs, whatever

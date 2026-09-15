@@ -64,7 +64,7 @@ table.batch input{width:18px;height:18px;cursor:pointer}
 .pick2 button.on{outline:3px solid var(--acc)}.pick2 button:disabled{opacity:.4}details.figbox summary{cursor:pointer;color:var(--mut);font-size:13px}
 </style></head><body>
 <header><h1>03b — architecture type: text vs image</h1>
-<select id="view"><option value="peraircraft" selected>✈ per aircraft + reopened patents — not yet decided</option><option value="vis">👁 visibility still missing (decided, text ≠ figures)</option><option value="lgreen">📋 🟢 evident agreements — 20 at a time</option><option value="lyellow">📋 🟡 other agreements — 20 at a time</option><option value="side">⚖ disagreements — figures vs text</option><option value="unticked">↩ unticked in a list — one per screen</option><option value="recent">✎ already decided — newest first (relabel)</option><option value="legacy">⚠ decided “figures are right” before the text rule</option><option value="todo">to confirm (not auto, not decided)</option><option value="green">🟢 evident — to confirm</option><option value="yellow">🟡 not that evident — to confirm</option><option value="red">🔴 really different — to confirm</option><option value="review">everything you confirm</option><option value="agree">agree — confirm the citation</option><option value="disagree">disagree (text ≠ image)</option><option value="lowconf">agree, low confidence</option><option value="aircraft">aircraft rows (patents with several types)</option><option value="flags">aircraft rows with a flag</option><option value="known">known aircraft — cleared automatically</option><option value="notstated">text not stated (no citation exists)</option><option value="scope">scope — to confirm</option><option value="all">all rows</option></select>
+<select id="view"><option value="final" selected>🏁 FINAL PASS — everything still open</option><option value="peraircraft">✈ per aircraft + reopened patents — not yet decided</option><option value="vis">👁 visibility still missing (decided, text ≠ figures)</option><option value="lgreen">📋 🟢 evident agreements — 20 at a time</option><option value="lyellow">📋 🟡 other agreements — 20 at a time</option><option value="side">⚖ disagreements — figures vs text</option><option value="unticked">↩ unticked in a list — one per screen</option><option value="recent">✎ already decided — newest first (relabel)</option><option value="legacy">⚠ decided “figures are right” before the text rule</option><option value="todo">to confirm (not auto, not decided)</option><option value="green">🟢 evident — to confirm</option><option value="yellow">🟡 not that evident — to confirm</option><option value="red">🔴 really different — to confirm</option><option value="review">everything you confirm</option><option value="agree">agree — confirm the citation</option><option value="disagree">disagree (text ≠ image)</option><option value="lowconf">agree, low confidence</option><option value="aircraft">aircraft rows (patents with several types)</option><option value="flags">aircraft rows with a flag</option><option value="known">known aircraft — cleared automatically</option><option value="notstated">text not stated (no citation exists)</option><option value="scope">scope — to confirm</option><option value="all">all rows</option></select>
 <button id="last" title="everything you already decided, newest first — open one and press another button to relabel it">✎ relabel a decided patent</button>
 <input type="text" id="jump" placeholder="jump to patent ID" title="type part of a patent ID and press Enter — works for patents you already decided" style="width:170px">
 <span id="prog"></span>
@@ -98,7 +98,7 @@ Object.entries(BASE).forEach(([k,b])=>{const d=DEC[k];if(!d||!d.choice||String(b
 const REOPEN={"US2021371117A1": "2026-09-15T21:18", "DE102023129326A1": "2026-09-15T21:18"};
 Object.entries(REOPEN).forEach(([k,t])=>{const d=DEC[k];if(d&&String(d.at||'')<=t){delete DEC[k];NBASE++}});
 if(NBASE)save();
-let VIEW='peraircraft', CUR=0, ROWS=[], PENDVIS=null;
+let VIEW='final', CUR=0, ROWS=[], PENDVIS=null;
 // rows you unticked in a 20-row list: they leave the list and wait in the "unticked" view
 const LKEY='archreview_listskip_v1';let LSKIP={};try{LSKIP=JSON.parse(localStorage.getItem(LKEY)||'{}')}catch(e){LSKIP={}}
 function saveSkip(){try{localStorage.setItem(LKEY,JSON.stringify(LSKIP))}catch(e){}}
@@ -179,7 +179,19 @@ const firstOfPid=r=>DATA.find(x=>x.pid===r.pid)===r;
 const ORDER={green:0,yellow:1,red:2,grey:3};
 // a decided row whose ground truth differs from the figure type must say whether the figures show it
 const needVis=(r,d)=>{if(!d||!d.choice||d.visible)return false;const f=finalOf(r,d);return !!f&&f!=='?'&&f!=='NS'&&f!==r.image};
+// FINAL PASS (2026-09-15): 1 reopened · 2 aircraft not decided · 3 patent rows not decided · 4 legacy "figures are right" ·
+// 5 "the text does not settle it" not yet re-checked in this pass · 6 decided but visibility missing
+function openStage(r){const d=DEC[r.key];
+ if(r.key in REOPEN&&!d)return 1;
+ if(r.kind==='aircraft'&&(REVIEW(r)||r.basis==='patent_level_only')&&!d)return 2;
+ if(REVIEW(r)&&!d)return 3;
+ if(d&&d.choice==='image')return 4;
+ if(d&&d.choice==='unsure'&&!d.lastcheck)return 5;
+ if(needVis(r,d))return 6;
+ return 0}
+const STAGE={1:'reopened by you',2:'aircraft not decided yet',3:'patent not decided yet',4:'decided “figures are right” before the text rule — decide again',5:'you chose “the text does not settle it” — last check: press 4 again to keep it, or decide',6:'decided — only the visibility answer is missing'};
 function filterRows(){
+ if(VIEW==='final'){ROWS=DATA.filter(r=>openStage(r)||r.key===PENDVIS).sort((a,b)=>(openStage(a)||9)-(openStage(b)||9));if(CUR>=ROWS.length)CUR=0;return}
  if(VIEW==='peraircraft'){ROWS=DATA.filter(r=>((r.kind==='aircraft'&&(REVIEW(r)||r.basis==='patent_level_only'))||r.key in REOPEN)&&(!DEC[r.key]||r.key===PENDVIS));
   ROWS.sort((a,b)=>(b.key in REOPEN)-(a.key in REOPEN));if(CUR>=ROWS.length)CUR=0;return}
  if(VIEW==='vis'){ROWS=DATA.filter(r=>needVis(r,DEC[r.key])||r.key===PENDVIS);if(CUR>=ROWS.length)CUR=0;return}
@@ -219,12 +231,13 @@ function visBox(r,d){if(!needVis(r,d))return'';const f=finalOf(r,d);
   <button data-vis="no" style="font:inherit;padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:#fff;cursor:pointer"><kbd>1</kbd> not visible</button>
   <button data-vis="yes" style="font:inherit;padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:#fff;cursor:pointer"><kbd>2</kbd> visible too</button></div>`}
 function setVis(r,v){const d=DEC[r.key];if(!d)return;d.visible=v;d.at=new Date().toISOString().slice(0,16);d.ts=Date.now();save();PENDVIS=null;next()}
-function render(){filterRows();renderList();const P=document.getElementById('panel');
+function render(){filterRows();renderList();const P=document.getElementById('panel');const nopen=DATA.filter(openStage).length;document.getElementById('prog').textContent='🏁 '+nopen+' still open · '+document.getElementById('prog').textContent;
  if(LISTMODE())return renderBatch();
- const r=ROWS[CUR];if(!r){P.innerHTML='<p class="help">Nothing in this view.'+(VIEW==='peraircraft'?' Every aircraft row is decided — next: 👁 visibility still missing, then Export CSV.':'')+'</p>';return}
+ const r=ROWS[CUR];if(!r){P.innerHTML='<p class="help">Nothing in this view.'+(VIEW==='final'?' <b>The final pass is complete — press Export CSV.</b>':'')+(VIEW==='peraircraft'?' Every aircraft row is decided — next: 👁 visibility still missing, then Export CSV.':'')+'</p>';return}
  const d=DEC[r.key]||{};const other=Object.keys(TYPES).filter(t=>t!=='NS');const legacy=r.kind==='aircraft'?(DEC[r.pid]||BASE[r.pid]):null;
- if(!AG(r)){P.innerHTML=sideHTML(r,d,other,legacy);const vb=visBox(r,d);if(vb)P.querySelector('.side > div').insertAdjacentHTML('afterbegin',vb);bind(r,P);return}
- P.innerHTML=`<div class="head"><h2>${esc(r.pid)}${r.kind==='aircraft'?' · aircraft '+r.vn+' of '+r.nvar:''}</h2><span>${esc(r.company)}</span><span class="mut">${esc(r.realname||r.name)} · ${esc(r.year)} · ${r.nvar>1?r.nvar+' aircraft in this patent':'1 aircraft'}</span><a href="${esc(r.pdf)}" target="_blank">PDF ↗</a></div>
+ const stg=openStage(r);const sb=stg?`<div class="band grey" style="margin-bottom:8px"><b>Final pass · step ${stg}</b><span>${STAGE[stg]}</span></div>`:'';
+ if(!AG(r)){P.innerHTML=sb+sideHTML(r,d,other,legacy);const vb=visBox(r,d);if(vb)P.querySelector('.side > div').insertAdjacentHTML('afterbegin',vb);bind(r,P);return}
+ P.innerHTML=sb+`<div class="head"><h2>${esc(r.pid)}${r.kind==='aircraft'?' · aircraft '+r.vn+' of '+r.nvar:''}</h2><span>${esc(r.company)}</span><span class="mut">${esc(r.realname||r.name)} · ${esc(r.year)} · ${r.nvar>1?r.nvar+' aircraft in this patent':'1 aircraft'}</span><a href="${esc(r.pdf)}" target="_blank">PDF ↗</a></div>
  <div class="mut" style="font-size:13px">${esc(r.title)} — <i>${esc(r.assignee)}</i></div>${undoBar(r)}
  <div class="cards" style="margin-top:10px">
   <div class="band ${r.light}"><span class="dot L${r.light}" style="width:14px;height:14px"></span><b>${LNAME[r.light]}</b><span>${esc(r.why)}</span></div>
@@ -250,7 +263,7 @@ function render(){filterRows();renderList();const P=document.getElementById('pan
  <p class="help">Read the highlighted citation, then: 1 confirm · 3 the text states another type · 4 the text does not settle it · 5 the text says nothing about the architecture${WITH_SCOPE?' · 5 confirm scope · 6 scope other · 7 scope cannot tell':''} · ←/→ or Enter = next · click a figure to zoom. Decisions are saved in this browser; press Export CSV when done (goes to Downloads).</p>`;
  bind(r,P);
 }
-const SHRINKING=['todo','side','unticked','green','yellow','red','scope','legacy','peraircraft','vis'];
+const SHRINKING=['todo','side','unticked','green','yellow','red','scope','legacy','peraircraft','vis','final'];
 // change a decision you already made: clear it (the patent goes back into the lists) or pick another button
 // order of decisions: exact time for new ones, the saved minute for older ones
 const when=d=>(d.n||0)*1e13+(d.ts||Date.parse(d.at||'')||0);
@@ -265,7 +278,7 @@ function next(){if(VIEW==='recent'){const k=ROWS[CUR]&&ROWS[CUR].key;filterRows(
 function decide(r,c,v){const o=document.getElementById('other');
  // "the text states another type" equal to the figure type is visible by construction; a different one asks
  const vis=c==='confirm'?'yes':c==='other'&&o.value===r.image?'yes':(v||'');
- DEC[r.key]={choice:c,other:c==='other'?o.value:'',visible:vis,comment:document.getElementById('cmt').value,at:new Date().toISOString().slice(0,16),ts:Date.now(),n:nextN()};save();
+ DEC[r.key]={choice:c,other:c==='other'?o.value:'',visible:vis,comment:document.getElementById('cmt').value,at:new Date().toISOString().slice(0,16),ts:Date.now(),n:nextN(),lastcheck:true};save();
  if(needVis(r,DEC[r.key])){PENDVIS=r.key;render();return}
  PENDVIS=null;next()}
 function decideScope(r,c){if(!r.scope)return;if(c==='confirm'&&r.scope.code==='NS')return;const o=document.getElementById('sother'),m=document.getElementById('scmt');

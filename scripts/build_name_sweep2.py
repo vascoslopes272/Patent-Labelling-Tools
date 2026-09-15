@@ -88,13 +88,22 @@ def main():
     ps = pd.read_excel(PATSEER, usecols=["Record Number", "Simple Family ID", "Extended Family ID", "Inventors",
                                          "Priority Date (Record)", "PDF Link"]).set_index("Record Number")
 
-    # duplicate graph over the whole corpus (edges: patent -- the patent it duplicates)
+    # duplicate graph over the whole corpus (edges: patent -- the patent it duplicates), read from the LIVE wizard record
+    # (identity_ALL can predate duplicate changes made in the wizard)
+    w = pd.read_excel(ROOT / "joined" / "wizard_all" / "reviewed_patents_Batch_ALL.xlsx", dtype=str, keep_default_na=False,
+                      usecols=["Patent_ID", "Field", "Value"])
+    w = w[w.Field.isin(["isDuplicate", "duplicateId", "duplicateType"])]
+    w["pid"] = w.Patent_ID.str.replace(r"_arch\d+$", "", regex=True)
+    wl = w.groupby(["pid", "Field"]).Value.first().unstack().fillna("")
+    live = {pid: (r.duplicateId.strip(), "D" + r.duplicateType.split(" — ")[0].strip())
+            for pid, r in wl.iterrows() if r.get("isDuplicate", "") in ("True", "true") and r.duplicateId.strip()}
+    idn["duptag"] = idn.patent_id.map(lambda p: live[p][1] if p in live else "")
+    idn["wizard_duplicate_of"] = idn.patent_id.map(lambda p: live[p][0] if p in live else "")
+    by = idn.set_index("patent_id")
     g = defaultdict(list)
-    for r in idn.itertuples():
-        o = s(r.wizard_duplicate_of)
-        if r.duptag and o:
-            g[r.patent_id].append((o, f"{r.patent_id} is {r.duptag} of {o}", r.duptag))
-            g[o].append((r.patent_id, f"{r.patent_id} is {r.duptag} of {o}", r.duptag))
+    for pid, (o, t) in live.items():
+        g[pid].append((o, f"{pid} is {t} of {o}", t))
+        g[o].append((pid, f"{pid} is {t} of {o}", t))
 
     def dup_path(a, b):
         seen, q = {a: None}, deque([a])
@@ -185,6 +194,8 @@ def main():
                 verdict, kind = f"no duplicate link, but the labels are {round(ls * 100)}% equal → check: maybe a missed duplicate", "maybe"
             pairs.append({"a": f'{a["pid"]}#{a["v"]}', "b": f'{b["pid"]}#{b["v"]}', "verdict": verdict,
                           "kind": kind, "evidence": ev, "labels": ls, "ldiff": ldiff})
+        if all(p["kind"] == "same" for p in pairs):
+            continue
         repeated.append({"name": members[0]["name"], "aircraft": members, "pairs": pairs})
 
     # ---- 2. company names nobody received, with the aircraft they may fit ----
@@ -206,20 +217,41 @@ def main():
         for x in port:
             if norm(x["name"]) in used:
                 continue
+            # every aircraft of the company (2026-09-16: the architecture/year filter hid the right one — e.g. the
+            # Overair Butterfly and the Aurora PAV). Matching ones first; the rest greyed with the reason.
             fits = []
             for pid in company_pids:
                 yr = by.at[pid, "priority_year"]
                 for v, t in enumerate(types.get(pid, []), 1):
+                    why = []
                     if x["type"] and t != x["type"]:
-                        continue
+                        why.append(f'architecture {t or "?"} ≠ {x["type"]}')
                     if not pd.isna(yr) and x.get("yf") and int(yr) < x["yf"] - 1:
-                        continue
+                        why.append(f'filed {int(yr)}, the aircraft appeared in {x["yf"]}')
                     rec = aircraft_rec(pid, v, decided_name.get((pid, v), ""))
                     rec["gap"] = abs(int(yr) - x["yf"]) if not pd.isna(yr) and x.get("yf") else 99
+                    rec["off"] = "; ".join(why)
                     fits.append(rec)
-            fits.sort(key=lambda r: (bool(r["name"]), r["gap"], r["pid"]))
+            fits.sort(key=lambda r: (bool(r["off"]), bool(r["name"]), r["gap"], r["pid"]))
             unassigned.append({"name": x["name"], "company": comp, "years": x["years"], "type": x["type"],
                                "basis": x.get("basis", ""), "fits": fits})
+
+    # ---- 3. every real name now in the file, for a final confirmation (2026-09-15: "I want to review all 5") ----
+    confirm = []
+    for r in dec.itertuples():
+        if r.decision == "clear":
+            continue
+        t = types.get(r.patent_id, [""])
+        parts = [x.strip() for x in s(r.name_final).split(";")] if len(t) > 1 else [s(r.name_final)]
+        for i, nm in enumerate(parts):
+            rec = aircraft_rec(r.patent_id, i + 1, nm, r.decision)
+            if not nm or norm(nm) == norm(rec["gname"]):
+                continue
+            rec["why"] = s(r.comment)
+            rec["base"] = re.sub(r"(\s+v\d+)+$", "", nm).strip()
+            confirm.append(rec)
+    confirm.sort(key=lambda a: (a["base"].lower(), s(a["name"])))
+    print("names to confirm:", len(confirm))
 
     print(f"export: {export}  ({len(dec)} patents, {len(named)} named aircraft)")
     print(f"repeated names: {len(repeated)}")
@@ -229,7 +261,7 @@ def main():
     for u in unassigned:
         print(f"  {u['company']} — {u['name']} ({u['type'] or '?'}, {u['years']}): {len(u['fits'])} fitting aircraft")
 
-    payload = {"export": str(export), "repeated": repeated, "unassigned": unassigned, "bench": BENCH}
+    payload = {"export": str(export), "repeated": repeated, "unassigned": unassigned, "confirm": confirm, "bench": BENCH}
     OUT_HTML.write_text(PAGE.replace("__DATA__", json.dumps(payload, ensure_ascii=False, default=str)), encoding="utf-8")
     print("wrote", OUT_HTML)
 
@@ -261,7 +293,7 @@ select.dupsel{font:inherit;font-size:12.5px;width:100%;margin-top:3px}
 #zoom{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:20}#zoom img{max-width:96vw;max-height:96vh;background:#fff}
 </style></head><body>
 <header><h1>Name sweep 2</h1>
-<select id="view"><option value="all">everything</option><option value="rep">1 · names on several aircraft</option><option value="una">2 · names nobody received</option><option value="open">only what is still open</option></select>
+<select id="view"><option value="all">everything</option><option value="rep">1 · names on several aircraft</option><option value="una">2 · names nobody received</option><option value="set">3 · names now set — confirm</option><option value="open">only what is still open</option></select>
 <span id="prog"></span><button id="exp">Export NAME_SWEEP2.csv</button>
 <label style="font-size:13px"><input type="checkbox" id="gauto" checked> 🔍 image window</label></header>
 <main id="main"></main><div id="zoom"><img></div>
@@ -306,18 +338,32 @@ function renderRep(){return `<h2>1 · The same name on several aircraft (${D.rep
 function unaDone(u){const st=S['name:'+u.company+':'+u.name];return !!(st&&st.act)}
 function renderUna(){const list=D.unassigned.filter(u=>u.fits.length);const none=D.unassigned.filter(u=>!u.fits.length);
  return `<h2>2 · Company names nobody received (${list.length} with an aircraft that could fit)</h2>
- <p class="lead">These documented aircraft are not the name of any aircraft in your export. The aircraft below have the same architecture and were filed no earlier than a year before that aircraft appeared; unnamed ones first. Pick the one it is, or say none. A name you give here to an aircraft that already has a name replaces that name.</p>`+
+ <p class="lead">These documented aircraft are not the name of any aircraft in your export. The aircraft below have the same architecture and were filed no earlier than a year before that aircraft appeared; unnamed ones first, then the company's other aircraft greyed with the reason they were not proposed. Pick the one it is, or say none. A name you give here to an aircraft that already has a name replaces that name.</p>`+
  list.filter(u=>VIEW!=='open'||!unaDone(u)).map(u=>{const k='name:'+u.company+':'+u.name;const st=S[k]||{};
   return `<div class="grp ${unaDone(u)?'done':''}" data-u="${esc(k)}"><h3>${esc(u.name)} <span class="mut" style="font-weight:400">— ${esc(u.company)} · ${esc(u.years)} · public type ${esc(u.type||'not documented')}</span>
   <button class="gi" style="font:inherit;font-size:12px;padding:2px 8px;border:1px solid var(--line);border-radius:6px;background:#fff;cursor:pointer">🔍 images</button>
   <button class="none" style="font:inherit;font-size:12px;padding:2px 8px;border:1px solid var(--line);border-radius:6px;background:${st.act==='none'?'#e8efff':'#fff'};cursor:pointer">✗ none of these</button></h3>
   <div class="small mut">${esc(u.basis)}</div>
-  <div class="row">${u.fits.map(a=>acCard(a,`<div class="btns"><button data-pick="${esc(key(a))}" class="${st.act==='pick'&&st.to===key(a)?'on':''}">✓ it is this one</button></div>`)).join('')}</div></div>`}).join('')+
+  <div class="row">${u.fits.map(a=>acCard(a,(a.off?`<div class="small mut">not proposed: ${esc(a.off)}</div>`:'')+`<div class="btns"><button data-pick="${esc(key(a))}" class="${st.act==='pick'&&st.to===key(a)?'on':''}">✓ it is this one</button></div>`)).join('')}</div></div>`}).join('')+
  (none.length?`<p class="small mut">No fitting aircraft in the corpus: ${esc(none.map(u=>u.company+' — '+u.name).join('; '))}</p>`:'')}
 let VIEW='all';
-function render(){const M=document.getElementById('main');M.innerHTML=(VIEW!=='una'?renderRep():'')+(VIEW!=='rep'?renderUna():'');
+// ---- section 3 ----
+const ACT3={ok:'✓ correct',wrong:'✗ not this aircraft → clear',other:'✎ another name'};
+const setKey=a=>'set:'+key(a);
+const setDone=a=>{const st=S[setKey(a)];return !!(st&&st.act&&(st.act!=='other'||st.name))};
+function renderSet(){const L=(D.confirm||[]);
+ return `<h2>3 · Names now set — confirm (${L.length})</h2>
+ <p class="lead">Every aircraft that carries a real name in NAME_DECISIONS.csv. The first patent of a name keeps it plain; the others are v1, v2 … by priority date. Check the drawing against the photos (🔍 images) and confirm, or say it is not that aircraft. Rows marked "to confirm" in the note are the ones proposed for you, not chosen by you.</p>`+
+ L.filter(a=>VIEW!=='open'||!setDone(a)).map(a=>{const st=S[setKey(a)]||{};
+  return `<div class="grp ${setDone(a)?'done':''}" data-s="${esc(key(a))}"><h3>${esc(a.name)} <span class="mut" style="font-weight:400">— ${esc(a.pid)}${a.lab?' · '+esc(a.lab):''}</span>
+   <button class="gi" style="font:inherit;font-size:12px;padding:2px 8px;border:1px solid var(--line);border-radius:6px;background:#fff;cursor:pointer">🔍 images</button></h3>
+   ${a.why?`<div class="small mut">${esc(a.why)}</div>`:''}
+   <div class="row">${acCard(a,`<div class="btns">${Object.keys(ACT3).map(k=>`<button data-a3="${k}" class="${st.act===k?'on':''}">${ACT3[k]}</button>`).join('')}
+    ${st.act==='other'?`<input class="nm3" placeholder="the right name" value="${esc(st.name||'')}">`:''}</div>`)}</div></div>`}).join('')}
+function render(){const M=document.getElementById('main');M.innerHTML=VIEW==='set'?renderSet():(VIEW!=='una'?renderRep():'')+(VIEW!=='rep'?renderUna():'')+(VIEW==='all'||VIEW==='open'?renderSet():'');
  const r1=D.repeated.filter(grpDone).length,u=D.unassigned.filter(x=>x.fits.length),u1=u.filter(unaDone).length;
- document.getElementById('prog').textContent=`repeated names ${r1}/${D.repeated.length} settled · unassigned names ${u1}/${u.length} settled · export read: ${D.export.split('/').pop()}`;
+ const c=(D.confirm||[]),c1=c.filter(setDone).length;
+ document.getElementById('prog').textContent=`repeated ${r1}/${D.repeated.length} · unassigned ${u1}/${u.length} · names confirmed ${c1}/${c.length} · export read: ${D.export.split('/').pop()}`;
  M.querySelectorAll('.grp[data-g]').forEach(el=>{const g=D.repeated[+el.dataset.g];
   el.querySelector('.gi').onclick=()=>img(q(g.name,g.aircraft[0].company),g.name);
   el.querySelectorAll('.ac').forEach(ac=>{const k=ac.dataset.k;const set=o=>{S[k]=Object.assign({},S[k]||{},o);
@@ -331,6 +377,10 @@ function render(){const M=document.getElementById('main');M.innerHTML=(VIEW!=='u
   el.querySelector('.gi').onclick=()=>img(q(u.name,u.company),u.name);
   el.querySelector('.none').onclick=()=>{S[k]={act:'none'};save();render()};
   el.querySelectorAll('button[data-pick]').forEach(b=>b.onclick=()=>{S[k]={act:'pick',to:b.dataset.pick};save();render()})});
+ M.querySelectorAll('.grp[data-s]').forEach(el=>{const a=(D.confirm||[]).find(x=>key(x)===el.dataset.s);const k=setKey(a);
+  el.querySelector('.gi').onclick=()=>img(q(a.base||a.name,a.company),a.name+' — '+a.pid);
+  el.querySelectorAll('button[data-a3]').forEach(b=>b.onclick=()=>{S[k]=Object.assign({},S[k]||{},{act:b.dataset.a3});save();render()});
+  const nm=el.querySelector('.nm3');if(nm)nm.onchange=()=>{S[k]=Object.assign({},S[k]||{},{name:nm.value});save();render()}});
  M.querySelectorAll('.imgs img').forEach(im=>im.onclick=()=>{const z=document.getElementById('zoom');z.querySelector('img').src=im.src;z.querySelector('img').style.transform=im.style.transform;z.style.display='flex'});
 }
 document.getElementById('view').onchange=e=>{VIEW=e.target.value;render()};
@@ -343,6 +393,8 @@ document.getElementById('exp').onclick=()=>{const L=[['section','name','patent_i
  D.unassigned.forEach(u=>{const st=S['name:'+u.company+':'+u.name];if(!st||!st.act)return;
   const a=st.to?u.fits.find(b=>key(b)===st.to):null;
   L.push(['unassigned',u.name,a?a.pid:'',a&&a.n>1?LET[a.v-1]:'',st.act==='pick'?'assign':'none',a?u.name:'','',a&&a.name?'replaces '+a.name:''].map(cq).join(','))});
+ (D.confirm||[]).forEach(a=>{const st=S[setKey(a)];if(!st||!st.act)return;
+  L.push(['set',a.name,a.pid,a.n>1?LET[a.v-1]:'',st.act,st.act==='other'?st.name:'','',''].map(cq).join(','))});
  saveToFolder(new Blob([L.join('\n')],{type:'text/csv'}),'NAME_SWEEP2.csv')};
 render();
 </script></body></html>"""
