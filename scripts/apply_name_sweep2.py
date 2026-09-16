@@ -64,7 +64,7 @@ def main():
         if not r["name_final"].strip("; "):
             r["name_final"] = ""
         r["comment"] = note
-        r["decided_at"] = "2026-09-16T00:17"
+        r["decided_at"] = f"{pd.Timestamp.now():%Y-%m-%dT%H:%M}"   # newest decision wins inside a duplicate cluster
         print(f"  {pid}{' ' + LET[v-1] if nvar.get(pid,1)>1 else '':3} {old or '(clear)':34} → {r['name_final'] or '(clear)'}")
 
     print(f"merging {src}")
@@ -89,7 +89,8 @@ def main():
             elif act == "dupe":
                 print(f"  ⚠ {pid}: marked as the same aircraft as {s['duplicate_of']} — needs the duplicate flag in the wizard")
     if apply:
-        bak = DEC.with_name(f"NAME_DECISIONS.PRE_SWEEP2MERGE_{pd.Timestamp.now():%Y%m%d_%H%M%S}.csv")
+        bak = DEC.parent / "_backups" / "names" / (f"NAME_DECISIONS.PRE_SWEEP2MERGE_{pd.Timestamp.now():%Y%m%d_%H%M%S}.csv")
+        bak.parent.mkdir(parents=True, exist_ok=True)
         DEC.rename(bak)
         with open(DEC, "w", newline="", encoding="utf-8") as fh:
             w = csv.DictWriter(fh, fieldnames=header, quoting=csv.QUOTE_ALL)

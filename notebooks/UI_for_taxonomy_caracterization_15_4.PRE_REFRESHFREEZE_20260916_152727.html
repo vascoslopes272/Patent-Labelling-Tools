@@ -1449,31 +1449,6 @@ function registerAircraft(rawName) {
   if (!AIRCRAFT_REGISTRY[key]) AIRCRAFT_REGISTRY[key] = { display: disp, rawNames: [], snapshot: null };
   if (AIRCRAFT_REGISTRY[key].rawNames.indexOf(rawName) === -1) AIRCRAFT_REGISTRY[key].rawNames.push(rawName);
   AIRCRAFT_REGISTRY[key].snapshot = captureAircraftSnapshot();   // latest wins
-  delete AIRCRAFT_REGISTRY[key]._snapPid;                        // a live snapshot beats a pending one
-}
-
-// A resumed session marks each named aircraft with the patent whose reviewed rows
-// hold its morphology (_snapPid) instead of rebuilding all ~1 000 snapshots up
-// front (3.3 s of frozen tab after every F5 on the whole corpus). The snapshot is
-// built from those rows the first time it is actually applied.
-function registryHasSnapshot(entry) {
-  return !!(entry && (entry.snapshot || entry._snapPid));
-}
-function registrySnapshot(entry) {
-  if (!entry) return null;
-  if (entry._snapPid) {
-    var pid = entry._snapPid;
-    delete entry._snapPid;
-    var rows = REVIEWED_ROWS.filter(function(r){ return basePatentId(r.Patent_ID) === pid; });
-    if (rows.length) {
-      try {
-        var snaps = extractArchSnapshots(rows);
-        var primary = snaps.find(function(s){ return s.arch === 1; }) || snaps[0];
-        if (primary && primary.snapshot) entry.snapshot = primary.snapshot;
-      } catch (e) {}
-    }
-  }
-  return entry.snapshot;
 }
 
 // Fuzzy lookup: exact normalized match first, then a lightweight near-match
@@ -3528,7 +3503,7 @@ function pageT1(){
             .concat(Object.keys(AIRCRAFT_REGISTRY).map(function(k){ return '<option value="'+escHtml(AIRCRAFT_REGISTRY[k].display)+'"></option>'; }))
             .join('')
         + '</datalist>'
-        + (T1_META.aircraftName && registryHasSnapshot(lookupAircraft(T1_META.aircraftName))
+        + (T1_META.aircraftName && lookupAircraft(T1_META.aircraftName) && lookupAircraft(T1_META.aircraftName).snapshot
             ? '<div class="flag info" style="margin-top:8px;"><span class="f-lbl">↺ Known aircraft</span>M1/M2/M3 copied from a previous patent named "'+escHtml(lookupAircraft(T1_META.aircraftName).display)+'". Edit as needed — clicking Next on T2 jumps to the summary.</div>'
             : '')
         + '</div>'
@@ -5495,16 +5470,7 @@ function exportReviewedBatch() {
 // costs at most the last debounced commit. Where the API is unavailable
 // (non-Chrome, or file:// with it disabled) it degrades to periodically
 // re-downloading reviewed_patents_<batch>.xlsx every few reviewed patents.
-var AUTOSAVE = { handle: null, enabled: false, mode: null, lastSig: '', lastErr: null, dlCount: 0,
-                 busy: null, again: false, lastAt: 0, timer: null };
-// Whole-corpus sessions (Batch_ALL, ~128 k rows, a 44 MB xlsx) took ~4 s of
-// main-thread time per write, on every commit — clicks and F5 queued behind it
-// and the tab looked frozen (2026-09-16). Above this size the xlsx is built in a
-// worker and written at most once per _AUTOSAVE_BIG_GAP_MS (IndexedDB still
-// holds every edit in the meantime).
-var _AUTOSAVE_BIG_ROWS = 20000;
-var _AUTOSAVE_BIG_GAP_MS = 30000;
-var _unloading = false;
+var AUTOSAVE = { handle: null, enabled: false, mode: null, lastSig: '', lastErr: null, dlCount: 0 };
 var _AUTOSAVE_HANDLE_KEY = 'autosaveFileHandle';
 var _AUTOSAVE_DL_EVERY = 5;   // fallback: force a download every N newly-reviewed patents
 
@@ -5532,63 +5498,20 @@ function _idbGetKey(key) {
 
 // Same rows/columns as exportReviewedBatch(), returned as an ArrayBuffer instead
 // of being auto-downloaded.
-function _buildReviewedXlsxBuffer(rows) {
-  var ws = XLSX.utils.json_to_sheet(rows || REVIEWED_ROWS, { header: EXCEL_COLUMNS });
+function _buildReviewedXlsxBuffer() {
+  var ws = XLSX.utils.json_to_sheet(REVIEWED_ROWS, { header: EXCEL_COLUMNS });
   var wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Review");
   return XLSX.write(wb, { type: "array", bookType: "xlsx" });
 }
 
-// Same workbook, built in a Web Worker (SheetJS loaded there from the page's own
-// <script src>). Falls back to the main thread if the worker can't start.
-var _xlsxWorker = null, _xlsxWorkerBroken = false, _xlsxJobs = {}, _xlsxJobSeq = 0;
-function _xlsxWorkerGet() {
-  if (_xlsxWorkerBroken) return null;
-  if (_xlsxWorker) return _xlsxWorker;
-  try {
-    var tag = document.querySelector('script[src*="xlsx"]');
-    if (!tag) { _xlsxWorkerBroken = true; return null; }
-    var src = 'importScripts(' + JSON.stringify(tag.src) + ');'
-      + 'onmessage=function(e){try{var ws=XLSX.utils.json_to_sheet(e.data.rows,{header:e.data.header});'
-      + 'var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Review");'
-      + 'var b=XLSX.write(wb,{type:"array",bookType:"xlsx"});postMessage({id:e.data.id,buf:b},[b]);}'
-      + 'catch(err){postMessage({id:e.data.id,err:String(err)});}};';
-    _xlsxWorker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
-    _xlsxWorker.onmessage = function(e) {
-      var job = _xlsxJobs[e.data.id]; delete _xlsxJobs[e.data.id];
-      if (!job) return;
-      if (e.data.err) job.reject(new Error(e.data.err)); else job.resolve(e.data.buf);
-    };
-    _xlsxWorker.onerror = function(e) {
-      // importScripts failed (offline / blocked) — retire the worker; pending jobs rerun on the main thread
-      _xlsxWorkerBroken = true;
-      try { _xlsxWorker.terminate(); } catch (e2) {}
-      _xlsxWorker = null;
-      Object.keys(_xlsxJobs).forEach(function(id){ var j = _xlsxJobs[id]; delete _xlsxJobs[id]; j.fallback(); });
-    };
-    return _xlsxWorker;
-  } catch (e) { _xlsxWorkerBroken = true; return null; }
-}
-function _buildReviewedXlsxBufferAsync(rows) {
-  var w = rows.length > _AUTOSAVE_BIG_ROWS ? _xlsxWorkerGet() : null;
-  if (!w) return Promise.resolve().then(function(){ return _buildReviewedXlsxBuffer(rows); });
-  return new Promise(function(resolve, reject) {
-    var id = ++_xlsxJobSeq;
-    _xlsxJobs[id] = { resolve: resolve, reject: reject,
-      fallback: function(){ try { resolve(_buildReviewedXlsxBuffer(rows)); } catch (e) { reject(e); } } };
-    w.postMessage({ id: id, rows: rows, header: EXCEL_COLUMNS });
-  });
-}
-
-// Change signature so we only rewrite the file when a review actually changed
-// (a commit / resume / load), not on every keystroke render. Every change to
-// REVIEWED_ROWS replaces the array (filter/concat/assign — rows are never edited
-// in place), so the array's identity is the signature. The old djb2 over
-// JSON.stringify(REVIEWED_ROWS) cost ~300 ms on a whole-corpus session.
-var _rowsSigRef = null, _rowsSigN = 0;
+// Cheap full-content signature so we only rewrite the file when a review
+// actually changed (a commit / re-edit), not on every keystroke render. djb2
+// over the reviewed rows catches inserts AND in-place re-edits of earlier rows.
 function _reviewedSig() {
-  if (REVIEWED_ROWS !== _rowsSigRef) { _rowsSigRef = REVIEWED_ROWS; _rowsSigN++; }
-  return _rowsSigN + ":" + REVIEWED_ROWS.length;
+  var s = JSON.stringify(REVIEWED_ROWS), h = 5381, i = s.length;
+  while (i) { h = (h * 33) ^ s.charCodeAt(--i); }
+  return (h >>> 0) + ":" + REVIEWED_ROWS.length;
 }
 
 function updateAutosaveIndicator() {
@@ -5626,31 +5549,15 @@ function _writeAutosaveNow() {
   var sig = _reviewedSig();
   if (sig === AUTOSAVE.lastSig) return Promise.resolve();   // nothing new since last write
   if (AUTOSAVE.mode === 'fsa' && AUTOSAVE.handle) {
-    var big = REVIEWED_ROWS.length > _AUTOSAVE_BIG_ROWS;
-    // A big build can't finish before the page goes away; IndexedDB already has the edits.
-    if (big && _unloading) return Promise.resolve();
-    // One write at a time; a change that lands mid-write is picked up when it ends.
-    if (AUTOSAVE.busy) { AUTOSAVE.again = true; return AUTOSAVE.busy; }
-    var wait = big ? AUTOSAVE.lastAt + _AUTOSAVE_BIG_GAP_MS - Date.now() : 0;
-    if (wait > 0) {
-      if (!AUTOSAVE.timer) AUTOSAVE.timer = setTimeout(function(){ AUTOSAVE.timer = null; _writeAutosaveNow(); }, wait);
-      return Promise.resolve();
-    }
-    var rows = REVIEWED_ROWS, handle = AUTOSAVE.handle;
-    AUTOSAVE.busy = _verifyPermission(handle, false).then(function(ok){
+    return _verifyPermission(AUTOSAVE.handle, false).then(function(ok){
       if (!ok) { AUTOSAVE.enabled = false; AUTOSAVE.mode = 'relink'; updateAutosaveIndicator(); return; }
-      return _buildReviewedXlsxBufferAsync(rows).then(function(buf){
-        return handle.createWritable().then(function(w){
-          return w.write(buf).then(function(){ return w.close(); });
-        });
+      var buf = _buildReviewedXlsxBuffer();
+      return AUTOSAVE.handle.createWritable().then(function(w){
+        return w.write(buf).then(function(){ return w.close(); });
       }).then(function(){ AUTOSAVE.lastSig = sig; AUTOSAVE.lastErr = null; });
     }).catch(function(e){
       AUTOSAVE.lastErr = e; AUTOSAVE.enabled = false; AUTOSAVE.mode = 'relink'; updateAutosaveIndicator();
-    }).then(function(){
-      AUTOSAVE.busy = null; AUTOSAVE.lastAt = Date.now();
-      if (AUTOSAVE.again) { AUTOSAVE.again = false; if (AUTOSAVE.enabled) _writeAutosaveNow(); }
     });
-    return AUTOSAVE.busy;
   }
   if (AUTOSAVE.mode === 'download') {
     if (REVIEWED_ROWS.length - AUTOSAVE.dlCount >= _AUTOSAVE_DL_EVERY) {
@@ -6652,22 +6559,14 @@ document.getElementById('batch-resume-input').addEventListener('change', functio
         byId[pid].push(r);
       });
 
-      // Drop the previous rows of every restored patent in ONE pass, then append
-      // the file's rows in file order — same result as the old per-patent
-      // filter+concat, which rescanned all rows once per patent (~10 s frozen on
-      // the whole corpus).
-      var inBatch = {};
-      BATCH.ids.forEach(function(pid){ inBatch[pid] = true; });
-      var take = Object.keys(byId).filter(function(pid){ return inBatch[pid]; });   // not in the ml batch → skipped
-      var taking = {};
-      take.forEach(function(pid){ taking[pid] = true; });
-      var merged = REVIEWED_ROWS.filter(function(r){ return !taking[basePatentId(r.Patent_ID)]; });
-      take.forEach(function(pid){
-        Array.prototype.push.apply(merged, byId[pid]);
+      var restored = 0;
+      Object.keys(byId).forEach(function(pid) {
+        if (BATCH.ids.indexOf(pid) === -1) return;   // not part of the currently loaded ml batch
+        REVIEWED_ROWS = REVIEWED_ROWS.filter(function(r){ return basePatentId(r.Patent_ID) !== pid; });
+        REVIEWED_ROWS = REVIEWED_ROWS.concat(byId[pid]);
         BATCH.saved[pid] = true;
+        restored++;
       });
-      REVIEWED_ROWS = merged;
-      var restored = take.length;
 
       // First not-yet-reviewed patent, or the last one if every patent is already saved.
       var nextIdx = BATCH.ids.findIndex(function(pid){ return !BATCH.saved[pid]; });
@@ -7602,9 +7501,8 @@ document.getElementById('panel').addEventListener('change', function(e){
     // Gmbh") and must not overwrite the name the user typed or steal the snapshot.
     var exactKey = raw ? normalizeAircraftName(raw).toLowerCase() : null;
     var hit = exactKey && AIRCRAFT_REGISTRY[exactKey] ? AIRCRAFT_REGISTRY[exactKey] : null;
-    var hitSnap = registrySnapshot(hit);
-    if (hitSnap) {
-      applyAircraftSnapshot(hitSnap);        // editable pre-fill of M1/M2/M3 (+G1)
+    if (hit && hit.snapshot) {
+      applyAircraftSnapshot(hit.snapshot);   // editable pre-fill of M1/M2/M3 (+G1)
       T1_META.aircraftName = hit.display;     // canonical display form
       S.aircraftAutoJump = true;              // Next on T2 skips straight to Done
     }
@@ -8036,9 +7934,10 @@ function _applySession(snap, migrateToIdb, done) {
       });
       ingestRegistryFromRows(_byId);   // (a) names → datalist (additive, non-clobbering)
 
-      // (b) point each aircraft at its latest reviewed patent; registrySnapshot()
-      // rebuilds the morphology snapshot (G1/M1/M2/M3) from that patent's rows
-      // with extractArchSnapshots() the first time the snapshot is applied.
+      // (b) reconstruct each aircraft's morphology snapshot (G1/M1/M2/M3) from
+      // its latest reviewed patent's rows, using the same extractArchSnapshots()
+      // the live "Copy morphology" picker uses. It save/restores the current S
+      // and FIG_* lookups, so this is side-effect-free on the resumed patent.
       Object.keys(_byId).forEach(function(pid){
         var rows = _byId[pid];
         var nameRow = rows.find(function(r){ return r.Field === 'aircraftName'; });
@@ -8048,7 +7947,11 @@ function _applySession(snap, migrateToIdb, done) {
         if (!disp || disp === NO_NAME_AIRCRAFT) return;
         var entry = AIRCRAFT_REGISTRY[disp.toLowerCase()];
         if (!entry) return;
-        entry._snapPid = pid;   // latest wins
+        try {
+          var snaps = extractArchSnapshots(rows);
+          var primary = snaps.find(function(s){ return s.arch === 1; }) || snaps[0];
+          if (primary && primary.snapshot) entry.snapshot = primary.snapshot;   // latest wins
+        } catch (e) {}
       });
     } catch (e) {}
     if (BATCH) {
@@ -8091,9 +7994,8 @@ function restoreSession(done) {
 // per-render debounced writes keep IDB current to within a fraction of a second,
 // so at most the last <400 ms of typing is ever at risk.
 function _flushSession(){ if (_persistTimer) { clearTimeout(_persistTimer); _persistTimer = null; } _writeSessionNow(); }
-window.addEventListener('beforeunload', function(){ _unloading = true; _flushSession(); });
-window.addEventListener('pagehide', function(){ _unloading = true; _flushSession(); });
-window.addEventListener('pageshow', function(){ _unloading = false; });   // back from the bfcache
+window.addEventListener('beforeunload', _flushSession);
+window.addEventListener('pagehide', _flushSession);
 document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'hidden') _flushSession(); });
 
 // ── Build stamp + freeze watchdog (2026-08-07) ──────────────────────────────
@@ -8101,7 +8003,7 @@ document.addEventListener('visibilitychange', function(){ if (document.visibilit
 // so "I reloaded and it still does it" is ambiguous between "the fix doesn't
 // work" and "the fix was never loaded". WIZ_BUILD makes that checkable in one
 // line from the console.
-var WIZ_BUILD = 'v15.9+refreshfix-20260916';
+var WIZ_BUILD = 'v15.9+jumpfix-20260915';
 console.log('%c eVTOL Taxonomy Wizard ' + WIZ_BUILD + ' ', 'background:#1a7f4e;color:#fff;font-weight:600;');
 
 // Records what ran immediately before a stall. If the renderer hangs, whatever

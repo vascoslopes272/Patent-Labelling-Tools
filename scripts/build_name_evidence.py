@@ -15,7 +15,7 @@ For each candidate name the evidence is:
   - the patent's approved figures
 
 Outputs:
-  1639_LABELLED/joined/name_evidence_20260911.csv          one row per patent x candidate
+  1639_LABELLED/joined/names/name_evidence_20260911.csv          one row per patent x candidate
   Patent-Labelling-Tools/notebooks/post-process/name_review.html   the review page
                                     (Export -> 1639_LABELLED/review_decisions/NAME_DECISIONS.csv -> build_identity_all.py)
 """
@@ -36,7 +36,7 @@ PATSEER = Path("/mnt/storage_11tb/Drive_files_to_syncronize/2 - Patente & Valida
                "3 -Raw_Patent_Exports_PatSeer_&Gold_Standard/1639__dataset_08_06_26.xlsx")
 GAZ = REPO / "reference" / "evtol_gazetteer.csv"
 KNOWN = ROOT / "text_architecture" / "known_aircraft_architecture.csv"
-OUT_CSV = ROOT / "joined" / "name_evidence_20260911.csv"
+OUT_CSV = ROOT / "joined" / "names" / "name_evidence_20260911.csv"
 OUT_HTML = REPO / "notebooks" / "post-process" / "name_review.html"
 MAX_FIGS = 6
 _PRIOR = re.compile(r"prior art|known|conventional|existing|such as|e\.g\.|for example|U\.?S\.? ?Pat|"

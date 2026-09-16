@@ -28,11 +28,17 @@ PATSEER = Path("/mnt/storage_11tb/Drive_files_to_syncronize/2 - Patente & Valida
                "3 -Raw_Patent_Exports_PatSeer_&Gold_Standard/1639__dataset_08_06_26.xlsx")
 OUT = ROOT / "review_decisions" / "NAME_DECISIONS.csv"
 
+# which record carries the PLAIN name when the links would put it elsewhere (user rulings 2026-09-16)
+PLAIN = {
+    "honda evtol": "US2024190562A1",            # "the original one shall be US2024190562A1"
+    "porsche-boeing concept": "DE102023108565B3",
+}
+
 # user rulings 2026-09-15 (name sweep): shared a real name with another patent but are a different, unlinked aircraft
+# (US2024059393A1 was here until 2026-09-16: "all the duplicates and originals need to be named")
 CLEAR = {
     "EP3636545A1": "APT belongs to US11319064B1; this patent is not linked to it",
     "US2025242909A1": "H1 belongs to US2022081107A1; different aircraft (77% labels, other family)",
-    "US2024059393A1": "Honda eVTOL belongs to US2024190562A1; different aircraft (tail, wing position)",
 }
 
 
@@ -97,64 +103,128 @@ def main():
         if pid in by:
             set_first(pid, "", "cleared: " + why)
 
-    # D3 numbering per original, by priority date, over every D3 of that original (not only the ones on the page)
-    d3_of = {}
+    # ── one aircraft = one cluster of D1/D2 links ("the same aircraft"); a D3 is a different aircraft, so a different
+    # cluster. Each cluster carries one name: the one the reviewer typed on any of its members. When several clusters
+    # carry the same name (a D3 version, or two unlinked patents of the same aircraft family), the reviewer's cluster
+    # keeps the bare name and the others get vN by priority date — "if they are the same names they shall have vN"
+    # (user 2026-09-16). Nothing is written onto a record in CLEAR.
+    pr = lambda p: (s(prio.get(p, ""))[:10] or "9999", p)
+    nb = {}
     for pid, (o, t) in link.items():
-        if t == "3":
-            d3_of.setdefault(original(pid), []).append(pid)
-    for orig, kids in d3_of.items():
-        kids.sort(key=lambda p: (s(prio.get(p, ""))[:10] or "9999", p))
-        root = base(first_name(orig))
-        for n, pid in enumerate(kids, 1):
-            if pid not in by:
-                if not root:
-                    continue
-                # a D3 that never had a name candidate has no row yet: add one so it carries the variant name
-                r = {k: "" for k in header}
-                r.update(patent_id=pid, decision="clear")
-                rows.append(r)
-                by[pid] = r
-            cur = first_name(pid)
-            if not root:
-                if cur and link[pid][0] and (orig in CLEAR or re.sub(r"\s+v\d+$", "", cur) == s(by.get(orig, {}).get("name_final", "")).split(";")[0].strip()):
-                    set_first(pid, "", f"D3 of {orig}, which has no real name")
-                continue
-            if by[pid]["decision"] == "clear" and len(s(by[pid]["name_final"]).split(";")) > 1:
-                print(f"  ⚠ {pid}: multi-aircraft D3 of {orig} ({root}) with no named aircraft — left for review")
-                continue
-            if not first_name(pid):
-                set_first(pid, f"{root} v{n}", f"D3 of {orig} ({root}), variant {n} by priority date")
+        nb.setdefault(pid, []).append((o, t))
+        nb.setdefault(o, []).append((pid, t))
 
-    # ONE scheme (user 2026-09-15: "I either choose versions or concepts"): patents that share a real name without
-    # any duplicate link (concept stages of the same aircraft) are numbered the same way. Within a name, the keeper of
-    # the bare name is the member that is nobody's D3 with the earliest priority date; every other member gets vN in
-    # priority order, D3s and unlinked alike, so one name never sits bare on two patents.
-    groups = {}
-    for pid, r in by.items():
-        n = first_name(pid)
-        if n and not (pid in link and link[pid][1] in ("1", "2")):   # a D1/D2 legitimately carries its original's name
-            groups.setdefault(base(n).lower(), []).append(pid)
-    for key, members in groups.items():
-        if len(members) < 2:
+    # name overrides (review_decisions/name_overrides.csv): a duplicate the reviewer knows is a different named aircraft
+    # while the wizard link stays (e.g. the Midnight patents filed as D2 of the Maker). They leave their cluster.
+    ov_path = OUT.parent / "name_overrides.csv"
+    overrides = {r["patent_id"]: r["name"] for r in csv.DictReader(open(ov_path, encoding="utf-8"))} if ov_path.exists() else {}
+    for pid, nm in overrides.items():
+        if pid not in by:
+            rr = {k: "" for k in header}
+            rr["patent_id"] = pid
+            rows.append(rr)
+            by[pid] = rr
+        if first_name(pid) != nm:
+            set_first(pid, nm, "name override (review_decisions/name_overrides.csv)")
+        by[pid]["decision"] = "known"
+
+    pool = (set(by) | set(link) | {o for o, _ in link.values()}) - set(overrides)
+    cid, cluster_of, clusters = 0, {}, {}
+    for pid in sorted(pool, key=pr):
+        if pid in cluster_of:
             continue
-        pr = lambda p: (s(prio.get(p, ""))[:10] or "9999", p)
-        d3_members = {p for p in members if p in link and link[p][1] == "3" and original(p) in members}
-        keepers = sorted([p for p in members if p not in d3_members], key=pr) or sorted(members, key=pr)
-        keeper = keepers[0]
-        root = base(first_name(keeper))
-        if first_name(keeper) != root:
-            set_first(keeper, root, "keeps the bare name (earliest, nobody's D3)")
-        for n, pid in enumerate(sorted([p for p in members if p != keeper], key=pr), 1):
-            if first_name(pid) != f"{root} v{n}":
-                why = (f"D3 of {original(pid)}" if pid in d3_members else f"same name as {keeper}, no duplicate link") + f" → {root} v{n} by priority date"
-                set_first(pid, f"{root} v{n}", why)
+        cid += 1
+        stack, members = [pid], set()
+        while stack:                                   # same aircraft = reachable through D1/D2 links only
+            m = stack.pop()
+            if m in members:
+                continue
+            members.add(m)
+            cluster_of[m] = cid
+            for o, t in nb.get(m, []):
+                if t in ("1", "2") and o not in members and o not in overrides:
+                    stack.append(o)
+        clusters[cid] = members
 
-    # D1 / D2 records that appear in the file carry the original's name
-    for pid, (o, t) in link.items():
-        if t in ("1", "2") and pid in by:
-            root = first_name(original(pid) if original(pid) != pid else o)
-            if root and first_name(pid) != root:
-                set_first(pid, root, f"D{t} of {o}: the same aircraft, carries its name")
+    anchors = {}                                        # cluster -> (priority key, name the reviewer typed)
+    # the most recently decided record wins inside a cluster: a later sweep may rename the aircraft (CX300 → Alia-250)
+    for pid in sorted(pool, key=lambda p: (s(by.get(p, {}).get("decided_at", "")), pr(p)), reverse=True):
+        nm = first_name(pid)
+        if nm and pid not in CLEAR:
+            anchors.setdefault(cluster_of[pid], (pr(pid), nm))   # first in this (newest-first) order wins
+    names = {c: v[1] for c, v in anchors.items()}
+
+    for _ in range(3):                                  # a D3 of a named aircraft is a version of it
+        for pid, (o, t) in link.items():
+            if t != "3":
+                continue
+            a_, b_ = cluster_of.get(pid), cluster_of.get(o)
+            if a_ and b_ and (a_ in names) != (b_ in names):
+                src_, dst_ = (a_, b_) if a_ in names else (b_, a_)
+                if all(m not in CLEAR for m in clusters[dst_]):
+                    names[dst_] = base(names[src_])
+
+    groups_by_name = {}
+    for c, nm in names.items():
+        groups_by_name.setdefault(base(nm).lower(), []).append(c)
+    final = {}
+    for key, cs in groups_by_name.items():
+        bn = base(names[cs[0]])
+        # the bare name goes to the aircraft the others derive from: not a D3 of anything, reviewer-named, earliest
+        is_d3 = lambda c: any(link.get(m, ("", ""))[1] == "3" for m in clusters[c])
+        owner = PLAIN.get(key)
+        keyfn = lambda c: (0 if owner and owner in clusters[c] else 1,
+                           1 if is_d3(c) else 0,
+                           0 if c in anchors and not re.search(r"\s+v\d+$", anchors[c][1]) else 1,
+                           anchors[c][0] if c in anchors else min(pr(m) for m in clusters[c]))
+        cs = sorted(cs, key=keyfn)
+        for i, c in enumerate(cs):
+            final[c] = bn if i == 0 else f"{bn} v{i}"
+    # a patent that draws several aircraft: aircraft a takes its cluster's name, the other aircraft of the same family take
+    # the next free version numbers (2026-09-16 — so no "vN" is ever on two different aircraft)
+    top = {}
+    for c, nm in final.items():
+        mm = re.match(r"^(.*?)(?:\s+v(\d+))?$", nm)
+        top[mm.group(1).lower()] = max(top.get(mm.group(1).lower(), 0), int(mm.group(2) or 0))
+    for c, nm in sorted(final.items(), key=lambda kv: kv[1].lower()):
+        for m in sorted(clusters[c], key=pr):
+            r = by.get(m)
+            if not r or r["decision"] == "clear" or ";" not in s(r["name_final"]):
+                continue
+            parts = [x.strip() for x in s(r["name_final"]).split(";")]
+            fam_idx = [i for i, x in enumerate(parts) if base(x).lower() == base(nm).lower()]
+            # the aircraft that keeps the cluster name: the one the reviewer left without a vN, else the first of the family
+            keep = next((i for i in fam_idx if base(parts[i]) == parts[i]), fam_idx[0] if fam_idx else 0)
+            want = list(parts)
+            want[keep] = nm
+            for i in fam_idx:
+                if i != keep:
+                    top[base(nm).lower()] += 1
+                    want[i] = f"{base(nm)} v{top[base(nm).lower()]}"
+            full = "; ".join(want)
+            if full != r["name_final"]:
+                changes.append((m, r["name_final"], full, "multi-aircraft patent: a = cluster name, others next free vN"))
+                r["name_final"] = full
+
+    for c, nm in final.items():
+        for m in sorted(clusters[c], key=pr):
+            if m in CLEAR or m not in prio.index:
+                continue
+            if m not in by:
+                r = {k: "" for k in header}
+                r.update(patent_id=m, decision="clear")
+                rows.append(r)
+                by[m] = r
+            # a patent that draws several aircraft carries one name per aircraft: never rewrite it from a cluster name,
+            # and give its duplicates the whole list (2026-09-16)
+            multi = ";" in s(by[m]["name_final"])
+            src_multi = next((x for x in clusters[c] if ";" in s(by.get(x, {}).get("name_final", ""))), None)
+            if multi:
+                continue
+            # a duplicate of a multi-aircraft patent carries the cluster name (one name, the aircraft it copies)
+            if first_name(m) != nm:
+                t = link.get(m, ("", ""))[1]
+                set_first(m, nm, (f"D{t} of {link[m][0]}" if t in ("1", "2") else "same aircraft") + f" → {nm}")
 
     print(f"read {src} ({len(rows)} patents); {len(changes)} name(s) changed")
     for pid, old, new, why in changes:
@@ -169,7 +239,8 @@ def main():
     if apply:
         OUT.parent.mkdir(parents=True, exist_ok=True)
         if OUT.exists():
-            bak = OUT.with_name(f"NAME_DECISIONS.PRE_DUPNAMES_{pd.Timestamp.now():%Y%m%d_%H%M%S}.csv")
+            bak = OUT.parent / "_backups" / "names" / f"NAME_DECISIONS.PRE_DUPNAMES_{pd.Timestamp.now():%Y%m%d_%H%M%S}.csv"
+            bak.parent.mkdir(parents=True, exist_ok=True)
             OUT.rename(bak)
             print("backup:", bak)
         with open(OUT, "w", newline="", encoding="utf-8") as fh:

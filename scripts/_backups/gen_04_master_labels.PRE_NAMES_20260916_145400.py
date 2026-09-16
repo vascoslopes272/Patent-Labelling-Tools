@@ -56,7 +56,7 @@ BATCHES       = ["Batch_01", "Batch_02", "Batch_03", "Batch_04", "Batch_05"]
 IN_DIR      = Path(P["corrected_wizard_exports"])                   # 1639_LABELLED/labels — the human record (== 03c apart from the Image_Path prefix)
 ARCHIVE_03C = Path(P["base"]) / "data" / "03c_CORRECTED_wizard_exports"
 HTML        = Path(P["html_template"])
-OUT_DIR     = Path(os.environ.get("NB04_OUT_DIR") or Path(P["labelled"]) / "joined")   # NB04_OUT_DIR: test builds elsewhere
+OUT_DIR     = Path(P["labelled"]) / "joined"
 TAGS_CSV    = Path("04_other_note_tags.csv")                        # beside this notebook; edit freely
 SCHEMA_JS   = repo_root / "scripts" / "conformance" / "extract_html_schema.js"
 assert REASON_SOURCE in ("human", "sbert", "sbert_when_human_empty"), REASON_SOURCE
@@ -390,7 +390,7 @@ union over the group, per aircraft row. `edgeTags` = the wizard's tags ∪ the i
 wizard's own value stays in `edgeTags_wizard`. Rejected rows carry no identity answers and no tags.
 """)
 code(r"""
-ID_XLSX = Path(P["labelled"]) / "joined" / "aircraft_identity_ALL.xlsx"   # rebuilt by scripts/build_identity_all.py
+ID_XLSX = OUT_DIR / "aircraft_identity_ALL.xlsx"          # rebuilt by scripts/build_identity_all.py
 IDT = pd.read_excel(ID_XLSX, sheet_name="Identity", keep_default_na=False, dtype=str).set_index("patent_id")
 log(f"identity: {len(IDT)} patents <- {ID_XLSX.name} (review_status done: {int((IDT.review_status == 'done').sum())})")
 missing_id = sorted(set(M.patent_id) - set(IDT.index))
@@ -418,19 +418,6 @@ def tagset(v): return set() if is_empty(v) else set(str(v).split("|"))
 appr_mask = M.is_approved.fillna(False).astype(bool)
 M["edgeTags_wizard"] = M["edgeTags"]
 M["group_root"] = M.labels_inherited_from.where(M.labels_inherited_from.notna(), M.patent_id)
-
-# ── reviewed aircraft names (2026-09-16): review_decisions/NAME_DECISIONS.csv -> scripts/build_identity_all.py ->
-# aircraft_name_final[_variants] in the identity workbook. A D1/D2 row takes the name of the aircraft it copies (its
-# chain root, same variant). The name the annotator typed in the wizard stays beside it as aircraft_name_wizard.
-M["aircraft_name_wizard"] = M["aircraft_name"]
-def real_name(pid, root, v, fallback):
-    src = root if root in IDT.index else pid
-    vi = int(v) if str(v).strip().isdigit() else 1
-    n = id_value(src, "aircraft_name_final", vi) if src in IDT.index else ""
-    return n or fallback
-M["aircraft_name"] = [real_name(p, r, v, w) for p, r, v, w in zip(M.patent_id, M.group_root, M.variant, M.aircraft_name_wizard)]
-log(f"aircraft names: {int((M.aircraft_name != M.aircraft_name_wizard).sum())} rows carry the reviewed name; "
-    f"{M.loc[appr_mask, 'aircraft_name'].nunique()} distinct names on approved rows")
 for c in list(ID_FIELDS) + ID_UNC + ["identity_from"]:
     M[c] = np.nan
 M[list(ID_FIELDS) + ["identity_from"]] = M[list(ID_FIELDS) + ["identity_from"]].astype(object)
@@ -479,8 +466,7 @@ ROW_TAGS = {i: group_tags[(r.group_root, r.variant)] | (id_tags(r) & CONTESTED[(
             for i, r in M[appr_mask].iterrows()}      # a contested tag stays only on the row whose own answer gives it
 TAG_ORDER = LISTS["T1_EDGE_TAGS"]
 # The identity review is the later, dedicated pass: a wizard tag its answer contradicts is REMOVED, unless listed here.
-WIZARD_TAG_KEEP = {("US11124286B1", "UAVSimilar"): "user 2026-09-14: UAV but similar stays, although uav_final=No",
-                   ("KR102712524B1", "STOLSimilar"): "user 2026-09-15: STOL tag set in the wizard record, although takeoff_final=VTOL"}
+WIZARD_TAG_KEEP = {("US11124286B1", "UAVSimilar"): "user 2026-09-14: UAV but similar stays, although uav_final=No"}
 def contradicted(i):
     # wizard tags the identity answer of row i contradicts -> {tag: why}
     out = {}
@@ -757,7 +743,7 @@ def m3_block(cols):
         for t in types: out += [f"{card}_t{t}_{f}" for f in M3_TYPE if f"{card}_t{t}_{f}" in cols]
     return out
 cols = set(M.columns)
-HEAD = ["batch", "patent_id", "variant", "variant_id", "n_variants", "aircraft_name", "aircraft_name_wizard", "assignee", "title", "app_year", "pub_year", "pdf_link",
+HEAD = ["batch", "patent_id", "variant", "variant_id", "n_variants", "aircraft_name", "assignee", "title", "app_year", "pub_year", "pdf_link",
         "is_approved", "reason", "reason_source", "sub_reason", "reason_human", "reason_sbert", "reason_note",
         "is_duplicate", "dup_type", "dup_of", "dup_root", "is_primary", "labels_inherited_from", "dup_of_missing",
         "n_figures", "n_approved", "n_approved_this_variant", "n_fig_placeholders", "main_figure", "img_not_reflect",

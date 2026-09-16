@@ -206,14 +206,37 @@ def main():
         parts = [x.strip() for x in s(r.name_final).split(";")] if len(t) > 1 else [s(r.name_final)]
         for i in range(len(t)):
             decided_name[(r.patent_id, i + 1)] = "" if r.decision == "clear" else (parts[i] if i < len(parts) else "")
+    # the WHOLE gazetteer, not only the companies that reached the name page (2026-09-16: VoloCity and EH216 were
+    # invisible because no Volocopter/EHang patent ever had a name candidate)
+    gaz = pd.read_csv(REPO / "reference" / "evtol_gazetteer.csv")
+    gaz = gaz[gaz.company_canonical != "#"]
+    known = pd.read_csv(ROOT / "text_architecture" / "known_aircraft_architecture.csv")
+    ktype = {(r.company, r.aircraft_name): s(r.known_type) for r in known.itertuples()}
+    kbasis = {(r.company, r.aircraft_name): f"{s(r.confidence)} · {s(r.basis)}" for r in known.itertuples()}
+    # aircraft that are not in the gazetteer: companies whose patents never got a name candidate (2026-09-16 request
+    # "find those everywhere — it does not need to be on the gazetteer"). Proposals, each to be judged from the figures.
+    extra = REPO / "reference" / "extra_aircraft_candidates.csv"
+    if extra.exists():
+        ex = pd.read_csv(extra)
+        gaz = pd.concat([gaz, ex[["company_canonical", "aircraft_name", "year_from", "year_to"]]], ignore_index=True)
+        for r in ex.itertuples():
+            ktype.setdefault((r.company_canonical, r.aircraft_name), s(r.known_type))
+            kbasis.setdefault((r.company_canonical, r.aircraft_name), s(r.basis))
     portfolio = {}
-    for d in data.values():
-        if d["company"] and d["portfolio"]:
-            portfolio[d["company"]] = d["portfolio"]
+    for c, g in gaz.groupby("company_canonical"):
+        portfolio[c] = [{"name": r.aircraft_name, "years": f"{int(r.year_from)}–{int(r.year_to)}", "yf": int(r.year_from),
+                         "type": ktype.get((c, r.aircraft_name), ""), "basis": kbasis.get((c, r.aircraft_name), "")}
+                        for r in g.itertuples()]
     prim = idn[(idn.wizard_approved == True) & ~idn.wizard_duplicate_type.isin([1.0, 2.0])]
     unassigned = []
     for comp, port in sorted(portfolio.items()):
         company_pids = prim[prim.company_canonical == comp].patent_id.tolist()
+        if not company_pids:
+            # the company field can be "Unknown / Independent" while the assignee names the company (EHang, Opener…)
+            words = [w for w in re.split(r"[ /]+", comp) if len(w) > 3]
+            if words:
+                hit = prim.assignee_raw.astype(str).str.upper().str.contains(words[0].upper(), regex=False)
+                company_pids = prim[hit].patent_id.tolist()
         for x in port:
             if norm(x["name"]) in used:
                 continue

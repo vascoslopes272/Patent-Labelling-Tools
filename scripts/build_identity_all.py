@@ -166,8 +166,14 @@ def apply_name_decisions(ident: pd.DataFrame, path: Path) -> list[str]:
             if _is_blank(name):
                 out.append(f"⚠  {pid}: decision {decision!r} without a name — ignored")
                 continue
+            # a ";" name is one name per aircraft: it goes to the variants column, and the patent-level cell takes the
+            # first aircraft's name so the question counts as answered (2026-09-16)
             col = "aircraft_name_human_variants" if ";" in str(name) else "aircraft_name_human"
-            if not _is_blank(ident.at[i, "aircraft_name_human"]) or not _is_blank(ident.at[i, "aircraft_name_human_variants"]):
+            if col == "aircraft_name_human_variants" and _is_blank(ident.at[i, "aircraft_name_human"]):
+                ident.at[i, "aircraft_name_human"] = str(name).split(";")[0].strip()
+            # only the TARGET cell is protected: a one-name-per-aircraft decision may still fill the variants column of a
+            # patent whose patent-level name was typed in the 03a page (2026-09-16)
+            if not _is_blank(ident.at[i, col]):
                 kept += 1
                 continue
             ident.at[i, col] = str(name).strip()
