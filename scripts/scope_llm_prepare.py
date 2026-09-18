@@ -16,7 +16,8 @@ import re
 from pathlib import Path
 import pandas as pd
 
-ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED")
+ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED/0_labelling/inputs")   # 2026-09-17: stage-0 INPUTS of the 1639_LABELLED tree
+OUT = ROOT.parent / "outputs"                                                                                   # what notebook 04 writes
 PATSEER = Path("/mnt/storage_11tb/Drive_files_to_syncronize/2 - Patente & Validation/"
                "3 -Raw_Patent_Exports_PatSeer_&Gold_Standard/1639__dataset_08_06_26.xlsx")
 OUT = ROOT / "text_scope" / "llm_chunks"
@@ -29,7 +30,7 @@ def s(v) -> str:
     return "" if pd.isna(v) else " ".join(str(v).split())
 
 
-ml = pd.read_excel(ROOT / "joined" / "master_labels.xlsx", usecols=["patent_id", "is_primary", "is_approved"])
+ml = pd.read_csv(OUT / "tables" / "aircraft_table.csv", usecols=["patent_id", "is_primary", "is_approved"])
 pids = sorted(set(ml[(ml.is_primary == True) & (ml.is_approved == True)].patent_id))
 ps = pd.read_excel(PATSEER, dtype=str, usecols=["Record Number", "Title", "Abstract", "First Claim",
                                                 "Independent Claims"]).set_index("Record Number")

@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Names from evtol.news</title>
+<style>
+body{font:14px system-ui,sans-serif;margin:0;background:#f4f4f2;color:#222}
+header{position:sticky;top:0;z-index:5;background:#1f2d3d;color:#fff;padding:8px 16px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+header b{font-size:16px}
+header select,header button{font:inherit;padding:4px 8px}
+button.exp{background:#2e7d32;color:#fff;border:0;border-radius:4px;padding:6px 12px;cursor:pointer}
+main{padding:12px 16px;max-width:1500px;margin:auto}
+.card{background:#fff;border:1px solid #ccc;border-radius:6px;margin:0 0 14px;display:grid;grid-template-columns:420px 1fr;gap:14px;padding:10px}
+.card.done{border-left:6px solid #2e7d32}.card.none{border-left:6px solid #999}
+.figs img.main{max-width:410px;max-height:340px;display:block;cursor:zoom-in;border:1px solid #ddd}
+.figs .thumbs img{height:54px;margin:4px 4px 0 0;border:1px solid #ddd;cursor:pointer}
+.meta{font-size:13px;color:#444;line-height:1.5}
+.meta .pid{font-size:15px;font-weight:600;color:#000}
+.prior{background:#fff6d6;padding:2px 6px;border-radius:3px;display:inline-block;margin-top:2px}
+.cand{display:flex;gap:8px;align-items:flex-start;padding:5px 6px;border-radius:4px;cursor:pointer}
+.cand:hover{background:#eef3fb}.cand.sel{background:#dcebdc}
+.cand .t{font-weight:600}.cand .s{font-size:12px;color:#555}
+.badge{font-size:11px;padding:1px 6px;border-radius:8px;white-space:nowrap}
+.b-ok{background:#c8e6c9}.b-no{background:#f3d0d0}.b-na{background:#e0e0e0}
+.name{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.name input{font:inherit;padding:4px 6px}
+.name input.n{width:280px}.name input.c{width:320px}
+#zoom{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:9}
+#zoom img{max-width:95vw;max-height:95vh;background:#fff}
+.pre{margin:4px 0;padding:4px 8px;border-radius:4px;font-size:13px}
+.pre1{background:#d7f0d9;border-left:4px solid #2e7d32}.pre2{background:#fff0c8;border-left:4px solid #c79100}
+.b-sug{background:#1f2d3d;color:#fff}
+.help{font-size:12px;color:#cfd8dc}
+</style></head><body>
+<header>
+  <b>Names from evtol.news</b>
+  <span id="count"></span>
+  <label>show <select id="view">
+    <option value="short" selected>shortlist — not decided (open these)</option>
+    <option value="open">not decided</option><option value="match">not decided — type matches</option>
+    <option value="done">decided</option><option value="all">all</option></select></label>
+  <label><input type="checkbox" id="auto" checked> open the first candidate when I click a card</label>
+  <button class="exp" id="export">⬇ Export NAME_EVTOLNEWS.csv</button>
+  <span class="help">Pick the directory aircraft the patent drawing IS (not just resembles) → the name box fills; edit it. “none” = keep the generated name.</span>
+</header>
+<main id="list"></main>
+<div id="zoom"><img></div>
+<script>
+const DATA = /*DATA*/[];
+const KEY = 'nameEvtolnews_v1';
+let st = {};
+try { st = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} };
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let win = null;
+function openPage(url) { win = window.open(url, 'evtolnews'); }
+
+function badge(ok, arch) {
+  if (ok === true) return `<span class="badge b-ok">type matches ${esc(arch)}</span>`;
+  if (ok === false) return `<span class="badge b-no">type differs from ${esc(arch)}</span>`;
+  return `<span class="badge b-na">type unknown</span>`;
+}
+
+function card(x) {
+  const d = st[x.aid] || {};
+  const figs = x.figs.length ? `<img class="main" src="${esc(x.figs[0])}">
+     <div class="thumbs">${x.figs.map(f => `<img src="${esc(f)}">`).join('')}</div>` : '<i>no figure</i>';
+  const cands = x.cands.map((c, i) => `
+    <div class="cand ${d.sel === i ? 'sel' : ''}" data-i="${i}">
+      <input type="radio" name="r_${x.aid}" ${d.sel === i ? 'checked' : ''}>
+      <div><span class="t">${esc(c.title)}</span> ${c.suggested ? '<span class="badge b-sug">suggested</span>' : ''} ${badge(c.ok, x.arch)}
+        <a href="${esc(c.url)}" target="evtolnews" class="open">open ↗</a>
+        <div class="s">${esc(c.type)} · ${esc(c.why)}</div></div></div>`).join('');
+  return `<div class="card ${d.action === 'assign' ? 'done' : d.action === 'none' ? 'none' : ''}" id="c_${x.aid}" data-aid="${x.aid}">
+    <div class="figs">${figs}</div>
+    <div>
+      <div class="meta"><span class="pid">${esc(x.pid)}${x.letter ? ' · aircraft ' + x.letter : ''}</span>
+        <a href="https://patents.google.com/patent/${esc(x.pid)}" target="gpatent">Google Patents ↗</a><br>
+        ${esc(x.assignee)} · filed ${esc(x.year)} · architecture <b>${esc(x.arch)}</b><br>
+        ${esc(x.title)}<br>current name: <code>${esc(x.name)}</code>
+        ${x.pre ? `<div class="pre pre${x.tier}">${x.tier === 1 ? '★ strong match' : '? worth a look'} — ${esc(x.pre)}</div>` : ''}
+        ${x.prior ? `<br><span class="prior">earlier name review — ${esc(x.prior)}</span>` : ''}</div>
+      <div style="margin-top:6px">${cands}
+        <div class="cand ${d.action === 'none' ? 'sel' : ''}" data-i="none">
+          <input type="radio" name="r_${x.aid}" ${d.action === 'none' ? 'checked' : ''}><div><span class="t">none of these</span>
+          <div class="s">keeps the generated name</div></div></div></div>
+      <div class="name">name <input class="n" value="${esc(d.name || '')}" placeholder="pick a candidate">
+        note <input class="c" value="${esc(d.note || '')}" placeholder="optional (e.g. Generation 4 or 5)"></div>
+    </div></div>`;
+}
+
+function visible(x) {
+  const d = st[x.aid];
+  const v = document.getElementById('view').value;
+  if (v === 'all') return true;
+  if (v === 'done') return !!(d && d.action);
+  if (v === 'short') return !(d && d.action) && x.tier <= 2;
+  if (v === 'match') return !(d && d.action) && x.best > 0;
+  return !(d && d.action);
+}
+
+function render() {
+  const L = document.getElementById('list');
+  L.innerHTML = DATA.filter(visible).map(card).join('') || '<p>Nothing in this view.</p>';
+  const n = DATA.filter(x => st[x.aid] && st[x.aid].action).length;
+  document.getElementById('count').textContent = `${n} / ${DATA.length} aircraft decided · ${DATA.filter(x => x.tier <= 2).length} on the shortlist`;
+}
+
+document.getElementById('list').addEventListener('click', e => {
+  const cardEl = e.target.closest('.card'); if (!cardEl) return;
+  const x = DATA.find(y => y.aid === cardEl.dataset.aid);
+  if (e.target.matches('img')) {
+    if (e.target.closest('.thumbs')) { cardEl.querySelector('img.main').src = e.target.src; return; }
+    const z = document.getElementById('zoom'); z.querySelector('img').src = e.target.src; z.style.display = 'flex'; return;
+  }
+  if (e.target.matches('a')) return;
+  const c = e.target.closest('.cand');
+  if (!c) {
+    if (document.getElementById('auto').checked && !e.target.matches('input') && x.cands.length) openPage(x.cands[0].url);
+    return;
+  }
+  const d = st[x.aid] = st[x.aid] || {};
+  cardEl.querySelectorAll('.cand').forEach(k => k.classList.remove('sel'));
+  c.classList.add('sel'); c.querySelector('input').checked = true;
+  if (c.dataset.i === 'none') {
+    Object.assign(d, {action: 'none', sel: null, name: '', url: '', page: ''});
+    cardEl.querySelector('input.n').value = '';
+    cardEl.className = 'card none';
+  } else {
+    const k = +c.dataset.i, cand = x.cands[k];
+    Object.assign(d, {action: 'assign', sel: k, name: cand.name, url: cand.url, page: cand.title});
+    cardEl.querySelector('input.n').value = cand.name;
+    cardEl.className = 'card done';
+    openPage(cand.url);
+  }
+  d.at = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  save(); render_count();
+});
+document.getElementById('list').addEventListener('input', e => {
+  const cardEl = e.target.closest('.card'); if (!cardEl) return;
+  const d = st[cardEl.dataset.aid] = st[cardEl.dataset.aid] || {};
+  if (e.target.matches('input.n')) d.name = e.target.value;
+  if (e.target.matches('input.c')) d.note = e.target.value;
+  save();
+});
+function render_count() {
+  const n = DATA.filter(x => st[x.aid] && st[x.aid].action).length;
+  document.getElementById('count').textContent = `${n} / ${DATA.length} aircraft decided · ${DATA.filter(x => x.tier <= 2).length} on the shortlist`;
+}
+document.getElementById('view').onchange = render;
+document.getElementById('zoom').onclick = e => e.currentTarget.style.display = 'none';
+document.getElementById('export').onclick = () => {
+  const q = s => '"' + String(s ?? '').replace(/"/g, '""') + '"';
+  const head = ['patent_id', 'aircraft', 'aircraft_id', 'action', 'name', 'url', 'page_title', 'note', 'decided_at'];
+  const rows = DATA.filter(x => st[x.aid] && st[x.aid].action).map(x => {
+    const d = st[x.aid];
+    return [x.pid, x.letter, x.aid, d.action, d.action === 'assign' ? d.name : '', d.url, d.page, d.note, d.at].map(q).join(',');
+  });
+  const blob = new Blob([head.map(q).join(',') + '\n' + rows.join('\n') + '\n'], {type: 'text/csv'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'NAME_EVTOLNEWS.csv'; a.click();
+};
+render();
+</script></body></html>

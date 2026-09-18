@@ -22,8 +22,9 @@ from pathlib import Path
 
 import pandas as pd
 
-ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED")
-WIZARD_ALL = ROOT / "joined" / "wizard_all" / "reviewed_patents_Batch_ALL.xlsx"
+ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED/0_labelling/inputs")   # 2026-09-17: stage-0 INPUTS of the 1639_LABELLED tree
+OUT = ROOT.parent / "outputs"                                                                                   # what notebook 04 writes
+WIZARD_ALL = ROOT / "record" / "reviewed_patents_Batch_ALL.xlsx"
 PATSEER = Path("/mnt/storage_11tb/Drive_files_to_syncronize/2 - Patente & Validation/"
                "3 -Raw_Patent_Exports_PatSeer_&Gold_Standard/1639__dataset_08_06_26.xlsx")
 OUT = ROOT / "review_decisions" / "NAME_DECISIONS.csv"

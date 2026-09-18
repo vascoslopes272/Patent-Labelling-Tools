@@ -18,7 +18,8 @@ import sys
 from pathlib import Path
 import pandas as pd
 
-ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED")
+ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED/0_labelling/inputs")   # 2026-09-17: stage-0 INPUTS of the 1639_LABELLED tree
+OUT = ROOT.parent / "outputs"                                                                                   # what notebook 04 writes
 AUDIT = ROOT / "_audit_multi_aircraft_20260909"
 PATSEER = Path("/mnt/storage_11tb/Drive_files_to_syncronize/2 - Patente & Validation/"
                "3 -Raw_Patent_Exports_PatSeer_&Gold_Standard/1639__dataset_08_06_26.xlsx")
@@ -31,7 +32,7 @@ def fig_number(key) -> str | None:
     return m.group(1).upper() if m else None
 
 
-ml = pd.read_excel(ROOT / "joined" / "master_labels.xlsx",
+ml = pd.read_csv(OUT / "tables" / "aircraft_table.csv",
                    usecols=["patent_id", "variant", "variant_id", "topType", "is_primary", "is_approved"])
 prim = ml[(ml.is_primary == True) & (ml.is_approved == True)]
 # --sametype (2026-09-15): the multi-aircraft patents whose aircraft all carry the SAME image type. Their
@@ -47,7 +48,7 @@ else:
     print("patents with different types:", len(pids))
 STEM = "inputs_sametype" if SAMETYPE else "inputs_multitype"
 
-mf = pd.read_excel(ROOT / "joined" / "master_figures.xlsx")
+mf = pd.read_csv(OUT / "tables" / "figure_table.csv")
 mf = mf[mf.patent_id.isin(pids) & (mf.status == "approved")]
 ocr = pd.read_csv(AUDIT / "figkey_ocr_all.csv")
 ocr = ocr.set_index(["patent_id", "image_file"])

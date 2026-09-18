@@ -25,7 +25,10 @@ paths:
   # record, the wizard feed, the images the wizard shows, Stage 03a, the join.
   # `base` (1639_DS) is the ARCHIVE: raw downloads, triage, the frozen pass-1/2
   # originals, the July 02a/02b outputs. Keys below say which root they use.
-  labelled:      "/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED"
+  # 2026-09-17: the tree holds all four stages; `labelled` = stage-0 INPUTS, `labelled_outputs` = what 04 writes.
+  labelled_root: "/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED"
+  labelled:      "/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED/0_labelling/inputs"
+  labelled_outputs: "/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED/0_labelling/outputs"
   base:          "/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_DS"
   # PRE-label — PatSeer downloads, one dir per patent (src/patseer_downloader.py via 00a).
   raw_images:    "{{ paths.base }}/00a_raw_downloads"
@@ -54,7 +57,7 @@ paths:
   data:          "{{ paths.base }}/data"
   # Moved into a subfolder 2026-07-06 (was data/batches.xlsx directly) —
   # every notebook reads this key rather than hardcoding "data/batches.xlsx".
-  batches_xlsx:  "{{ paths.labelled }}/batches.xlsx"     # WORK TREE (archive copy: data/Global Statistics/)
+  batches_xlsx:  "{{ paths.labelled }}/reference/batches.xlsx"     # WORK TREE (archive copy: data/Global Statistics/)
   # PRE-label. Two producers share this folder, hence both names in it:
   #   00b2 writes crops_mapping_<Batch_NN>.csv   — the crop ledger: one row per cropped
   #        figure (page image -> crop file -> OCR'd label -> matched description line).

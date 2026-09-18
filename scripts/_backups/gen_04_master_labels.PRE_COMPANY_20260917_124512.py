@@ -31,13 +31,11 @@ rebuilt on every run. Nothing here writes back to an input.
 |---|---|
 | grain | one row per **aircraft** = `aircraft_id = <patent>_ua<N>` (`ua` = the wizard's aircraft number; a single-aircraft patent is `_ua1`); rejected patents are one row with empty labels |
 | values | bare **ids** (the `"id — Label"` composite is stripped); booleans as True/False; counts as integers (the wizard stores 1 as `True`) |
-| order | **one block per company, alphabetical** (ruling 2026-09-17): companies A→Z (`reference/family_map.csv` `company_canonical` → column `company`; the two pseudo-companies last); inside a company named aircraft A→Z, then unnamed by patent id, then rejected; a D1/D2 of the same company right under its original; a patent's aircraft together in `ua` order — Review sheet, ground_truth, patseer, both tables, MANIFEST and the record itself (`scripts/canonicalize_record.py --apply` copies the table order into the record + feed after every export / 04 run; 04 flags RECORD_ORDER_STALE / RECORD_NAMES_STALE) |
 | duplicates | **D1/D2 carry nothing from G1 to M3**: their labels are blank and `same_aircraft_as` points at the aircraft they repeat (the pinned one from `review_decisions/duplicate_root_variant.csv`, else every aircraft of the original); a D2 has no figures of its own (`is_primary=False`). D3 keep their own labels and figures. Every duplicate is re-ordered directly under its original |
 | names | reviewed real name with its `vN` where one exists (`NAME_DECISIONS.csv` → identity workbook); otherwise the aircraft id; a D1/D2 takes the name of the aircraft it points at. The typed wizard name stays in `aircraft_name_wizard` |
 | ground truth | 7d: `arch_gt`, `arch_gt_provenance`, `arch_gt_visible` from `text_architecture/architecture_text_final_variants.csv` on primary approved aircraft |
 | identity (03a) | 7b: `uav_final` / `is_electric_final` / `takeoff_final` + edge tags UAVSimilar / ElectricSimilar / STOLSimilar merged into `edgeTags` on primary rows |
 | ML pre-labels | 7c: the feed's predictions with an `ml_` prefix (tables only, never in the workbook) |
-| wizard view | 6b: every lock the wizard draws is replayed on the record (`src/wizard_view.py`); a stored value the screen does not show FAILS the build — fix with `scripts/apply_wizard_locks.py --apply`. `acState` is written as the wizard's display name **Invariant**, not its stored id `HoverCruise` |
 | re-codes | `US2021284333A1 wing1_plan Oth→Trap`; two `T2.parts` free texts → `Other` |
 | dropped | `codebook_version`, `timestamp`, `familyId`, `labelToken`, SBERT pre-labels, long bibliographic text, retired fields |
 | outputs | `1639_LABELS.xlsx` (README · **Review** = the record with the names written in, loadable in the wizard · ground_truth · patseer) · `images/<aircraft_id>/<figure>.png` + MANIFEST.csv · `tables/aircraft_table.csv`, `figure_table.csv`, `data_dictionary.csv` (what stages 1–2 read) · `BUILD_LOG.md` · `ACTION_FLAGS.csv` |
@@ -106,13 +104,7 @@ bmap = pd.read_csv(REC_DIR / "patent_batch_map.csv", dtype=str).set_index("paten
 L["batch"] = L.base.map(bmap)
 unmapped_b = sorted(L[L.batch.isna()].base.unique())
 assert not unmapped_b, f"patents missing from patent_batch_map.csv: {unmapped_b[:8]}"
-L["_pos"] = range(len(L))                            # record order (only checked against the corpus order below)
-FAMILY_MAP = IN_ROOT / "reference" / "family_map.csv"; used(FAMILY_MAP, "company map")
-_fam = pd.read_csv(FAMILY_MAP, dtype=str, keep_default_na=False)
-comp_of = dict(zip(_fam.canonical_pub_number, _fam.company_canonical))
-_nocomp = sorted(set(L.base) - set(comp_of)); assert not _nocomp, f"patents missing from family_map.csv: {_nocomp[:8]}"
-L["company"] = L.base.map(comp_of)
-log(f"  companies: {L.drop_duplicates('base').company.nunique()} normalised names (reference/family_map.csv company_canonical); row order = §8")
+L["_pos"] = range(len(L))                            # record order, used to re-sort duplicates under their original
 log(f"long table: {len(L)} rows, {L.base.nunique()} patents, {L.Patent_ID.nunique()} ids; per batch {L.drop_duplicates('base').batch.value_counts().sort_index().to_dict()}")
 
 # The five files in inputs/labels are GENERATED from the record (scripts/split_wizard_all_export.py). Say whether they
@@ -332,29 +324,6 @@ if unmapped: log("  " + "; ".join(f"{k[0]}: {k[1][:50]!r}" for k in list(unmappe
 """)
 
 md(r"""
-## 6b — Wizard view: does the record store what the wizard SHOWS?
-
-The wizard locks some fields once the architecture is known and draws the locked value as a disabled chip. Before
-v15.10 it exported whatever was stored underneath, so the screen and the Excel could disagree (2026-09-18: 122
-approved figures showed Invariant but stored Hover/Cruise/…; 13 PTC/RC bodies showed Whole-Body Pitch but stored
-Fixed). `src/wizard_view.py` replays every lock on the record — Aircraft State (fixed architecture whose record moves
-nothing → Invariant), Body Motion (PTC/RC → Whole-Body Pitch; TB never Fixed), card-level Propulsor Articulation
-(TW/DS/SLC/SRW/MR/TB/PTC/RC → Fixed), Wing Tilt (TB/PTC → Fixed; TW wing 1 → Tilt; RC/MR wingless). Any difference
-FAILS §12; the fix is `python scripts/apply_wizard_locks.py --apply` (same replay), never a hand edit here.
-""")
-code(r"""
-from src.wizard_view import replay, unlocked_fixed, INVARIANT_ID, INVARIANT_NAME
-WV = replay(L)
-log(f"wizard view: {len(WV)} places where the record stores something other than what the wizard shows")
-for r in WV.head(40).itertuples():
-    log(f"  !! {r.patent_id} arch{r.arch} {r.field} {r.figure}: stored {r.stored!r}, wizard shows {r.wizard_shows!r} — {r.rule}")
-if len(WV): log("  fix: python scripts/apply_wizard_locks.py --apply   (then re-run this notebook)")
-# a PTC is defined by nothing articulating, yet the wizard unlocks the figure state when the record says a part moves
-PTC_MOVES = unlocked_fixed(L).query("topType == 'PTC'")
-for r in PTC_MOVES.itertuples(): log(f"  PTC whose record says a part moves (figure state unlocked in the wizard): {r.patent_id} arch{r.arch}: {r.moves}")
-""")
-
-md(r"""
 ## 7 — Duplicates: D1/D2 point, D3 keep their own
 
 Ruling 2026-09-17: a D1 or D2 is the SAME aircraft as its original, so it carries **nothing from G1 to M3** — no copy,
@@ -477,22 +446,11 @@ M["group_ua"] = M.points_to_ua.where(M.same_aircraft_as.notna(), M.ua).astype(in
 
 # ── names ──
 def _norm(s): return re.sub(r"\s+", " ", str(s or "")).strip().lower()
-# 2026-09-17: a real name can coincide with the generated group name (Odys Aviation = "ODYS AVIATION"); a known/text
-# ruling in NAME_DECISIONS.csv then wins over the "name == generated" test that detects the clear rulings
-_KNOWN = set()
-_dec_f = RD / "NAME_DECISIONS.csv"
-if _dec_f.exists():
-    _dec = pd.read_csv(_dec_f, dtype=str, keep_default_na=False)
-    _KNOWN = set(_dec.loc[_dec.decision.isin(["known", "text"]), "patent_id"])
 def real_name_of(pid, ua):
     # the reviewed name of aircraft (pid, ua) if it is a REAL name; None when it is only the generated company numbering
     if pid not in IDT.index: return None
     n = id_value(pid, "aircraft_name_final", ua); g = id_value(pid, "aircraft_group", ua)
-    # a known ruling wins only for a typed name: a generated sibling of a multi-aircraft patent is the exact group string
-    if not n or (_norm(n) == _norm(g) and (pid not in _KNOWN or n == g)): return None
-    # 2026-09-17: a multi-aircraft patent keeps per-aircraft groups ("LEONARDO 2a"), but its unreviewed name can still be the
-    # patent-level generated group ("LEONARDO 2") — that is company numbering, not a real name
-    if pid not in _KNOWN and _norm(n) == _norm(IDT.at[pid, "aircraft_group"]): return None
+    if not n or _norm(n) == _norm(g): return None
     return n
 def name_for(r):
     if r.same_aircraft_as is not np.nan and not is_empty(r.same_aircraft_as):
@@ -689,12 +647,7 @@ gt_mask = appr_mask & M.is_primary
 for src, dst in [("arch_final", "arch_gt"), ("provenance", "arch_gt_provenance"), ("visible_in_figures", "arch_gt_visible")]:
     M[dst] = np.nan; M[dst] = M[dst].astype(object)
     M.loc[gt_mask, dst] = M.loc[gt_mask, "aircraft_id"].map(GT[src]).replace("", np.nan)
-# no type + "not_stated_in_patent" (or the older "unsure") = the reviewer read the whole document and it does not state
-# the type: a ruling, not a gap (user 2026-09-17: named "not stated in the patent")
-NOT_STATED_PROV = {"not_stated_in_patent", "unsure"}
-GT_UNSURE  = sorted(M[gt_mask & M.arch_gt.isna() & M.arch_gt_provenance.isin(NOT_STATED_PROV)].aircraft_id)
-GT_MISSING = sorted(M[gt_mask & M.arch_gt.isna() & ~M.arch_gt_provenance.isin(NOT_STATED_PROV)].aircraft_id)
-if GT_UNSURE: log(f"  ground truth NOT STATED IN THE PATENT (no type): {GT_UNSURE}")
+GT_MISSING = sorted(M[gt_mask & M.arch_gt.isna()].aircraft_id)
 GT_ORPHANS = sorted(set(GT.index) - set(M[gt_mask].aircraft_id))
 log(f"ground truth: {len(GT)} aircraft in the file; {int((gt_mask & M.arch_gt.notna()).sum())} / {int(gt_mask.sum())} primary approved aircraft matched")
 log(f"  provenance: {M.loc[gt_mask, 'arch_gt_provenance'].value_counts(dropna=False).to_dict()}")
@@ -702,37 +655,27 @@ if GT_MISSING: log(f"  !! {len(GT_MISSING)} primary approved aircraft without a 
 if GT_ORPHANS: log(f"  !! {len(GT_ORPHANS)} GT rows that match no primary approved aircraft: {GT_ORPHANS[:10]}")
 """)
 
-md("## 8 — Order: company A→Z → named aircraft A→Z, then unnamed by patent id, then rejected → a D1/D2 of the same company right under its original")
+md("## 8 — Order: batch → original → its duplicates directly under it → aircraft")
 code(r"""
-# Ruling 2026-09-17 (user): ONE block per company, inside a company per aircraft, alphabetical.
-#   company  : `company` (reference/family_map.csv company_canonical), A→Z case-insensitive; the two pseudo-companies
-#              "Individual Inventor" and "Unknown / Independent" go last
-#   patent   : placed by its best aircraft — tier 0 approved with a real name (A→Z by name), tier 1 approved id-named
-#              (by patent id), tier 2 rejected (by patent id); a patent's aircraft stay together in ua order
-#   D1 / D2  : directly under the original they point at when that original is in the SAME company; otherwise they are
-#              filed in their own company as a standalone entry (their name is the original's name, so they still sort
-#              with the aircraft they repeat by name). D3 are different aircraft: they sort on their own.
-M["company"] = M.patent_id.map(comp_of)
-PSEUDO_COMPANIES = {"Individual Inventor", "Unknown / Independent"}
-def block_of(pid):
-    if dup_type.get(pid) in ("1", "2"):
-        root, ok = chain_root(pid)
-        if ok and root in var_ids and comp_of.get(root) == comp_of.get(pid): return root
-    return pid
-M["_block"] = M.patent_id.map(block_of)
-_appr = M.is_approved.fillna(False).astype(bool)
-M["_tier"] = np.where(_appr & M.name_is_real.fillna(False).astype(bool), 0, np.where(_appr, 1, 2))
-M["_nkey"] = np.where(M._tier == 0, M.aircraft_name.astype(str).str.lower(), M.patent_id.astype(str))
-_pk = {pid: min(zip(g._tier, g._nkey)) for pid, g in M.groupby("patent_id")}      # a patent is placed by its best aircraft
-M["_ptier"] = M._block.map(lambda b: _pk[b][0]); M["_pname"] = M._block.map(lambda b: _pk[b][1])
-M["_c0"] = M.company.isin(PSEUDO_COMPANIES).astype(int); M["_c1"] = M.company.astype(str).str.lower()
-M["_self"] = (M.patent_id != M._block).astype(int)
-M["_dt"]   = M.dup_type.fillna("0")
-M = M.sort_values(["_c0", "_c1", "_ptier", "_pname", "_block", "_self", "_dt", "patent_id", "ua"]).reset_index(drop=True)
-M = M.drop(columns=["_block", "_tier", "_nkey", "_ptier", "_pname", "_c0", "_c1", "_self", "_dt"])
-_runs = int((M.company != M.company.shift()).sum())
-log(f"order: {M.company.nunique()} companies in {_runs} runs (must be equal); first: {M.company.iloc[0]} / {M.aircraft_name.iloc[0]}")
-assert _runs == M.company.nunique(), "a company is split into more than one run"
+def anchor(pid):
+    return top_original(pid) if pid in dup_of else pid
+M["_anchor"] = M.patent_id.map(anchor)
+M["_abatch"] = M._anchor.map(batch_of).fillna(M.batch)
+M["_apos"]   = M._anchor.map(pos_of).fillna(10**9)
+M["_self"]   = (M.patent_id != M._anchor).astype(int)
+M["_dt"]     = M.dup_type.fillna("0")
+def sub_anchor(pid):
+    t = dup_type.get(pid)
+    if t == "3": return pid
+    if t in ("1", "2"):
+        root, _ = chain_root(pid)
+        if dup_type.get(root) == "3": return root
+    return None
+M["_sub"]    = M.patent_id.map(sub_anchor)
+M["_subpos"] = M._sub.map(pos_of).fillna(-1)
+M["_subself"] = ((M._sub.notna()) & (M.patent_id != M._sub)).astype(int)
+M = M.sort_values(["_abatch", "_apos", "_self", "_subpos", "_subself", "_dt", "patent_id", "ua"]).reset_index(drop=True)
+M = M.drop(columns=["_anchor", "_abatch", "_apos", "_self", "_dt", "_sub", "_subpos", "_subself"])
 """)
 
 md("## 9 — Figures: one row per figure file of a non-D2 record; counts and the main figure per aircraft")
@@ -747,7 +690,7 @@ F.columns.name = None
 ip = T2.dropna(subset=["Image_Path"]).drop_duplicates(["base", "block"]).set_index(["base", "block"]).Image_Path
 F["image_path"] = [ip.get((b, k), np.nan) for b, k in zip(F.base, F.block)]
 F = F.rename(columns={"base": "patent_id", "figKey": "fig_key", "isMain": "is_main"})
-F["batch"] = F.patent_id.map(batch_of); F["company"] = F.patent_id.map(comp_of)
+F["batch"] = F.patent_id.map(batch_of)
 F["image_file"] = F.image_path.map(lambda p: Path(str(p)).name if not is_empty(p) else np.nan)
 F["file_exists"] = F.image_path.map(lambda p: (not is_empty(p)) and Path(str(p)).exists())
 for c in ["per", "acSty", "acCol", "bgSty", "bgCol", "acState", "qualityFlag", "parts"]:
@@ -783,15 +726,11 @@ for f in ML_FIG:
     F["ml_" + f] = [clean(Vf[f].get(k, np.nan), f in ML_FIG_CODED) for k in fkeys]; ml_fig_cols.append("ml_" + f)
     if f in ML_FIG_CODED and f in Cf.columns:
         F["ml_" + f + "_conf"] = [conf(Cf[f].get(k, np.nan)) for k in fkeys]; ml_fig_cols.append("ml_" + f + "_conf")
-# the tables carry what the wizard SHOWS: its "Invariant" option is stored under the legacy id 'HoverCruise' (kept so
-# saved records load). The Review sheet keeps the id — the wizard reads that sheet back.
-for c in ("acState", "ml_acState"):
-    if c in F.columns: F[c] = F[c].replace({INVARIANT_ID: INVARIANT_NAME})
 for f in [c for c in ("per", "acSty", "acCol", "bgSty", "bgCol", "acState") if c in F.columns and "ml_" + c in F.columns]:
     both = F[f].notna() & F["ml_" + f].notna()
     F["ml_" + f + "_agrees"] = pd.array(np.where(both, F[f].astype(str).values == F["ml_" + f].astype(str).values, None), dtype="boolean")
     ml_fig_cols.append("ml_" + f + "_agrees")
-FIG_COLS = ["aircraft_id", "patent_id", "ua", "batch", "company", "fig_key", "block", "image_file", "image_path", "file_exists", "status", "arch", "is_main",
+FIG_COLS = ["aircraft_id", "patent_id", "ua", "batch", "fig_key", "block", "image_file", "image_path", "file_exists", "status", "arch", "is_main",
             "per", "acSty", "acCol", "bgSty", "bgCol", "parts", "qualityFlag", "acState", "stateNote", "hasLegends",
             "dupOf", "comment", "fig_tags", "rotation_deg"] + ml_fig_cols
 F = F[[c for c in FIG_COLS if c in F.columns]]
@@ -875,7 +814,7 @@ def m3_block(cols):
         for t in types: out += [f"{card}_t{t}_{f}" for f in M3_TYPE if f"{card}_t{t}_{f}" in cols]
     return out
 cols = set(M.columns)
-HEAD = ["aircraft_id", "patent_id", "ua", "n_variants", "batch", "company", "aircraft_name", "name_is_real", "aircraft_name_wizard",
+HEAD = ["aircraft_id", "patent_id", "ua", "n_variants", "batch", "aircraft_name", "name_is_real", "aircraft_name_wizard",
         "variant", "variant_id",
         "assignee", "title", "app_year", "pub_year", "pdf_link",
         "is_approved", "reason", "reason_source", "sub_reason", "reason_human", "reason_sbert", "reason_note",
@@ -929,7 +868,7 @@ if COPY_IMAGES:
         if not dst.exists() or dst.stat().st_size != src.stat().st_size:
             shutil.copy2(src, dst); copied += 1
         F.at[i, "approved_copy_path"] = str(dst)
-        man.append(dict(aircraft_id=r.aircraft_id, patent_id=r.patent_id, company=r.company, ua=r.ua, fig_key=r.fig_key, figure_file=r.image_file,
+        man.append(dict(aircraft_id=r.aircraft_id, patent_id=r.patent_id, ua=r.ua, fig_key=r.fig_key, figure_file=r.image_file,
                         src=str(src), dst=str(dst), bytes=dst.stat().st_size, sha256=hashlib.sha256(dst.read_bytes()).hexdigest()))
     MAN = pd.DataFrame(man); MAN.to_csv(root / "MANIFEST.csv", index=False)
     keep = set(MAN.dst) | {str(root / "MANIFEST.csv")}; pruned = 0
@@ -958,20 +897,10 @@ PS_COLS = [("Record Number", "patent_id"), ("Title", "title"), ("Record Type", "
 PS = pd.read_excel(PATSEER, usecols=[a for a, _ in PS_COLS], dtype=str).rename(columns=dict(PS_COLS))
 PS["patent_id"] = PS.patent_id.str.strip(); PS = PS.drop_duplicates("patent_id").set_index("patent_id")
 order = M.drop_duplicates("patent_id").patent_id.tolist()
-PS = PS.reindex(order).reset_index(); PS.insert(1, "batch", PS.patent_id.map(batch_of)); PS.insert(2, "company", PS.patent_id.map(comp_of))
+PS = PS.reindex(order).reset_index(); PS.insert(1, "batch", PS.patent_id.map(batch_of))
 log(f"patseer sheet: {int(PS.title.notna().sum())} / {len(PS)} patents found in the export")
 
-_gsel = M[M.is_approved.fillna(False).astype(bool) & M.is_primary]
-GTS = _gsel[["aircraft_id", "patent_id", "company", "aircraft_name", "topType", "arch_gt", "arch_gt_visible"]].rename(columns={"topType": "image_label"})
-# flag column (user 2026-09-17): what a reader must know before using the row as ground truth
-def _gt_flag(r):
-    out = []
-    if is_empty(r.arch_gt) and str(r.arch_gt_provenance) in NOT_STATED_PROV: out.append("GT not stated in the patent")
-    elif is_empty(r.arch_gt): out.append("GT missing: not read yet")
-    elif str(r.arch_gt_provenance) == "unsure": out.append("GT unsure")
-    if str(r.g1_humanUncertain) == "True": out.append("image label marked uncertain in the wizard")
-    return "; ".join(out)
-GTS["flag"] = [_gt_flag(r) for r in _gsel.itertuples()]
+GTS = M[M.is_approved.fillna(False).astype(bool) & M.is_primary][["aircraft_id", "patent_id", "aircraft_name", "topType", "arch_gt", "arch_gt_visible"]].rename(columns={"topType": "image_label"})
 
 # names per patent, in ua order, as ONE string for the wizard's aircraftName field ("a; b" for a multi-aircraft patent)
 approved_pids = set(M[M.is_approved.fillna(False).astype(bool)].patent_id)
@@ -982,11 +911,9 @@ wb = Workbook(); ws0 = wb.active; ws0.title = "README"
 readme = [("workbook", WORKBOOK.name), ("built", RUN_TS), ("built by", "Patent-Labelling-Tools/notebooks/04_master_labels.ipynb (generator scripts/gen_04_master_labels.py)"),
           ("wizard", HTML.name), ("", "")]
 readme += [("sheet Review", "the wizard record exactly as exported (Patent_ID, Section, Sub_Dimension, Field, Value, Source, Image_Path), with the aircraft names written into T1/aircraftName. Load it in the wizard with Resume (it picks the sheet named Review)."),
-           ("sheet ground_truth", "one row per primary approved aircraft: the wizard type (image_label) next to the whole-document ground truth (arch_gt) and whether that type is visible in the figures; column flag = GT not stated in the patent / GT missing / GT unsure / image label marked uncertain in the wizard"),
+           ("sheet ground_truth", "one row per primary approved aircraft: the wizard type (image_label) next to the whole-document ground truth (arch_gt) and whether that type is visible in the figures"),
            ("sheet patseer", "bibliographic facts from the PatSeer export, one row per patent, joined on patent_id"),
            ("aircraft id", "<patent>_ua<N>: N = the aircraft number in the wizard (a single-aircraft patent is _ua1). Names: real name (+ vN) where reviewed, else the id."),
-           ("order", "every sheet, table and the record itself: ONE block per company, companies A→Z (column company = reference/family_map.csv company_canonical, e.g. Bell Helicopter Textron / Bell Textron / Textron Innovations = Bell / Textron; Individual Inventor and Unknown / Independent last); inside a company the named aircraft A→Z, then the unnamed by patent id, then the rejected records; a D1/D2 of the same company directly under its original; a patent's aircraft together in ua order"),
-           ("flight state", "acState per figure. The wizard SHOWS 'Invariant' for the option it stores under the old id HoverCruise: tables/figure_table.csv writes Invariant; the Review sheet keeps 'HoverCruise — Invariant' because the wizard reads that sheet back. Every lock the wizard draws is checked against the record on each build (notebook 04 §6b)."),
            ("duplicates", "D1/D2 carry nothing from G1 to M3 and point at the aircraft they repeat (tables/aircraft_table.csv, column same_aircraft_as); a D2 has no figures of its own"),
            ("images", "images/<aircraft_id>/<figure>.png — every approved figure of a non-D2 record, MANIFEST.csv with sha256"),
            ("tables", "tables/aircraft_table.csv (one row per aircraft, every label + identity + ground truth + ml_ pre-labels), figure_table.csv (one row per figure), data_dictionary.csv — what stages 1 and 2 read"),
@@ -1027,9 +954,6 @@ code(r"""
 checks = []
 def chk(name, ok, detail=""): checks.append((name, bool(ok), detail)); log(f"  [{'OK' if ok else 'FAIL'}] {name}  {detail}")
 chk("every patent present", M.patent_id.nunique() == PT.shape[0], f"{M.patent_id.nunique()} / {PT.shape[0]}")
-chk("the record stores what the wizard shows (every lock replayed, §6b)", WV.empty,
-    f"{len(WV)} differences" + ("; fix: python scripts/apply_wizard_locks.py --apply" if len(WV) else ""))
-chk("figure_table acState uses the wizard's display name Invariant, never the id HoverCruise", not (F.acState == INVARIANT_ID).any())
 chk("no label separator left in a coded column", not any(M[c].astype(str).str.contains(SEP, regex=False).any() for c in coded_cols))
 prim_appr = M[M.is_primary & M.is_approved.fillna(False).astype(bool)]
 unclass = prim_appr[prim_appr.g1_quickOverride.fillna(False).astype(bool)]
@@ -1047,14 +971,15 @@ chk("every approved aircraft has a name", M[M.is_approved.fillna(False).astype(b
 chk("aircraft_id unique", not M.aircraft_id.duplicated().any())
 chk("(patent_id, ua) unique", not M.duplicated(["patent_id", "ua"]).any())
 _pos = pd.Series(range(len(M)), index=M.index); _first = M.groupby("patent_id").apply(lambda g: _pos[g.index].min())
+_dups = M[M.dup_root.notna()].drop_duplicates("patent_id")
+_before = [r.patent_id for r in _dups.itertuples() if _first.get(r.dup_root, -1) > _first[r.patent_id]]
 def _contiguous(groups):
     return {k: bool(_pos[g.index].max() - _pos[g.index].min() + 1 == len(g)) for k, g in groups if len(g)}
-_blk = M.patent_id.map(block_of)
-_under = M[_blk != M.patent_id].drop_duplicates("patent_id")
-_before = [r.patent_id for r in _under.itertuples() if _first[block_of(r.patent_id)] > _first[r.patent_id]]
-_bad_blocks = [k for k, ok in {**_contiguous(M.groupby("company")), **_contiguous(M.groupby("patent_id")), **_contiguous(M.groupby(_blk))}.items() if not ok]
-chk("one block per company; a patent's aircraft together; a same-company D1/D2 directly under its original", not _before and not _bad_blocks,
-    f"{len(_before)} before their original; non-contiguous: {_bad_blocks[:6]}")
+_top = _contiguous(M.groupby(M.patent_id.map(anchor)))
+_d3  = _contiguous(M[M.patent_id.map(sub_anchor).notna()].groupby(M.patent_id.map(sub_anchor)))
+_bad_blocks = [k for k, ok in {**_top, **_d3}.items() if not ok]
+chk("every duplicate sits after its dup_root; original blocks and D3 sub-blocks contiguous", not _before and not _bad_blocks,
+    f"{len(_before)} before their root; non-contiguous: {_bad_blocks[:6]}")
 chk("ML feed covers every patent", not missing_ml, f"{len(missing_ml)} missing")
 chk("no ML value landed in a human column", all(not c.startswith("ml_") for c in variant_cols + [d for _, d in PATENT_COLS]))
 chk("every edge tag is a known tag", all(t in LISTS["T1_EDGE_TAGS"] for v in M.edgeTags.dropna() for t in str(v).split("|")))
@@ -1096,15 +1021,8 @@ for r in F[(F.status == "approved") & ~F.file_exists].itertuples():
     flag("APPROVED_FIGURE_FILE_MISSING", r.patent_id, f"fig {r.fig_key}: {r.image_path}", "restore the crop or disapprove the figure")
 for (nf, k), n in unmapped.items():
     flag("OTHER_NOTE_UNTAGGED", "", f"{nf}: {k[:80]!r} ({n}x)", "add a row to notebooks/04_other_note_tags.csv")
-for a in GT_UNSURE:
-    flag("GROUND_TRUTH_NOT_STATED", a, "not stated in the patent: the whole-document reading does not settle the type (no arch_final)", "informational — flagged in the ground_truth sheet; tick G1 Uncertain in the wizard if the figure label is uncertain too")
 for b in SPLIT_STALE:
     flag("SPLIT_COPY_STALE", b, "labels/reviewed_patents_<batch>.xlsx differs from the record", "python scripts/split_wizard_all_export.py <record> --apply")
-_rec_order = L.drop_duplicates("base").base.tolist(); _canon = M.drop_duplicates("patent_id").patent_id.tolist()
-if _rec_order != _canon:
-    flag("RECORD_ORDER_STALE", "", f"the record is not in the corpus order ({sum(a != b for a, b in zip(_rec_order, _canon))} patents out of place; first expected {_canon[0]}, found {_rec_order[0]})", "python scripts/canonicalize_record.py --apply  (reorders record + feed, writes the names, re-splits the batch copies)")
-if NAME_WRITTEN or NAME_ROWS_ADDED:
-    flag("RECORD_NAMES_STALE", "", f"{NAME_WRITTEN} names differ / {NAME_ROWS_ADDED} name rows missing in the record (the Review sheet has them)", "python scripts/canonicalize_record.py --apply")
 d1 = pd.DataFrame(d1_diff)
 if len(d1):
     for pid, g in d1.groupby("patent_id"):
@@ -1119,9 +1037,6 @@ for pid, tag, why, note in TAG_KEPT:
     flag("WIZARD_TAG_KEPT", pid, f"{tag} kept although {why}", f"informational — {note}")
 for pid in unclass.patent_id:
     flag("UNCLASSIFIABLE_BY_DESIGN", pid, "g1_quickOverride=True, no topType", "informational — excluded from topType counts")
-for r in PTC_MOVES.itertuples():
-    flag("PTC_RECORD_MOVES", r.patent_id, f"arch{r.arch} is PTC but the record says a part moves ({r.moves}), so the wizard unlocks its figure state",
-         "PTC means nothing articulates: fix the type or the moving part in the wizard; the figures then lock to Invariant")
 for a in GT_MISSING:
     flag("GROUND_TRUTH_MISSING", a, "primary approved aircraft with no row in architecture_text_final_variants.csv", "decide it on the 03b page and re-apply")
 for a in GT_ORPHANS:

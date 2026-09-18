@@ -23,7 +23,8 @@ from pathlib import Path
 
 import pandas as pd
 
-ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED")
+ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED/0_labelling/inputs")   # 2026-09-17: stage-0 INPUTS of the 1639_LABELLED tree
+OUT = ROOT.parent / "outputs"                                                                                   # what notebook 04 writes
 DEC = ROOT / "review_decisions" / "NAME_DECISIONS.csv"
 # pairs the reviewer has already looked at and ruled different — patent,other,verdict,decided
 SEEN = ROOT / "review_decisions" / "name_pairs_checked.csv"
@@ -33,8 +34,8 @@ LET = "abcdefghijklmnopqrstuvwxyz"
 
 def main():
     dec = {r["patent_id"]: r for r in csv.DictReader(open(DEC, newline="", encoding="utf-8"))}
-    idn = pd.read_excel(ROOT / "joined" / "aircraft_identity_ALL.xlsx", sheet_name="Identity").set_index("patent_id")
-    ml = pd.read_excel(ROOT / "joined" / "master_labels.xlsx", keep_default_na=False, dtype=str)
+    idn = pd.read_excel(ROOT / "identity" / "aircraft_identity_ALL.xlsx", sheet_name="Identity").set_index("patent_id")
+    ml = pd.read_csv(OUT / "tables" / "aircraft_table.csv", keep_default_na=False, dtype=str)
     P = ml[(ml.is_primary == "True") & (ml.is_approved == "True")].copy()
     P["k"] = P.patent_id + "#" + P.variant
     R = P.set_index("k")
@@ -42,7 +43,7 @@ def main():
     LAB = [c for c in ml.columns[list(ml.columns).index("topType"):] if not bad.search(c)]
     nvar = P.groupby("patent_id").size().to_dict()
 
-    w = pd.read_excel(ROOT / "joined" / "wizard_all" / "reviewed_patents_Batch_ALL.xlsx", dtype=str,
+    w = pd.read_excel(ROOT / "record" / "reviewed_patents_Batch_ALL.xlsx", dtype=str,
                       keep_default_na=False, usecols=["Patent_ID", "Field", "Value"])
     w = w[w.Field.isin(["isDuplicate", "duplicateId", "duplicateType"])]
     w["pid"] = w.Patent_ID.str.replace(r"_arch\d+$", "", regex=True)
@@ -186,7 +187,7 @@ def main():
             print(f"   {r.name:22} {r.patent:16}{' '+r.aircraft if r.aircraft else '  '} ↔ {r.other:16}{' '+r.other_aircraft if r.other_aircraft else '  '}"
                   f" {('' if r.labels_equal is None or pd.isna(r.labels_equal) else format(r.labels_equal, '.2f')):>5}  {r.todo}")
     if "--csv" in sys.argv and len(df):
-        p = ROOT / "joined" / "names" / f"name_consistency_{pd.Timestamp.now():%Y%m%d}.csv"
+        p = ROOT / "review_decisions" / "_reports" / "names" / f"name_consistency_{pd.Timestamp.now():%Y%m%d}.csv"
         df.to_csv(p, index=False)
         print("\nwrote", p)
 

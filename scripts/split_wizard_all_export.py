@@ -25,9 +25,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from openpyxl import load_workbook, Workbook
 
-ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED")
+ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED/0_labelling/inputs")   # 2026-09-17: stage-0 INPUTS of the 1639_LABELLED tree
+OUT = ROOT.parent / "outputs"                                                                                   # what notebook 04 writes
 LAB = ROOT / "labels"
-MAP = ROOT / "joined" / "wizard_all" / "patent_batch_map.csv"
+MAP = ROOT / "record" / "patent_batch_map.csv"
 BATCHES = ["Batch_01", "Batch_02", "Batch_03", "Batch_04", "Batch_05"]
 
 argv = sys.argv[1:]

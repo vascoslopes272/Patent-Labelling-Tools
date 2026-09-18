@@ -22,7 +22,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED")
+ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED/0_labelling/inputs")   # 2026-09-17: stage-0 INPUTS of the 1639_LABELLED tree
+OUT = ROOT.parent / "outputs"                                                                                   # what notebook 04 writes
 SAMPLE = ROOT / "text_scope" / "scope_sample_100.csv"
 # review-page exports live in 1639_LABELLED/review_decisions (2026-09-14); Downloads is the old fallback
 DEFAULT_DECISIONS = next((p for p in [ROOT / "review_decisions" / "scope_sample_decisions.csv",

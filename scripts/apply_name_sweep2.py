@@ -17,7 +17,8 @@ from pathlib import Path
 
 import pandas as pd
 
-ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED")
+ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED/0_labelling/inputs")   # 2026-09-17: stage-0 INPUTS of the 1639_LABELLED tree
+OUT = ROOT.parent / "outputs"                                                                                   # what notebook 04 writes
 DEC = ROOT / "review_decisions" / "NAME_DECISIONS.csv"
 LET = "abcdefghijklmnopqrstuvwxyz"
 
@@ -34,11 +35,11 @@ def main():
     header = list(rows[0].keys())
     by = {r["patent_id"]: r for r in rows}
 
-    ml = pd.read_excel(ROOT / "joined" / "master_labels.xlsx", keep_default_na=False, dtype=str,
+    ml = pd.read_csv(OUT / "tables" / "aircraft_table.csv", keep_default_na=False, dtype=str,
                        usecols=["patent_id", "variant", "topType", "is_primary", "is_approved"])
     ml = ml[(ml.is_primary == "True") & (ml.is_approved == "True")]
     nvar = ml.groupby("patent_id").size().to_dict()
-    idn = pd.read_excel(ROOT / "joined" / "aircraft_identity_ALL.xlsx", sheet_name="Identity").set_index("patent_id")
+    idn = pd.read_excel(ROOT / "identity" / "aircraft_identity_ALL.xlsx", sheet_name="Identity").set_index("patent_id")
 
     def gname(pid, v):
         gv = [x.strip() for x in str(idn.at[pid, "aircraft_group_variants"]).split(";") if x.strip()]

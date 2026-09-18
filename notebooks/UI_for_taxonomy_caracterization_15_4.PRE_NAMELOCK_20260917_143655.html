@@ -1225,11 +1225,6 @@ var S=fresh();
 var AIRCRAFT_REGISTRY = {};
 var PART_TOKENS = [];
 var NO_NAME_AIRCRAFT = '(No-name aircraft)';
-// 2026-09-17: the aircraft name is DERIVED downstream (notebook 04: NAME_DECISIONS.csv for real names,
-// <patent>_ua<N> otherwise; D1/D2 take the name of the aircraft they point at) and written back into the
-// record on install, so the box is shown read-only and an empty name no longer blocks T1. Flip to false to
-// get the old typed/tokenised input back.
-var AIRCRAFT_NAME_LOCKED = true;
 
 // Custom figure edge-case tokens — same persistence model as PART_TOKENS, so a
 // token added on one figure/patent is offered (via datalist) on every later one.
@@ -1767,43 +1762,15 @@ function isConvertibleArch(topType) { return ['TW','TR','DS','CVT','SRW'].indexO
 // sets ever drift, a figure unlocked here gets force-rewritten there, silently.
 // 'LevelCabin' is a real joint (the cabin hangs level while the airframe turns);
 // 'TiltBody' and 'BodyPitch' are attitude, not geometry, and deliberately absent.
-// v15.10 (2026-09-18): the test now runs on the EXPORTED morphology object
-// (buildMorphologyObj), not on raw S keys. Raw S also holds values the export never
-// writes — a card-level propKin under the propKin lock (exported as Fixed), a per-type
-// key left after the type count dropped, a wTilt beyond wCount, booms after "Booms
-// present" was unticked — so the screen could unlock on a value the xlsx does not
-// carry. Screen (pageT2) and export (recordToRows) now call the same function.
-function archConfigChanges() { return morphConfigChanges(buildMorphologyObj()); }
-function morphConfigChanges(m) {
-  if (!m) return false;
-  if ((m.boomGroups || []).some(function(g){ return g.tilts === true || g.retracts === true; })) return true;
-  if ((m.wings || []).some(function(w){ return w && w.tilt === 'Tilt'; })) return true;
-  if (m.fusKin === 'LevelCabin' || m.empTilts === true) return true;
-  var moving = function(o){ return o && (o.propKin === 'Tilt' || o.propKin === 'Vectored' || ['Retracting', 'Retractable', 'BladeFold'].indexOf(o.rmech) > -1); };
-  return (m.propulsionCards || []).some(function(c){ return moving(c) || (c.types || []).some(moving); });
-}
-// Is the Aircraft State of a figure of architecture `arch1` locked to Invariant?
-// On screen (pageT2) AND in the export (recordToRows) — the two must agree, or the
-// screen shows Invariant while the xlsx carries an older Hover/Cruise (122 approved
-// figures in the 2026-09-18 record, found by notebook 04's wizard-view check).
-// Judged on the figure's OWN architecture: T2 is drawn with arch 1 active, so the
-// old archConfigChanges() call judged every figure of arch 2+ by arch 1's morphology.
-function acStateLockedFor(arch1) {
-  var tt = topTypeOfArch(arch1);
-  if (tt == null || isConvertibleArch(tt)) return false;
-  return !morphConfigChanges(morphologyOfArch(arch1));
-}
-// The exported morphology of architecture `arch1`, read the way buildArchitectures()
-// does (swap the stored profile into S, read, restore) without touching the profiles.
-function morphologyOfArch(arch1) {
-  if (arch1 - 1 === S.curArch) return buildMorphologyObj();
-  var snap = (S.archProfiles || [])[arch1 - 1];
-  if (!snap) return buildMorphologyObj();
-  var saved = captureAircraftSnapshot();
-  applyAircraftSnapshot(snap);
-  var m = buildMorphologyObj();
-  applyAircraftSnapshot(saved);
-  return m;
+function archConfigChanges() {
+  if ((S.boomGroups || []).some(function(g){ return g.tilts === true || g.retracts === true; })) return true;
+  for (var _w = 1; _w <= 4; _w++) { if (S['wTilt' + _w] === 'Tilt') return true; }
+  if (S.fusKin === 'LevelCabin') return true;
+  if (S.empTilts === true) return true;
+  return Object.keys(S).some(function(k){
+    if (/_propKin$/.test(k) && (S[k] === 'Tilt' || S[k] === 'Vectored')) return true;
+    return /_rmech$/.test(k) && ['Retracting', 'Retractable', 'BladeFold'].indexOf(S[k]) > -1;
+  });
 }
 // Novel / Other architectures (Hoverbikes, PFVs) don't map to the winged/wingless
 // structured morphology, so M1/M2/M3 render as free-text commentary instead.
@@ -1830,9 +1797,7 @@ function nextBlockers(){
     // choose "(No-name aircraft)" (tracked via t1NoNameConfirmed, since the
     // No-name pick deliberately stores an empty aircraftName). Disapproved
     // patents never reach here (early return above) — no name needed for those.
-    // 2026-09-17: with AIRCRAFT_NAME_LOCKED the name is derived downstream, so an
-    // empty box (a patent approved for the first time) must not block T1.
-    if (!AIRCRAFT_NAME_LOCKED && !(T1_META.aircraftName || '').trim() && !S.t1NoNameConfirmed) {
+    if (!(T1_META.aircraftName || '').trim() && !S.t1NoNameConfirmed) {
       b.push('Enter the aircraft/prototype name (or pick "(No-name aircraft)")');
     }
     // Approved patents get default scope/field/target from the approve handler,
@@ -3560,18 +3525,15 @@ function pageT1(){
       // session names (datalist) + a "no-name" option. Picking a known name
       // copies that aircraft's M1/M2/M3 (see the aircraft-name change handler).
       + '<div class="m3-field" style="grid-column:1/-1;"><div class="m3-label">Aircraft / Prototype Name '
-        + (AIRCRAFT_NAME_LOCKED
-            ? '<span style="font-weight:400;color:var(--text3);font-size:11px;">— 🔒 locked: derived by notebook 04 (real names from NAME_DECISIONS.csv, otherwise &lt;patent&gt;_ua&lt;N&gt;; a D1/D2 shows its original\'s name). Change a real name in the name review page, never here.</span></div>'
-              + '<div class="m3-readonly" id="t1-aircraft-name-locked">' + (T1_META.aircraftName ? escHtml(T1_META.aircraftName) : '<span style="color:var(--text3);font-weight:400;">(assigned by notebook 04 on install)</span>') + '</div>'
-            : '<span style="font-weight:400;color:var(--text3);font-size:11px;">— same name ⇒ shared M1/M2/M3</span></div>'
-              + '<input type="text" list="aircraft-name-options" id="t1-aircraft-name" class="m3-num" autocomplete="off" '
-              + 'placeholder="Type a name, pick an existing one, or choose No-name…" '
-              + 'value="' + escHtml(T1_META.aircraftName||'') + '" style="width:100%;">'
-              + '<datalist id="aircraft-name-options">'
-              + ['<option value="'+escHtml(NO_NAME_AIRCRAFT)+'"></option>']
-                  .concat(Object.keys(AIRCRAFT_REGISTRY).map(function(k){ return '<option value="'+escHtml(AIRCRAFT_REGISTRY[k].display)+'"></option>'; }))
-                  .join('')
-              + '</datalist>')
+        + '<span style="font-weight:400;color:var(--text3);font-size:11px;">— same name ⇒ shared M1/M2/M3</span></div>'
+        + '<input type="text" list="aircraft-name-options" id="t1-aircraft-name" class="m3-num" autocomplete="off" '
+        + 'placeholder="Type a name, pick an existing one, or choose No-name…" '
+        + 'value="' + escHtml(T1_META.aircraftName||'') + '" style="width:100%;">'
+        + '<datalist id="aircraft-name-options">'
+        + ['<option value="'+escHtml(NO_NAME_AIRCRAFT)+'"></option>']
+            .concat(Object.keys(AIRCRAFT_REGISTRY).map(function(k){ return '<option value="'+escHtml(AIRCRAFT_REGISTRY[k].display)+'"></option>'; }))
+            .join('')
+        + '</datalist>'
         + (T1_META.aircraftName && registryHasSnapshot(lookupAircraft(T1_META.aircraftName))
             ? '<div class="flag info" style="margin-top:8px;"><span class="f-lbl">↺ Known aircraft</span>M1/M2/M3 copied from a previous patent named "'+escHtml(lookupAircraft(T1_META.aircraftName).display)+'". Edit as needed — clicking Next on T2 jumps to the summary.</div>'
             : '')
@@ -3808,7 +3770,7 @@ function pageT2(){
     h += '<div class="m3-card" style="margin-bottom:8px; padding:12px;"><div class="m3-head">Aircraft State in this View</div>'
        + (function(){
            var _arch1 = figArchOf(fNum), _tt = topTypeOfArch(_arch1),
-               _fixed = acStateLockedFor(_arch1);
+               _fixed = (_tt != null) && !isConvertibleArch(_tt) && !archConfigChanges();
            if (_fixed) {
              // Auto-set + lock, no question asked. Only fills a truly UNSET value
              // (never overwrites a real saved raw value, legacy or otherwise —
@@ -3822,13 +3784,8 @@ function pageT2(){
              // away (33 such figures in B05, all corrected by script). On a locked
              // fixed architecture Invariant is the only legal value, so writing it is
              // the lock doing its job, not an overwrite of a human answer.
-             // v15.10 (2026-09-18): ANY other stored value is overwritten too. A Hover /
-             // Cruise / Transition / Other left from before the lock (e.g. before TB and
-             // PTC joined the fixed set on 2026-08-30) sat under this disabled Invariant
-             // chip and still went to the export — same screen-vs-export split as the
-             // retired values above, and the user ruled the export must equal the screen.
              var _ac0 = figGet(fNum, 'acState');
-             if (_ac0 !== 'HoverCruise') figSet(fNum, 'acState', 'HoverCruise');
+             if (_ac0 == null || ['Ground','Unclear','NonApplicable'].indexOf(_ac0) > -1) figSet(fNum, 'acState', 'HoverCruise');
              // v15.4: the "Flight configuration shown" sub-label was dropped —
              // the card head already names the field and it is the only field
              // in the card.
@@ -4396,9 +4353,7 @@ function buildMorphologyObj() {
       ? (S.wPlan1 ? [{role:'Main', tilt:null, posV:null, posL:null, plan:S.wPlan1, tipJoin:!!S.wTipJoin1, planOtherNote:S.wPlan1==='Oth'?(S.wPlanOth1||''):''}] : [])
       : [1,2,3,4].map(function(i){ return i<=S.wCount ? {role:S['wRole'+i]||'Main', tilt:S['wTilt'+i], posV:S['wPosV'+i], posL:S['wPosL'+i], plan:S['wPlan'+i], tipJoin:!!S['wTipJoin'+i], planOtherNote:S['wPlan'+i]==='Oth'?(S['wPlanOth'+i]||''):'', roleOtherNote:isOtherVal(S['wRole'+i])?(S['wRole'+i+'Oth']||''):''} : null }).filter(Boolean),
     empType: S.empType, empTilts: !!S.empTilts, empTiltsNote: '', empNotes: S.empNotes,   // v15.5: note retired, never re-exported
-    // v15.10: fusKin is forced for PTC/RC exactly like card.propKin below — pageM1 draws
-    // only the locked Whole-Body Pitch chip for them, so the export must say the same.
-    fusShape: S.fusShape, fusKin: (BODYPITCH_ARCHS.indexOf(S.topType) > -1 ? 'BodyPitch' : S.fusKin), fusNotes: S.fusNotes, gearArch: S.gearArch, gearNotes: S.gearNotes, wingNotes: S.wingNotes,
+    fusShape: S.fusShape, fusKin: S.fusKin, fusNotes: S.fusNotes, gearArch: S.gearArch, gearNotes: S.gearNotes, wingNotes: S.wingNotes,
     // Shared categorical-"Other" notes (v15.3): only carried when the field is
     // actually on 'Other'/'Oth', so a stale note from an earlier pick never
     // exports (same rule the uncertainNote/empTiltsNote fields follow).
@@ -4659,9 +4614,6 @@ function ingestAI(data) {
     }
     if (m1.fusShape)       S.fusShape = m1.fusShape;
     if (m1.fusKin)         S.fusKin   = m1.fusKin;
-    // v15.10: the G1 block above ran applyFusKinLock() BEFORE this line, so a saved
-    // 'Fixed' on a PTC/RC undid the lock in S. Re-apply it now that M1 is loaded.
-    if (S.topType) applyFusKinLock();
     if (m1.gearArch)       S.gearArch = m1.gearArch;
     // Bug fix (v13, rule 6): only apply a loaded latSym on a HUMAN-REVIEWED record
     // (data.isHumanReviewed, set from rowsToAIData() via T1.isApproved being
@@ -5268,15 +5220,7 @@ function recordToRows(record, pid) {
     rows.push(reviewRow(pid, "T2", subDim, "partsMulti", fd.partsMulti != null ? fd.partsMulti : null, null, "human", imgPath));
     // Per-figure aircraft state in this view (config + free note). tiltedInView
     // retired v14 (C1) — no longer exported; see the AC_STATE array comment.
-    // v15.10: a figure whose architecture is locked exports Invariant, whatever an
-    // older pick left in fd — the export equals the disabled chip pageT2 draws. Judged
-    // on the record's own morphology (not S): this may serialise a patent other than
-    // the open one. A patent without a topType (duplicates, unclassifiable) is never locked.
-    var _archsT2 = record.architectures && record.architectures.length ? record.architectures : [record];
-    var _mT2 = _archsT2[normArch(fd.arch) - 1] || _archsT2[0];
-    var _ttT2 = _mT2 ? _mT2.topologyClass : null;
-    var _acOut = (_ttT2 && !isConvertibleArch(_ttT2) && !morphConfigChanges(_mT2)) ? 'HoverCruise' : fd.acState;
-    rows.push(reviewRow(pid, "T2", subDim, "acState", withLabel(_acOut != null ? _acOut : null, AC_STATE), null, "human", imgPath));
+    rows.push(reviewRow(pid, "T2", subDim, "acState", withLabel(fd.acState != null ? fd.acState : null, AC_STATE), null, "human", imgPath));
     rows.push(reviewRow(pid, "T2", subDim, "stateNote", fd.stateNote != null ? fd.stateNote : null, null, "human", imgPath));
   });
 

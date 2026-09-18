@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Damage review — restore from backups</title>
+<style>
+*{box-sizing:border-box}
+body{font:14px system-ui,sans-serif;margin:0;background:#f4f4f2;color:#222}
+header{position:sticky;top:0;z-index:5;background:#1f2d3d;color:#fff;padding:8px 14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+header b{font-size:16px}
+button,select{font:inherit}
+button{cursor:pointer}
+.exp{background:#2e7d32;color:#fff;border:0;border-radius:4px;padding:6px 12px}
+.acc{background:#fff;color:#1f2d3d;border:0;border-radius:4px;padding:6px 12px}
+.hint{font-size:12px;color:#cfd8dc;width:100%}
+main{padding:10px 14px}
+.card{background:#fff;border:1px solid #ccc;border-radius:6px;margin-bottom:18px}
+.card.d-restore{border-left:8px solid #2e7d32}.card.d-keep{border-left:8px solid #9e9e9e}.card.d-unsure{border-left:8px solid #ff9800}
+.head{display:flex;gap:6px 12px;align-items:center;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid #e3e3e3;background:#f7f9fc;border-radius:6px 6px 0 0}
+.head .n{font-size:13px;color:#777}
+.head .pid{font-size:17px;font-weight:700}
+.pill{font-size:12px;border-radius:8px;padding:1px 8px;background:#e3e8ef}
+.pill.bug{background:#1f2d3d;color:#fff}
+.pill.high{background:#c8e6c9}.pill.medium{background:#fff3cd}.pill.low{background:#ffcdd2}
+.ttl{font-size:12px;color:#555;width:100%}
+.q{padding:10px 12px 4px;font-size:15px;line-height:1.4}
+.warn{margin:6px 12px;padding:6px 10px;background:#fff3cd;border:1px solid #e0b400;border-radius:4px;font-size:13px}
+.live{margin:6px 12px;padding:6px 10px;background:#ffebee;border:1px solid #e53935;border-radius:4px;font-size:13px}
+table.ch{margin:6px 12px;border-collapse:collapse;font-size:13px}
+table.ch td,table.ch th{border:1px solid #ddd;padding:3px 8px;text-align:left;vertical-align:top}
+table.ch th{background:#f0f0f0}
+.opts{display:flex;gap:8px;padding:8px 12px;flex-wrap:wrap;align-items:center;border-bottom:1px solid #eee}
+.opts button{border:1px solid #999;background:#fff;border-radius:4px;padding:6px 14px}
+.opts button.sel{background:#1f2d3d;color:#fff;border-color:#1f2d3d}
+.sug{font-size:12px;color:#2e7d32}
+.note{font-size:12px;color:#777;padding:0 12px 6px}
+.ac{padding:8px 12px 4px}
+.ac h4{margin:4px 0 6px;font-size:14px}
+.ac h4 .lk{font-weight:400;font-size:12px;color:#555}
+.gal{display:flex;flex-wrap:wrap;gap:10px}
+.f{width:250px;border:2px solid #ddd;border-radius:6px;padding:4px;background:#fff;position:relative}
+.f.approved{border-color:#81c784}.f.disapproved{border-color:#ef9a9a;opacity:.75}.f.none{border-color:#bdbdbd;border-style:dashed}
+.f.inv{box-shadow:0 0 0 3px #42a5f5}
+.f.torestore{border:3px solid #2e7d32;box-shadow:0 0 0 3px #a5d6a7}
+.f.toremove{border:3px solid #e53935;box-shadow:0 0 0 3px #ffcdd2}
+.f.toremove .box{opacity:.45}
+.f .box{height:190px;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:zoom-in;background:#fafafa}
+.f img{max-width:100%;max-height:190px;display:block}
+.f .fn{font-size:11px;color:#666;word-break:break-all;margin-top:3px}
+.f .role{font-size:12px;font-weight:600;margin-top:2px}
+.f .role.g{color:#2e7d32}.f .role.r{color:#c62828}.f .role.b{color:#1565c0}
+.bd{display:flex;flex-wrap:wrap;gap:3px;margin-top:3px}
+.b{font-size:11px;border-radius:6px;padding:0 6px;background:#eceff1}
+.b.main{background:#ffd54f;font-weight:700}.b.ok{background:#c8e6c9}.b.no{background:#ffcdd2}.b.ns{background:#e0e0e0}
+.ed{margin-top:4px;display:grid;grid-template-columns:auto 1fr;gap:2px 6px;font-size:12px;align-items:center}
+.ed select{font-size:12px;padding:1px}
+.mk{margin-top:4px;font-size:12px;padding:2px 8px;border:1px solid #c79100;background:#fff8e1;border-radius:4px}
+.more{font-size:12px;margin:6px 0;background:#fff;border:1px solid #bbb;border-radius:4px;padding:3px 10px}
+.none-img{color:#999;font-size:12px}
+#zoombox{position:fixed;inset:0;background:rgba(0,0,0,.9);display:none;align-items:center;justify-content:center;z-index:9;cursor:zoom-out}
+#zoombox img{max-height:94vh;max-width:96vw;background:#fff}
+</style></head><body>
+<header><b>Damage review</b><span id="count"></span>
+<select id="filter"><option value="">show all cards</option><option value="open">only not decided</option></select>
+<button class="acc" id="accept" title="Sets the suggested answer on every HIGH-confidence card you have not decided yet">Accept suggestions on high-confidence cards</button>
+<button class="exp" id="export">Export decisions</button>
+<span class="hint">Each card shows every figure of the patent, grouped by aircraft: green frame = approved, red = disapproved, dashed = no status; MAIN in yellow; blue glow = the figure(s) this card is about. Green thick frame = will be restored, red thick frame = will be removed. Click a figure to enlarge. Choices are kept in this browser until you export; nothing changes in the record until the export is applied (dry run first).</span></header>
+<main id="main"></main><div id="zoombox"><img></div>
+<script>
+const D = __DATA__;
+const KEY = 'damageReview_v2';
+let S = {dec: {}, edit: {}, main: {}, open: {}};
+try { S = Object.assign(S, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
+try { const v1 = JSON.parse(localStorage.getItem('damageReview_v1') || '{}'); Object.keys(v1).forEach(k => { if (!S.dec[k] && v1[k]) S.dec[k] = v1[k]; }); } catch (e) {}
+function persist(){ try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+const STATE_NAME = Object.fromEntries(D.state);
+function stName(v){ return STATE_NAME[v] || v || '—'; }
+function saveToFolder(blob, name){
+  function fallback(){ var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); return Promise.resolve('downloads'); }
+  if (!window.showSaveFilePicker) return fallback();
+  return window.showSaveFilePicker({suggestedName: name, id: 'review_decisions'})
+    .then(function(h){ return h.createWritable().then(function(w){ return w.write(blob).then(function(){ return w.close(); }); }); })
+    .then(function(){ return 'folder'; }).catch(function(e){ return (e && e.name === 'AbortError') ? 'cancelled' : fallback(); });
+}
+
+// the figures of the patent as they would be after this card's decision
+function view(it){
+  const P = D.patents[it.pid], dec = S.dec[it.key] || '', ed = S.edit[it.key] || {}, mn = S.main[it.key] || {};
+  const figs = P.figs.map(f => Object.assign({}, f));
+  if (it.restoreFig) figs.push(Object.assign({}, it.restoreFig, {isRestore: true}));
+  figs.forEach(f => {
+    const e = ed[f.file] || {};
+    // a copied-labels card: "restore" puts the figure's own old values back (an explicit edit still wins)
+    if (it.kind === 'copied' && dec === 'restore' && it.fields && it.editable.includes(f.file))
+      Object.entries(it.fields).forEach(([k, gb]) => { if (e[k] == null) f[k] = gb[0]; });
+    ['status', 'per', 'acState'].forEach(k => { if (e[k] != null) f[k] = e[k]; });
+    if (e.ua != null) f.ua = e.ua;
+    f.role = it.involved[f.file] || '';
+    f.remove = dec === 'restore' && /unreviewed|leftover|no status/.test(f.role) && !f.isRestore && (it.kind === 'lost' || it.kind === 'renamed' || it.kind === 'leftover');
+    f.hidden = f.isRestore && dec === 'keep';
+    const ac = P.aircraft[f.ua] || {};
+    if (ac.locked && f.status === 'approved') f.acState = 'HoverCruise';
+  });
+  // one MAIN per aircraft: an explicit choice wins, otherwise what the record says
+  figs.forEach(f => { if (mn[f.ua] !== undefined) f.isMain = (mn[f.ua] === f.file); });
+  return figs.filter(f => !f.hidden);
+}
+function liveWarnings(it, figs){
+  const P = D.patents[it.pid], out = [];
+  if (!['lost', 'copied', 'renamed', 'leftover'].includes(it.kind)) return out;
+  for (let a = 1; a <= P.n_ua; a++) {
+    const ap = figs.filter(f => f.ua == a && f.status === 'approved' && !f.remove);
+    const mains = ap.filter(f => f.isMain);
+    if (ap.length && mains.length === 0) out.push('Aircraft ' + a + ' has no MAIN figure — click “make MAIN” on one of its approved figures.');
+    if (mains.length > 1) out.push('Aircraft ' + a + ' has ' + mains.length + ' MAIN figures (' + mains.map(f => f.file).join(', ') + ') — keep one.');
+  }
+  const r = figs.find(f => f.isRestore);
+  if (r && r.ua > P.n_ua) out.push('The restored figure points at aircraft ' + r.ua + ', which no longer exists — choose its aircraft on the figure.');
+  return out;
+}
+function figHtml(it, f, editable){
+  const P = D.patents[it.pid], ac = P.aircraft[f.ua] || {};
+  const cls = ['f', f.status === 'approved' ? 'approved' : f.status === 'disapproved' ? 'disapproved' : 'none'];
+  if (f.role) cls.push('inv'); if (f.isRestore) cls.push('torestore'); if (f.remove) cls.push('toremove');
+  let h = '<div class="' + cls.join(' ') + '"><div class="box">' + (f.src ? '<img loading="lazy" src="' + esc(f.src) + '" style="transform:rotate(' + (f.rot || 0) + 'deg)">' : '<span class="none-img">(image file not found)</span>') + '</div>';
+  h += '<div class="bd">' + (f.isMain ? '<span class="b main">MAIN</span>' : '')
+     + '<span class="b ' + (f.status === 'approved' ? 'ok' : f.status === 'disapproved' ? 'no' : 'ns') + '">' + esc(f.status || 'no status') + '</span>'
+     + (f.status === 'approved' ? '<span class="b">' + esc(f.per || '—') + '</span><span class="b">' + esc(stName(f.acState)) + '</span>' + (f.acSty ? '<span class="b">' + esc(f.acSty) + '</span>' : '') : '')
+     + '</div>';
+  if (f.role) h += '<div class="role ' + (f.isRestore ? 'g' : f.remove ? 'r' : 'b') + '">' + esc(f.isRestore ? (S.dec[it.key] === 'restore' ? 'RESTORED — your figure' : 'your lost figure (restore?)') : f.remove ? 'WILL BE REMOVED — ' + f.role : f.role) + '</div>';
+  if (editable) {
+    const e = (S.edit[it.key] || {})[f.file] || {};
+    const k = esc(it.key), fn = esc(f.file);
+    h += '<div class="ed">'
+      + 'status<select data-k="' + k + '" data-f="' + fn + '" data-e="status">' + ['approved', 'disapproved'].map(v => '<option' + (f.status === v ? ' selected' : '') + '>' + v + '</option>').join('') + '</select>'
+      + 'view<select data-k="' + k + '" data-f="' + fn + '" data-e="per">' + ['', ...D.per].map(v => '<option value="' + esc(v) + '"' + (f.per === v ? ' selected' : '') + '>' + esc(v || '—') + '</option>').join('') + '</select>'
+      + 'flight state' + (ac.locked ? '<span title="the wizard locks this aircraft\'s figures to Invariant">Invariant (locked)</span>'
+          : '<select data-k="' + k + '" data-f="' + fn + '" data-e="acState">' + [['', '—'], ...D.state].map(v => '<option value="' + esc(v[0]) + '"' + (f.acState === v[0] ? ' selected' : '') + '>' + esc(v[1]) + '</option>').join('') + '</select>')
+      + ((P.n_ua > 1 || f.ua > P.n_ua) ? 'aircraft<select data-k="' + k + '" data-f="' + fn + '" data-e="ua">' + Array.from({length: P.n_ua}, (_, i) => i + 1).concat(f.ua > P.n_ua ? [f.ua] : []).map(a => '<option value="' + a + '"' + (f.ua == a ? ' selected' : '') + '>' + a + (a > P.n_ua ? ' (gone)' : '') + '</option>').join('') + '</select>' : '')
+      + '</div>';
+  }
+  if (['lost', 'copied', 'renamed', 'leftover'].includes(it.kind) && f.status === 'approved' && !f.isMain && !f.remove)
+    h += '<button class="mk" data-k="' + esc(it.key) + '" data-f="' + esc(f.file) + '" data-ua="' + f.ua + '">make MAIN</button>';
+  h += '<div class="fn">' + esc(f.file) + (f.comment ? ' · “' + esc(f.comment) + '”' : '') + '</div></div>';
+  return h;
+}
+function cardHtml(it, i){
+  const P = D.patents[it.pid], dec = S.dec[it.key] || '', figs = view(it);
+  const ac = P.aircraft[it.ua] || {};
+  let h = '<div class="head"><span class="n">' + (i + 1) + '</span><span class="pid">' + esc(it.pid) + '</span>'
+    + '<span class="pill bug">' + esc(D.bugname[it.bug]) + '</span>'
+    + (ac.type ? '<span class="pill">aircraft ' + it.ua + ': ' + esc(ac.type) + ' — ' + esc(ac.typeName) + '</span>' : '')
+    + (P.names[it.ua] && P.names[it.ua] !== it.pid + '_ua' + it.ua ? '<span class="pill">' + esc(P.names[it.ua]) + '</span>' : '')
+    + '<span class="pill">' + esc(P.company) + '</span>'
+    + '<span class="pill ' + esc(it.conf) + '">confidence ' + esc(it.conf) + '</span>'
+    + (/^https?:/.test(P.pdf) ? '<a href="' + esc(P.pdf) + '" target="pdf">patent PDF</a>' : '')
+    + '<span class="ttl">' + esc(P.title) + (P.dup ? ' · duplicate type ' + esc(P.dup) + ' of ' + esc(P.dupOf) : '') + ' · ' + P.n_ua + ' aircraft in this patent</span></div>';
+  h += '<div class="q">' + esc(it.q) + '</div>';
+  it.warn.forEach(w => h += '<div class="warn">⚠ ' + esc(w) + '</div>');
+  if (it.changes.length) h += '<table class="ch"><tr><th></th><th>in the record now</th><th>if you choose the first option</th></tr>' + it.changes.map(c => '<tr><td>' + esc(c[0]) + '</td><td>' + esc(c[1]) + '</td><td>' + esc(c[2]) + '</td></tr>').join('') + '</table>';
+  h += '<div class="opts">' + it.opts.map(o => '<button data-k="' + esc(it.key) + '" data-v="' + o[0] + '" class="dec' + (dec === o[0] ? ' sel' : '') + '">' + esc(o[1]) + '</button>').join('')
+    + (it.rec ? '<span class="sug">suggested: ' + esc((it.opts.find(o => o[0] === it.rec) || [, ''])[1]) + '</span>' : '') + '</div>';
+  liveWarnings(it, figs).forEach(w => h += '<div class="live">✖ ' + esc(w) + '</div>');
+  h += '<div class="note">' + esc(it.note) + '</div>';
+  const groups = Array.from({length: P.n_ua}, (_, i) => i + 1);
+  figs.forEach(f => { if (!groups.includes(f.ua)) groups.push(f.ua); });
+  groups.forEach(a => {
+    const A = P.aircraft[a] || {}, fs = figs.filter(f => f.ua == a);
+    if (!fs.length) return;
+    const rank = f => (f.isRestore ? 0 : f.isMain ? 1 : f.status === 'approved' ? 2 : !f.status ? 3 : 4);
+    fs.sort((x, y) => rank(x) - rank(y));
+    const openK = it.key + '|' + a, showDis = S.open[openK];
+    const vis = fs.filter(f => f.status !== 'disapproved' || f.role || showDis), nDis = fs.filter(f => f.status === 'disapproved' && !f.role).length;
+    h += '<div class="ac"><h4>Aircraft ' + a + (a > P.n_ua ? ' (no longer exists)' : '') + ' — ' + esc(A.type || '—') + (A.typeName ? ' · ' + esc(A.typeName) : '')
+      + (P.names[a] ? ' · ' + esc(P.names[a]) : '') + ' <span class="lk">' + (A.locked ? 'flight state locked to Invariant' : A.type ? 'flight state free' + (A.moves ? ' (moves: ' + esc(A.moves) + ')' : '') : '')
+      + (it.bug === 'W3' && a == it.ua ? ' · stored wing: ' + esc(Object.entries(A.wing || {}).map(e => e.join('=')).join(', ') || '—') : '') + (A.tags ? ' · tags: ' + esc(A.tags) : '') + '</span></h4><div class="gal">'
+      + vis.map(f => figHtml(it, f, it.editable.includes(f.file) && (f.isRestore || it.kind === 'copied'))).join('') + '</div>'
+      + (nDis ? '<button class="more" data-open="' + esc(openK) + '">' + (showDis ? 'hide' : 'show') + ' ' + nDis + ' disapproved figure' + (nDis > 1 ? 's' : '') + '</button>' : '') + '</div>';
+  });
+  return h;
+}
+let SHOWN = [];
+function renderAll(){
+  const f = document.getElementById('filter').value, m = document.getElementById('main');
+  SHOWN = D.items.map((it, i) => i).filter(i => f !== 'open' || !S.dec[D.items[i].key]);
+  m.innerHTML = SHOWN.map(i => '<div class="card" id="c' + i + '"></div>').join('');
+  SHOWN.forEach(renderCard); count();
+}
+function renderCard(i){
+  const it = D.items[i], el = document.getElementById('c' + i); if (!el) return;
+  const dec = S.dec[it.key] || '';
+  el.className = 'card' + (dec ? ' d-' + dec : ''); el.innerHTML = cardHtml(it, i);
+}
+function count(){ document.getElementById('count').textContent = D.items.filter(it => S.dec[it.key]).length + ' / ' + D.items.length + ' decided'; }
+function idxOf(key){ return D.items.findIndex(it => it.key === key); }
+document.addEventListener('click', e => {
+  const b = e.target.closest('button.dec');
+  if (b) { const k = b.dataset.k; if (S.dec[k] === b.dataset.v) delete S.dec[k]; else S.dec[k] = b.dataset.v; persist(); renderCard(idxOf(k)); count(); return; }
+  const mk = e.target.closest('button.mk');
+  if (mk) { const k = mk.dataset.k; S.main[k] = S.main[k] || {}; S.main[k][mk.dataset.ua] = mk.dataset.f; persist(); renderCard(idxOf(k)); return; }
+  const mo = e.target.closest('button.more');
+  if (mo) { const k = mo.dataset.open; S.open[k] = !S.open[k]; persist(); renderCard(idxOf(k.split('|').slice(0, -1).join('|'))); return; }
+  const im = e.target.closest('.box img');
+  if (im) { const z = document.getElementById('zoombox'); z.querySelector('img').src = im.src; z.querySelector('img').style.transform = im.style.transform; z.style.display = 'flex'; return; }
+  if (e.target.closest('#zoombox')) document.getElementById('zoombox').style.display = 'none';
+});
+document.addEventListener('change', e => {
+  const s = e.target.closest('select[data-e]'); if (!s) return;
+  const k = s.dataset.k, f = s.dataset.f, fld = s.dataset.e;
+  S.edit[k] = S.edit[k] || {}; S.edit[k][f] = S.edit[k][f] || {};
+  S.edit[k][f][fld] = fld === 'ua' ? parseInt(s.value, 10) : s.value;
+  persist(); renderCard(idxOf(k));
+});
+document.getElementById('filter').onchange = renderAll;
+document.getElementById('accept').onclick = () => { D.items.forEach(it => { if (!S.dec[it.key] && it.conf === 'high' && it.rec) S.dec[it.key] = it.rec; }); persist(); renderAll(); };
+document.getElementById('export').onclick = () => {
+  const q = s => '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"';
+  const head = ['key', 'bug', 'patent_id', 'ua', 'decision', 'confidence', 'field', 'good_value', 'bad_value', 'last_good_snapshot', 'aux', 'edits', 'main', 'open_warnings'];
+  const rows = D.items.map(it => [it.key, it.bug, it.pid, it.ua, S.dec[it.key] || '', it.conf, it.field, it.good, it.bad, it.snapshot, it.aux,
+    JSON.stringify(S.edit[it.key] || {}), JSON.stringify(S.main[it.key] || {}), liveWarnings(it, view(it)).join(' | ')].map(q).join(','));
+  saveToFolder(new Blob([head.map(q).join(',') + '\n' + rows.join('\n') + '\n'], {type: 'text/csv'}), 'DAMAGE_RESTORE_DECISIONS.csv')
+    .then(w => { if (w !== 'cancelled') alert('Saved (' + w + '). Tell Claude it is exported.'); });
+};
+renderAll();
+</script></body></html>

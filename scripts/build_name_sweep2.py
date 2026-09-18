@@ -20,7 +20,8 @@ from pathlib import Path
 import pandas as pd
 
 REPO = Path(__file__).resolve().parents[1]
-ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED")
+ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED/0_labelling/inputs")   # 2026-09-17: stage-0 INPUTS of the 1639_LABELLED tree
+OUT = ROOT.parent / "outputs"                                                                                   # what notebook 04 writes
 PATSEER = Path("/mnt/storage_11tb/Drive_files_to_syncronize/2 - Patente & Validation/"
                "3 -Raw_Patent_Exports_PatSeer_&Gold_Standard/1639__dataset_08_06_26.xlsx")
 REVIEW_HTML = REPO / "notebooks" / "post-process" / "name_review.html"
@@ -53,10 +54,10 @@ def main():
     html = REVIEW_HTML.read_text(encoding="utf-8")
     data = {r["pid"]: r for r in json.loads(re.search(r"const DATA=(\[.*?\]);const AUTO=", html, re.S).group(1))}
 
-    idn = pd.read_excel(ROOT / "joined" / "aircraft_identity_ALL.xlsx", sheet_name="Identity")
+    idn = pd.read_excel(ROOT / "identity" / "aircraft_identity_ALL.xlsx", sheet_name="Identity")
     idn["duptag"] = idn.wizard_duplicate_type.map(lambda v: "" if pd.isna(v) else f"D{int(v)}")
     by = idn.set_index("patent_id")
-    ml = pd.read_excel(ROOT / "joined" / "master_labels.xlsx", keep_default_na=False, dtype=str)
+    ml = pd.read_csv(OUT / "tables" / "aircraft_table.csv", keep_default_na=False, dtype=str)
     ml = ml[(ml.is_primary == "True") & (ml.is_approved == "True")].copy()
     ml["variant"] = ml.variant.astype(int)
     # human architecture labels only (no ML guesses, notes, uncertainty flags or identity columns)
@@ -78,7 +79,7 @@ def main():
     d3_sims = pd.Series([v for v in (label_sim(r.patent_id + "#1", r.dup_of + "#1")[0] for r in d3.itertuples()) if v is not None])
     BENCH = {"d3_median": round(float(d3_sims.median()), 2), "unrelated_median": 0.40}
     types = {pid: [s(t) for t in g.sort_values("variant").topType] for pid, g in ml.groupby("patent_id")}
-    mf = pd.read_excel(ROOT / "joined" / "master_figures.xlsx")
+    mf = pd.read_csv(OUT / "tables" / "figure_table.csv")
     mf = mf[(mf.status == "approved") & (mf.file_exists == True)].sort_values(["is_main"], ascending=False)
     figs = defaultdict(list)
     for x in mf.itertuples():
@@ -90,7 +91,7 @@ def main():
 
     # duplicate graph over the whole corpus (edges: patent -- the patent it duplicates), read from the LIVE wizard record
     # (identity_ALL can predate duplicate changes made in the wizard)
-    w = pd.read_excel(ROOT / "joined" / "wizard_all" / "reviewed_patents_Batch_ALL.xlsx", dtype=str, keep_default_na=False,
+    w = pd.read_excel(ROOT / "record" / "reviewed_patents_Batch_ALL.xlsx", dtype=str, keep_default_na=False,
                       usecols=["Patent_ID", "Field", "Value"])
     w = w[w.Field.isin(["isDuplicate", "duplicateId", "duplicateType"])]
     w["pid"] = w.Patent_ID.str.replace(r"_arch\d+$", "", regex=True)

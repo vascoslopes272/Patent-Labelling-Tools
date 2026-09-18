@@ -31,12 +31,13 @@ from src.extractor import load_patseer_excel           # noqa: E402
 from src.text_citation import (enrich_full_text, find_quote, literal_pattern,  # noqa: E402
                                SIGNAL_SECTIONS, SECTIONS)
 
-ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED")
+ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED/0_labelling/inputs")   # 2026-09-17: stage-0 INPUTS of the 1639_LABELLED tree
+OUT = ROOT.parent / "outputs"                                                                                   # what notebook 04 writes
 PATSEER = Path("/mnt/storage_11tb/Drive_files_to_syncronize/2 - Patente & Validation/"
                "3 -Raw_Patent_Exports_PatSeer_&Gold_Standard/1639__dataset_08_06_26.xlsx")
 GAZ = REPO / "reference" / "evtol_gazetteer.csv"
 KNOWN = ROOT / "text_architecture" / "known_aircraft_architecture.csv"
-OUT_CSV = ROOT / "joined" / "names" / "name_evidence_20260911.csv"
+OUT_CSV = ROOT / "review_decisions" / "_reports" / "names" / "name_evidence_20260911.csv"
 OUT_HTML = REPO / "notebooks" / "post-process" / "name_review.html"
 MAX_FIGS = 6
 _PRIOR = re.compile(r"prior art|known|conventional|existing|such as|e\.g\.|for example|U\.?S\.? ?Pat|"
@@ -96,9 +97,9 @@ def assignee_derived(wizard_name: str, companies: list[str]) -> bool:
 
 
 def main():
-    idn = pd.read_excel(ROOT / "joined" / "aircraft_identity_ALL.xlsx", sheet_name="Identity")
+    idn = pd.read_excel(ROOT / "identity" / "aircraft_identity_ALL.xlsx", sheet_name="Identity")
     prim = idn[(idn.wizard_approved == True) & ~idn.wizard_duplicate_type.isin([1.0, 2.0])].copy()
-    ml = pd.read_excel(ROOT / "joined" / "master_labels.xlsx",
+    ml = pd.read_csv(OUT / "tables" / "aircraft_table.csv",
                        usecols=["patent_id", "variant", "topType", "is_primary", "is_approved"])
     ml = ml[(ml.is_primary == True) & (ml.is_approved == True)]
     types = {pid: [s(t) for t in g.sort_values("variant").topType] for pid, g in ml.groupby("patent_id")}
@@ -133,7 +134,7 @@ def main():
     index = load_patseer_excel(PATSEER)
     enrich_full_text(index, PATSEER)
     pdf = pd.read_csv(PATSEER.with_suffix(".pdf_links.csv")).set_index("patent_id").pdf_link
-    mf = pd.read_excel(ROOT / "joined" / "master_figures.xlsx")
+    mf = pd.read_csv(OUT / "tables" / "figure_table.csv")
     mf = mf[(mf.status == "approved") & (mf.file_exists == True)]
     nfig = mf.groupby(["patent_id", "arch"]).size().to_dict()
     figs = {}

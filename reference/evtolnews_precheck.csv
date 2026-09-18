@@ -1,0 +1,34 @@
+aircraft_id,tier,suggest_slug,suggest_name,note
+US2019291863A1_ua1,1,a3-by-airbus,Vahana,tandem tilt-wing with 8 propellers = Vahana Alpha One (A3 is the assignee)
+USD912602S_ua1,1,alakai-technologies-skai-prototype,Skai,design patent; 6-rotor hexacopter with SUV-like cabin = Skai
+RU2657650C1_ua2,1,hoversurf-scorpion-d,Scorpion,Atamanov is the Hoversurf founder; 4-rotor hoverbike = Scorpion
+US2021245873A1_ua1,1,wisk-aero-formerly-kitty-hawk-cora-generation-4,Cora,12 lift rotors on 6 booms + rear pusher = Cora; filed 2021 so Generation 4 or 5
+US2018105267A1_ua1,1,wisk-aero-formerly-kitty-hawk-cora-generation-4,Cora,12 lift rotors on booms + pusher + box tail; Z-P2 (Generation 3) or Cora Generation 4
+US2022402603A1_ua1,1,kitty-hawk-heaviside,Heaviside,forward-swept high wing + canard with tilting propellers = Heaviside
+USD892710S_ua1,1,kitty-hawk-heaviside,Heaviside,design patent; 6 props on the wing + 2 on the canard = Heaviside
+US2024051687A1_ua1,1,katla-aero-katla-700,Katla,closed (ring) wing with 10 lift + 2 cruise propellers = Katla 700
+US10913529B1_ua1,1,piasecki-ares-concept-design,ARES,two tilting ducted fans on a mission module = ARES
+US2025340290A1_ua1,1,overair-karem-butterfly-prototype,Butterfly,4 large tilting rotors (2 on the wing and 2 on the tail) = Overair Butterfly
+GB202410204D0_ua1,1,seahorse-air-seahorse-h5,SeaHorse,8 propellers in 4 tilting clusters + floats = SeaHorse H5
+CN218288104U_ua1,1,volkswagen-group-china-vmo-flying-tiger-prototype-1,V.MO,tandem wings + 8 lift props + 2 ducted pushers = V.MO (Flying Tiger or Sky Garden mock-up)
+US2022144421A1_ua1,1,airspace-experience-technologies-asx-mobi-one-v3,MOBi-One,tilt-wing with stacked coaxial propellers = MOBi-One V3
+US11077937B1_ua1,1,transcend-air-vy-400r,Vy,tilt-wing jet-like aircraft = Transcend Vy 400
+US2019337612A1_ua1,1,jaunt-air-mobility-mav55,MAV55,slowed rotor + high wing + 2 wing props (Carter technology licensed to Jaunt); page spec matches
+US2020239134A1_ua1,1,bell-nexus-4ex,Nexus,6 tilting ducted fans around the cabin = Nexus 6HX (only the 4EX has a directory page; the dataset already uses Nexus)
+US2021316849A1_ua1,1,bell-nexus-4ex,Nexus,6 tilting ducted fans (2 fwd + 2 wing + 2 tail) = Nexus 6HX
+US2018208305A1_ua1,1,bell-nexus-4ex,Nexus,4 large tilting ducted fans = Nexus 4EX family
+US2020148354A1_ua1,1,bell-nexus-4ex,Nexus,4 tilting ducted fans with a wing = Nexus 4EX
+US11465737B1_ua1,1,joby-s4,S4,6 tilting propellers + V-tail = Joby S4 (the matcher had offered the wrong page)
+US2025242909A1_ua1,2,doroni-h1,H1,4 rotor pods + pushers; Doroni H1 has 8 ducted lift props + 2 pushers — check the rotor layout
+US2026015083A1_ua1,2,dufour-aerospace-aero3-production-aircraft,Aero,only a side view: tilt-wing + tail rotors — Aero3 or Aero2
+US2022306292A1_ua1,2,textron-eaviation-evtol,Nexus,high wing + U-tail + tilting props — compare with Textron eAviation Nexus (4 tilt + 2 lift props)
+US2022306292A1_ua3,2,textron-eaviation-evtol,Nexus,same family as aircraft a — check
+US2022324558A1_ua1,2,textron-eaviation-evtol,Nexus,same family as US2022306292A1 — check
+US2022371727A1_ua3,2,textron-eaviation-evtol,Nexus,same family as US2022306292A1 — check
+US2023056974A1_ua1,2,textron-eaviation-evtol,Nexus,twin-boom high wing with tilting + lift props — check against Textron eAviation Nexus
+US2020407055A1_ua1,2,volocopter-voloconnect,VoloConnect,6 lift rotors on a frame + wing; VoloConnect/VoloRegion — check
+US2019308723A1_ua1,2,hoversurf-formula-2-winged,Formula,4 pods of lift fans + wing = Hoversurf Formula 2 Winged? check fan count
+US2017174335A1_ua1,2,malloy-hoverbike,Hoverbike,4 overlapping rotors around the rider = Malloy Hoverbike (later 4-rotor version) — check
+CN119460097A_ua1,2,chery-automobile-modular-flying-car,Chery Land and Air Vehicle,page: 8 lift + 1 pusher + high wing; drawing has more rotors — check
+WO2023051929A1_ua1,2,emagic-aircraft-emagic-one,eMagic,8 lift rotors on booms + wings — check against eMagic One
+US2020156778A1_ua1,2,uber-elevate-ecrm-003,eCRM,Uber reference design; check which eCRM

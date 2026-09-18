@@ -37,7 +37,6 @@ rebuilt on every run. Nothing here writes back to an input.
 | ground truth | 7d: `arch_gt`, `arch_gt_provenance`, `arch_gt_visible` from `text_architecture/architecture_text_final_variants.csv` on primary approved aircraft |
 | identity (03a) | 7b: `uav_final` / `is_electric_final` / `takeoff_final` + edge tags UAVSimilar / ElectricSimilar / STOLSimilar merged into `edgeTags` on primary rows |
 | ML pre-labels | 7c: the feed's predictions with an `ml_` prefix (tables only, never in the workbook) |
-| wizard view | 6b: every lock the wizard draws is replayed on the record (`src/wizard_view.py`); a stored value the screen does not show FAILS the build — fix with `scripts/apply_wizard_locks.py --apply`. `acState` is written as the wizard's display name **Invariant**, not its stored id `HoverCruise` |
 | re-codes | `US2021284333A1 wing1_plan Oth→Trap`; two `T2.parts` free texts → `Other` |
 | dropped | `codebook_version`, `timestamp`, `familyId`, `labelToken`, SBERT pre-labels, long bibliographic text, retired fields |
 | outputs | `1639_LABELS.xlsx` (README · **Review** = the record with the names written in, loadable in the wizard · ground_truth · patseer) · `images/<aircraft_id>/<figure>.png` + MANIFEST.csv · `tables/aircraft_table.csv`, `figure_table.csv`, `data_dictionary.csv` (what stages 1–2 read) · `BUILD_LOG.md` · `ACTION_FLAGS.csv` |
@@ -332,29 +331,6 @@ if unmapped: log("  " + "; ".join(f"{k[0]}: {k[1][:50]!r}" for k in list(unmappe
 """)
 
 md(r"""
-## 6b — Wizard view: does the record store what the wizard SHOWS?
-
-The wizard locks some fields once the architecture is known and draws the locked value as a disabled chip. Before
-v15.10 it exported whatever was stored underneath, so the screen and the Excel could disagree (2026-09-18: 122
-approved figures showed Invariant but stored Hover/Cruise/…; 13 PTC/RC bodies showed Whole-Body Pitch but stored
-Fixed). `src/wizard_view.py` replays every lock on the record — Aircraft State (fixed architecture whose record moves
-nothing → Invariant), Body Motion (PTC/RC → Whole-Body Pitch; TB never Fixed), card-level Propulsor Articulation
-(TW/DS/SLC/SRW/MR/TB/PTC/RC → Fixed), Wing Tilt (TB/PTC → Fixed; TW wing 1 → Tilt; RC/MR wingless). Any difference
-FAILS §12; the fix is `python scripts/apply_wizard_locks.py --apply` (same replay), never a hand edit here.
-""")
-code(r"""
-from src.wizard_view import replay, unlocked_fixed, INVARIANT_ID, INVARIANT_NAME
-WV = replay(L)
-log(f"wizard view: {len(WV)} places where the record stores something other than what the wizard shows")
-for r in WV.head(40).itertuples():
-    log(f"  !! {r.patent_id} arch{r.arch} {r.field} {r.figure}: stored {r.stored!r}, wizard shows {r.wizard_shows!r} — {r.rule}")
-if len(WV): log("  fix: python scripts/apply_wizard_locks.py --apply   (then re-run this notebook)")
-# a PTC is defined by nothing articulating, yet the wizard unlocks the figure state when the record says a part moves
-PTC_MOVES = unlocked_fixed(L).query("topType == 'PTC'")
-for r in PTC_MOVES.itertuples(): log(f"  PTC whose record says a part moves (figure state unlocked in the wizard): {r.patent_id} arch{r.arch}: {r.moves}")
-""")
-
-md(r"""
 ## 7 — Duplicates: D1/D2 point, D3 keep their own
 
 Ruling 2026-09-17: a D1 or D2 is the SAME aircraft as its original, so it carries **nothing from G1 to M3** — no copy,
@@ -490,9 +466,6 @@ def real_name_of(pid, ua):
     n = id_value(pid, "aircraft_name_final", ua); g = id_value(pid, "aircraft_group", ua)
     # a known ruling wins only for a typed name: a generated sibling of a multi-aircraft patent is the exact group string
     if not n or (_norm(n) == _norm(g) and (pid not in _KNOWN or n == g)): return None
-    # 2026-09-17: a multi-aircraft patent keeps per-aircraft groups ("LEONARDO 2a"), but its unreviewed name can still be the
-    # patent-level generated group ("LEONARDO 2") — that is company numbering, not a real name
-    if pid not in _KNOWN and _norm(n) == _norm(IDT.at[pid, "aircraft_group"]): return None
     return n
 def name_for(r):
     if r.same_aircraft_as is not np.nan and not is_empty(r.same_aircraft_as):
@@ -689,12 +662,10 @@ gt_mask = appr_mask & M.is_primary
 for src, dst in [("arch_final", "arch_gt"), ("provenance", "arch_gt_provenance"), ("visible_in_figures", "arch_gt_visible")]:
     M[dst] = np.nan; M[dst] = M[dst].astype(object)
     M.loc[gt_mask, dst] = M.loc[gt_mask, "aircraft_id"].map(GT[src]).replace("", np.nan)
-# no type + "not_stated_in_patent" (or the older "unsure") = the reviewer read the whole document and it does not state
-# the type: a ruling, not a gap (user 2026-09-17: named "not stated in the patent")
-NOT_STATED_PROV = {"not_stated_in_patent", "unsure"}
-GT_UNSURE  = sorted(M[gt_mask & M.arch_gt.isna() & M.arch_gt_provenance.isin(NOT_STATED_PROV)].aircraft_id)
-GT_MISSING = sorted(M[gt_mask & M.arch_gt.isna() & ~M.arch_gt_provenance.isin(NOT_STATED_PROV)].aircraft_id)
-if GT_UNSURE: log(f"  ground truth NOT STATED IN THE PATENT (no type): {GT_UNSURE}")
+# "unsure" with no type = the reviewer read the whole document and it does not settle the type: a ruling, not a gap
+GT_UNSURE  = sorted(M[gt_mask & M.arch_gt.isna() & (M.arch_gt_provenance == "unsure")].aircraft_id)
+GT_MISSING = sorted(M[gt_mask & M.arch_gt.isna() & (M.arch_gt_provenance != "unsure")].aircraft_id)
+if GT_UNSURE: log(f"  ground truth NOT DETERMINABLE (provenance unsure, no type): {GT_UNSURE}")
 GT_ORPHANS = sorted(set(GT.index) - set(M[gt_mask].aircraft_id))
 log(f"ground truth: {len(GT)} aircraft in the file; {int((gt_mask & M.arch_gt.notna()).sum())} / {int(gt_mask.sum())} primary approved aircraft matched")
 log(f"  provenance: {M.loc[gt_mask, 'arch_gt_provenance'].value_counts(dropna=False).to_dict()}")
@@ -783,10 +754,6 @@ for f in ML_FIG:
     F["ml_" + f] = [clean(Vf[f].get(k, np.nan), f in ML_FIG_CODED) for k in fkeys]; ml_fig_cols.append("ml_" + f)
     if f in ML_FIG_CODED and f in Cf.columns:
         F["ml_" + f + "_conf"] = [conf(Cf[f].get(k, np.nan)) for k in fkeys]; ml_fig_cols.append("ml_" + f + "_conf")
-# the tables carry what the wizard SHOWS: its "Invariant" option is stored under the legacy id 'HoverCruise' (kept so
-# saved records load). The Review sheet keeps the id — the wizard reads that sheet back.
-for c in ("acState", "ml_acState"):
-    if c in F.columns: F[c] = F[c].replace({INVARIANT_ID: INVARIANT_NAME})
 for f in [c for c in ("per", "acSty", "acCol", "bgSty", "bgCol", "acState") if c in F.columns and "ml_" + c in F.columns]:
     both = F[f].notna() & F["ml_" + f].notna()
     F["ml_" + f + "_agrees"] = pd.array(np.where(both, F[f].astype(str).values == F["ml_" + f].astype(str).values, None), dtype="boolean")
@@ -966,7 +933,7 @@ GTS = _gsel[["aircraft_id", "patent_id", "company", "aircraft_name", "topType", 
 # flag column (user 2026-09-17): what a reader must know before using the row as ground truth
 def _gt_flag(r):
     out = []
-    if is_empty(r.arch_gt) and str(r.arch_gt_provenance) in NOT_STATED_PROV: out.append("GT not stated in the patent")
+    if is_empty(r.arch_gt) and str(r.arch_gt_provenance) == "unsure": out.append("GT not determinable: the document does not settle the type")
     elif is_empty(r.arch_gt): out.append("GT missing: not read yet")
     elif str(r.arch_gt_provenance) == "unsure": out.append("GT unsure")
     if str(r.g1_humanUncertain) == "True": out.append("image label marked uncertain in the wizard")
@@ -982,11 +949,10 @@ wb = Workbook(); ws0 = wb.active; ws0.title = "README"
 readme = [("workbook", WORKBOOK.name), ("built", RUN_TS), ("built by", "Patent-Labelling-Tools/notebooks/04_master_labels.ipynb (generator scripts/gen_04_master_labels.py)"),
           ("wizard", HTML.name), ("", "")]
 readme += [("sheet Review", "the wizard record exactly as exported (Patent_ID, Section, Sub_Dimension, Field, Value, Source, Image_Path), with the aircraft names written into T1/aircraftName. Load it in the wizard with Resume (it picks the sheet named Review)."),
-           ("sheet ground_truth", "one row per primary approved aircraft: the wizard type (image_label) next to the whole-document ground truth (arch_gt) and whether that type is visible in the figures; column flag = GT not stated in the patent / GT missing / GT unsure / image label marked uncertain in the wizard"),
+           ("sheet ground_truth", "one row per primary approved aircraft: the wizard type (image_label) next to the whole-document ground truth (arch_gt) and whether that type is visible in the figures; column flag = GT not determinable / GT missing / GT unsure / image label marked uncertain in the wizard"),
            ("sheet patseer", "bibliographic facts from the PatSeer export, one row per patent, joined on patent_id"),
            ("aircraft id", "<patent>_ua<N>: N = the aircraft number in the wizard (a single-aircraft patent is _ua1). Names: real name (+ vN) where reviewed, else the id."),
            ("order", "every sheet, table and the record itself: ONE block per company, companies A→Z (column company = reference/family_map.csv company_canonical, e.g. Bell Helicopter Textron / Bell Textron / Textron Innovations = Bell / Textron; Individual Inventor and Unknown / Independent last); inside a company the named aircraft A→Z, then the unnamed by patent id, then the rejected records; a D1/D2 of the same company directly under its original; a patent's aircraft together in ua order"),
-           ("flight state", "acState per figure. The wizard SHOWS 'Invariant' for the option it stores under the old id HoverCruise: tables/figure_table.csv writes Invariant; the Review sheet keeps 'HoverCruise — Invariant' because the wizard reads that sheet back. Every lock the wizard draws is checked against the record on each build (notebook 04 §6b)."),
            ("duplicates", "D1/D2 carry nothing from G1 to M3 and point at the aircraft they repeat (tables/aircraft_table.csv, column same_aircraft_as); a D2 has no figures of its own"),
            ("images", "images/<aircraft_id>/<figure>.png — every approved figure of a non-D2 record, MANIFEST.csv with sha256"),
            ("tables", "tables/aircraft_table.csv (one row per aircraft, every label + identity + ground truth + ml_ pre-labels), figure_table.csv (one row per figure), data_dictionary.csv — what stages 1 and 2 read"),
@@ -1027,9 +993,6 @@ code(r"""
 checks = []
 def chk(name, ok, detail=""): checks.append((name, bool(ok), detail)); log(f"  [{'OK' if ok else 'FAIL'}] {name}  {detail}")
 chk("every patent present", M.patent_id.nunique() == PT.shape[0], f"{M.patent_id.nunique()} / {PT.shape[0]}")
-chk("the record stores what the wizard shows (every lock replayed, §6b)", WV.empty,
-    f"{len(WV)} differences" + ("; fix: python scripts/apply_wizard_locks.py --apply" if len(WV) else ""))
-chk("figure_table acState uses the wizard's display name Invariant, never the id HoverCruise", not (F.acState == INVARIANT_ID).any())
 chk("no label separator left in a coded column", not any(M[c].astype(str).str.contains(SEP, regex=False).any() for c in coded_cols))
 prim_appr = M[M.is_primary & M.is_approved.fillna(False).astype(bool)]
 unclass = prim_appr[prim_appr.g1_quickOverride.fillna(False).astype(bool)]
@@ -1097,7 +1060,7 @@ for r in F[(F.status == "approved") & ~F.file_exists].itertuples():
 for (nf, k), n in unmapped.items():
     flag("OTHER_NOTE_UNTAGGED", "", f"{nf}: {k[:80]!r} ({n}x)", "add a row to notebooks/04_other_note_tags.csv")
 for a in GT_UNSURE:
-    flag("GROUND_TRUTH_NOT_STATED", a, "not stated in the patent: the whole-document reading does not settle the type (no arch_final)", "informational — flagged in the ground_truth sheet; tick G1 Uncertain in the wizard if the figure label is uncertain too")
+    flag("GROUND_TRUTH_NOT_DETERMINABLE", a, "the whole-document reading does not settle the type (provenance unsure, no arch_final)", "informational — flagged in the ground_truth sheet; tick G1 Uncertain in the wizard if the figure label is uncertain too")
 for b in SPLIT_STALE:
     flag("SPLIT_COPY_STALE", b, "labels/reviewed_patents_<batch>.xlsx differs from the record", "python scripts/split_wizard_all_export.py <record> --apply")
 _rec_order = L.drop_duplicates("base").base.tolist(); _canon = M.drop_duplicates("patent_id").patent_id.tolist()
@@ -1119,9 +1082,6 @@ for pid, tag, why, note in TAG_KEPT:
     flag("WIZARD_TAG_KEPT", pid, f"{tag} kept although {why}", f"informational — {note}")
 for pid in unclass.patent_id:
     flag("UNCLASSIFIABLE_BY_DESIGN", pid, "g1_quickOverride=True, no topType", "informational — excluded from topType counts")
-for r in PTC_MOVES.itertuples():
-    flag("PTC_RECORD_MOVES", r.patent_id, f"arch{r.arch} is PTC but the record says a part moves ({r.moves}), so the wizard unlocks its figure state",
-         "PTC means nothing articulates: fix the type or the moving part in the wizard; the figures then lock to Invariant")
 for a in GT_MISSING:
     flag("GROUND_TRUTH_MISSING", a, "primary approved aircraft with no row in architecture_text_final_variants.csv", "decide it on the 03b page and re-apply")
 for a in GT_ORPHANS:

@@ -53,7 +53,7 @@ CORRECTIONS = "CORRECTIONS_identity.csv"
 # by the annotator. `answer` is a letter (a, b, c …) or "all" when the duplicate
 # covers every aircraft of the original — "all" leaves the pin empty, which is
 # already the behaviour: the duplicate takes the original's patent-level answers.
-VARIANT_ANSWERS = "DUPLICATE_ROOT_VARIANT.csv"
+VARIANT_ANSWERS = "review_decisions/duplicate_root_variant.csv"   # 2026-09-17: the page export is the one file (root copy archived)
 # The annotator's rulings from notebooks/post-process/name_review.html (every aircraft-name proposal with its evidence),
 # exported as NAME_DECISIONS.csv and copied into 1639_LABELLED/. They fill the *_human name cells only
 # where the identity review page left them empty — a name typed in that page always wins.
@@ -187,7 +187,7 @@ def apply_name_decisions(ident: pd.DataFrame, path: Path) -> list[str]:
 # Ruling 2026-09-13: a row whose powertrain was only PRESUMED (the patent never states one) but whose
 # own text carries a turbine / piston sentence contradicts the presumption, so the electric question is
 # re-opened on it. The evidence file is the one embedded in the review page, so page and report agree.
-EVIDENCE = "joined/identity_evidence_20260913.json"
+EVIDENCE = "identity/identity_evidence_20260913.json"   # 2026-09-17 layout: 0_labelling/inputs/identity/
 
 
 def flag_presumed_conflicts(ident: pd.DataFrame, path: Path) -> list[str]:
@@ -303,8 +303,8 @@ def main() -> int:
     cfg = load_config()
     labels = Path(cfg["paths"]["data_matched"])
     root = Path(cfg["paths"]["labelled"])
-    r = build(labels, root / "joined", write=not a.check,
-              corrections=root / CORRECTIONS, answers=root / VARIANT_ANSWERS,
+    r = build(labels, root / "identity", write=not a.check,                       # 2026-09-17: identity_ALL is a derived INPUT of 04
+              corrections=root / "review_decisions" / CORRECTIONS, answers=root / VARIANT_ANSWERS,
               names=next((p for p in [root / "review_decisions" / NAME_DECISIONS, root / NAME_DECISIONS]
                           if p.exists()), root / "review_decisions" / NAME_DECISIONS))
 

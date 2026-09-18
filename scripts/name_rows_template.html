@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Name rows — evtol.news</title>
+<style>
+*{box-sizing:border-box}
+body{font:14px system-ui,sans-serif;margin:0;background:#f4f4f2;color:#222}
+header{position:sticky;top:0;z-index:5;background:#1f2d3d;color:#fff;padding:8px 14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+header b{font-size:16px}
+header input{font:inherit;padding:3px 6px}
+button{font:inherit;cursor:pointer}
+.exp{background:#2e7d32;color:#fff;border:0;border-radius:4px;padding:6px 12px}
+.hint{font-size:12px;color:#cfd8dc;width:100%}
+main{padding:10px 14px}
+.row{background:#fff;border:1px solid #ccc;border-radius:6px;margin-bottom:14px}
+.row.done{border-left:6px solid #2e7d32}.row.skip{opacity:.55}
+.head{display:flex;gap:6px 14px;align-items:center;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid #e3e3e3;background:#f7f9fc;border-radius:6px 6px 0 0}
+.head .n{font-size:13px;color:#777;min-width:26px}
+.head input.nm{font:inherit;font-size:16px;font-weight:600;padding:2px 6px;width:220px}
+.head a.big{font-size:15px;font-weight:600}
+.head .s{font-size:12px;color:#555}
+.head .links a{font-size:12px;margin-right:8px}
+.head .cnt{font-size:12px;background:#c8e6c9;border-radius:8px;padding:1px 8px}
+.head .skipb{margin-left:auto}
+.strip{display:flex;flex-wrap:wrap;gap:8px;padding:8px 12px}
+.p{width:220px;background:#fff;border:2px solid #90caf9;border-radius:6px;padding:3px;cursor:pointer;position:relative}
+.p img{width:100%;height:160px;object-fit:contain;display:block}
+.p .m{font-size:11px;line-height:1.3;margin-top:2px}
+.p .why{color:#2e7d32}
+.p.mine{border-color:#2e7d32;box-shadow:0 0 0 3px #a5d6a7}
+.p.else{border-color:#ff9800}
+.p.named{opacity:.45;cursor:not-allowed}
+.tag{position:absolute;top:5px;left:5px;font-size:11px;padding:1px 6px;border-radius:8px;background:#1f2d3d;color:#fff;max-width:85%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.tag.mine{background:#2e7d32}.tag.else{background:#ff9800}
+.zoom{position:absolute;top:3px;right:3px;background:#fff;border:1px solid #bbb;border-radius:4px;padding:0 4px;font-size:12px}
+.warn{background:#fff3cd;border-top:2px solid #c79100;padding:6px 12px;font-size:13px}
+#zoombox{position:fixed;inset:0;background:rgba(0,0,0,.88);display:none;flex-direction:column;z-index:9;padding:12px;overflow:auto}
+#zoombox .imgs{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+#zoombox img{max-height:80vh;max-width:95vw;background:#fff}
+#zoombox .cap{color:#fff;margin-bottom:8px}
+#moreRows{display:block;margin:10px auto 30px;padding:8px 18px}
+</style></head><body>
+<header>
+  <b>Name rows</b><span id="count"></span>
+  <input id="search" placeholder="search name / company" size="24">
+  <label><input type="checkbox" id="hideskip" checked> hide rows I skipped</label>
+  <button class="exp" id="export">⬇ Export NAME_EVTOLNEWS.csv</button>
+  <span class="hint">One row per BASE name (all versions of that aircraft together — the links next to the name are its versions on evtol.news).
+    Open a link to see the photos, then click the drawings below that ARE that aircraft (click again to undo).
+    Only the most probable rows and aircraft are shown (same architecture + a filing year that fits); aircraft you already named or marked “none” are left out.
+    ⚠ under a row = that name is on 2+ aircraft: same aircraft → flag D1/D2 in the wizard; different versions → keep (vN).</span>
+</header>
+<main id="list"></main>
+<button id="moreRows">show 30 more rows</button>
+<div id="zoombox"><div class="cap"></div><div class="imgs"></div></div>
+<script>
+const ROWS = /*ROWS*/[];
+const PLANES = /*PLANES*/[];
+const KEY = 'nameConcepts_v1';                 // shared with name_concepts.html
+const SKIPKEY = 'nameRowsSkip_v1';
+const BYAID = Object.fromEntries(PLANES.map(p => [p.aid, p]));
+let st = {}, skip = {};
+try { st = JSON.parse(localStorage.getItem(KEY) || '{}'); skip = JSON.parse(localStorage.getItem(SKIPKEY) || '{}'); } catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); localStorage.setItem(SKIPKEY, JSON.stringify(skip)); } catch (e) {} };
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const now = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+const base = n => String(n || '').replace(/\s+v\d+$/i, '').trim().toLowerCase();
+const names = {};                              // row key -> typed name
+let shown = 30;
+
+const rowName = r => names[r.key] ?? r.name;
+const mineOf = r => Object.entries(st).filter(([, d]) => d.key === r.key);
+
+function thumb(r, c) {
+  const p = BYAID[c.aid], d = st[p.aid], mine = d && d.key === r.key, other = d && !mine;
+  const tag = mine ? `<span class="tag mine">✓ ${esc(d.name)}</span>` : other ? `<span class="tag else">→ ${esc(d.name)}</span>` : '';
+  return `<div class="p ${mine ? 'mine' : ''} ${other ? 'else' : ''}" data-aid="${p.aid}">${tag}<span class="zoom">🔍${p.figs.length}</span>
+    ${p.figs.length ? `<img loading="lazy" src="${esc(p.figs[0])}">` : '<div style="height:160px">no figure</div>'}
+    <div class="m"><b>${esc(p.pid)}${p.letter ? ' ' + p.letter : ''}</b> · ${esc(p.year)} · <b>${esc(p.arch)}</b>${p.copies ? ' · +' + p.copies + ' copies' : ''}<br>
+    ${esc(p.asg.slice(0, 34))}<br><span class="why">${esc(c.why)}</span></div></div>`;
+}
+function rowWarn(r) {
+  const mine = mineOf(r);
+  if (!mine.length) return '';
+  const b = base(rowName(r)), ids = new Set(mine.map(([a]) => a));
+  const others = PLANES.filter(p => p.name && base(p.name) === b).map(p => `${p.pid}${p.letter ? ' ' + p.letter : ''} (already “${p.name}”)`)
+    .concat(Object.entries(st).filter(([a, d]) => !ids.has(a) && base(d.name) === b).map(([a]) => `${a} (another row)`));
+  const n = mine.length + others.length;
+  return n > 1 ? `<div class="warn">⚠ “${esc(rowName(r))}” is on ${n} aircraft: ${mine.map(([a]) => esc(a)).join(', ')}${others.length ? ' · ' + others.map(esc).join(', ') : ''}
+    — same aircraft? flag the later one D1/D2 in the wizard · different versions? keep (vN)</div>` : '';
+}
+function rowHtml(r, k) {
+  const m = mineOf(r).length;
+  const [big, ...rest] = r.links;
+  return `<div class="row ${m ? 'done' : ''} ${skip[r.key] ? 'skip' : ''}" data-key="${esc(r.key)}">
+    <div class="head">
+      <span class="n">${k + 1}</span>
+      <input class="nm" value="${esc(rowName(r))}" title="the name that will be written (base name)">
+      <a class="big" href="${esc(big.url)}" target="evtolnews">${esc(big.title)} ↗</a>
+      ${rest.length ? `<span class="links">versions: ${rest.map(l => `<a href="${esc(l.url)}" target="evtolnews">${esc(l.title)}</a>`).join('')}</span>` : ''}
+      <span class="s">${esc(r.company)} · ${esc(big.type)}${r.archs.length ? ' · ' + r.archs.join('/') : ''}${r.years[0] ? ` · years on the page ${r.years[0]}–${r.years[1]}` : ''}</span>
+      ${m ? `<span class="cnt">${m} assigned</span>` : ''}
+      <button class="skipb">${skip[r.key] ? 'un-skip' : 'none of these → skip'}</button>
+    </div>
+    <div class="strip">${r.cands.map(c => thumb(r, c)).join('')}</div>
+    ${r.more ? `<div class="s" style="padding:0 12px 8px;font-size:12px">+${r.more} less probable aircraft not shown</div>` : ''}
+    <div class="w">${rowWarn(r)}</div></div>`;
+}
+function visible() {
+  const s = document.getElementById('search').value.toLowerCase(), hs = document.getElementById('hideskip').checked;
+  return ROWS.filter(r => (!hs || !skip[r.key] || mineOf(r).length)
+    && (!s || (rowName(r) + ' ' + r.company + ' ' + r.links.map(l => l.title).join(' ')).toLowerCase().includes(s)));
+}
+function render() {
+  const V = visible();
+  document.getElementById('list').innerHTML = V.slice(0, shown).map(rowHtml).join('') || '<p>No rows.</p>';
+  const b = document.getElementById('moreRows');
+  b.hidden = V.length <= shown;
+  b.textContent = `show ${Math.min(30, V.length - shown)} more rows (${V.length - shown} left, less probable)`;
+  count();
+}
+function rerow(key) {
+  const el = document.querySelector(`.row[data-key="${CSS.escape(key)}"]`);
+  if (!el) return;
+  const k = +el.querySelector('.n').textContent - 1;
+  el.outerHTML = rowHtml(ROWS.find(r => r.key === key), k);
+}
+function count() {
+  document.getElementById('count').textContent =
+    `${Object.keys(st).length} assigned · ${Object.keys(skip).length} rows skipped · ${ROWS.length} probable rows`;
+}
+document.getElementById('list').addEventListener('click', e => {
+  const rowEl = e.target.closest('.row'); if (!rowEl) return;
+  const r = ROWS.find(x => x.key === rowEl.dataset.key);
+  if (e.target.classList.contains('skipb')) {
+    if (skip[r.key]) delete skip[r.key]; else skip[r.key] = now();
+    save(); render(); return;
+  }
+  const el = e.target.closest('.p'); if (!el) return;
+  const p = BYAID[el.dataset.aid];
+  if (e.target.closest('.zoom')) {
+    const z = document.getElementById('zoombox');
+    z.querySelector('.cap').textContent = `${p.pid}${p.letter ? ' aircraft ' + p.letter : ''} · ${p.asg} · ${p.year} · ${p.arch} — ${p.title}   (click to close)`;
+    z.querySelector('.imgs').innerHTML = p.figs.map(f => `<img src="${esc(f)}">`).join('');
+    z.style.display = 'flex'; return;
+  }
+  const d = st[p.aid], touched = new Set([r.key]);
+  if (d && d.key === r.key) delete st[p.aid];
+  else {
+    if (d) {
+      if (!confirm(`${p.aid} is assigned to “${d.name}”. Move it to “${rowName(r)}”?`)) return;
+      touched.add(d.key);
+    }
+    const name = rowName(r).trim();
+    if (!name) { alert('Type the name first'); return; }
+    st[p.aid] = {name, key: r.key, url: r.links[0].url, page: r.links.map(l => l.title).join(' / '), note: '', at: now()};
+  }
+  save();
+  ROWS.filter(x => x.cands.some(c => c.aid === p.aid) || base(rowName(x)) === base(rowName(r))).forEach(x => touched.add(x.key));
+  touched.forEach(rerow);
+  count();
+});
+document.getElementById('list').addEventListener('input', e => {
+  if (!e.target.classList.contains('nm')) return;
+  const key = e.target.closest('.row').dataset.key;
+  names[key] = e.target.value;
+  Object.values(st).forEach(d => { if (d.key === key) d.name = e.target.value; });
+  save();
+});
+document.getElementById('list').addEventListener('change', e => {
+  if (e.target.classList.contains('nm')) rerow(e.target.closest('.row').dataset.key);
+});
+document.getElementById('search').addEventListener('input', () => { shown = 30; render(); });
+document.getElementById('hideskip').addEventListener('change', render);
+document.getElementById('moreRows').onclick = () => { shown += 30; render(); };
+document.getElementById('zoombox').onclick = e => e.currentTarget.style.display = 'none';
+document.getElementById('export').onclick = () => {
+  const qq = s => '"' + String(s ?? '').replace(/"/g, '""') + '"';
+  const head = ['patent_id', 'aircraft', 'aircraft_id', 'action', 'name', 'url', 'page_title', 'note', 'decided_at'];
+  const rows = Object.entries(st).map(([aid, d]) => {
+    const p = BYAID[aid];
+    return [p.pid, p.letter, aid, 'assign', d.name, d.url, d.page, 'name rows' + (d.note ? ': ' + d.note : ''), d.at].map(qq).join(',');
+  });
+  const blob = new Blob([head.map(qq).join(',') + '\n' + rows.join('\n') + '\n'], {type: 'text/csv'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'NAME_EVTOLNEWS.csv'; a.click();
+};
+render();
+</script></body></html>

@@ -21,7 +21,8 @@ import numpy as np
 import pandas as pd
 from scipy.stats import chisquare
 
-ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED")
+ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED/0_labelling/inputs")   # 2026-09-17: stage-0 INPUTS of the 1639_LABELLED tree
+OUT = ROOT.parent / "outputs"                                                                                   # what notebook 04 writes
 OUT = ROOT / "text_scope"
 SEED = 42
 N_SAMPLE = 100
@@ -31,14 +32,14 @@ WINDOWS = [(0, 2011, "<=2011"), (2012, 2015, "2012-15"), (2016, 2019, "2016-19")
 
 
 def population() -> pd.DataFrame:
-    ml = pd.read_excel(ROOT / "joined" / "master_labels.xlsx",
+    ml = pd.read_csv(OUT / "tables" / "aircraft_table.csv",
                        usecols=["patent_id", "batch", "topType", "is_primary", "is_approved"])
     prim = ml[(ml.is_primary == True) & (ml.is_approved == True)]
     types = prim.groupby("patent_id").topType.agg(
         lambda s: s.dropna().astype(str).iloc[0] if s.dropna().nunique() == 1
         else ("none" if s.dropna().empty else "multi"))
     batch = prim.groupby("patent_id").batch.first()
-    idn = pd.read_excel(ROOT / "joined" / "aircraft_identity_ALL.xlsx", sheet_name="Identity",
+    idn = pd.read_excel(ROOT / "identity" / "aircraft_identity_ALL.xlsx", sheet_name="Identity",
                         usecols=["patent_id", "scope", "scope_source", "scope_confidence",
                                  "pub_office", "priority_year", "company_canonical"])
     pop = idn[idn.patent_id.isin(types.index)].copy()

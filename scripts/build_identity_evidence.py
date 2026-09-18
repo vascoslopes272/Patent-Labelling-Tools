@@ -32,11 +32,12 @@ from src.text_citation import (enrich_full_text, SIGNAL_SECTIONS,             # 
 from src.aircraft_specs import (POWERTRAIN_KEYWORDS, _PRIOR_ART_RE,           # noqa: E402
                                 _NONCOMMITTAL_RE, _MODAL_COMBUSTION_RE, _families_in)
 
-ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED")
+ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED/0_labelling/inputs")   # 2026-09-17: stage-0 INPUTS of the 1639_LABELLED tree
+OUT = ROOT.parent / "outputs"                                                                                   # what notebook 04 writes
 PATSEER = Path("/mnt/storage_11tb/Drive_files_to_syncronize/2 - Patente & Validation/"
                "3 -Raw_Patent_Exports_PatSeer_&Gold_Standard/1639__dataset_08_06_26.xlsx")
 PAGE = REPO / "notebooks" / "post-process" / "03a_identity_review.html"
-OUT_JSON = ROOT / "joined" / "identity_evidence_20260913.json"
+OUT_JSON = ROOT / "identity" / "identity_evidence_20260913.json"
 BEGIN, END = "/* EVIDENCE:BEGIN */", "/* EVIDENCE:END */"
 MAXLEN = 330
 
@@ -131,7 +132,7 @@ def quotes(meta, pattern, cat="") -> list[list[str]]:
 
 
 def main() -> int:
-    idn = pd.read_excel(ROOT / "joined" / "aircraft_identity_ALL.xlsx", sheet_name="Identity",
+    idn = pd.read_excel(ROOT / "identity" / "aircraft_identity_ALL.xlsx", sheet_name="Identity",
                         usecols=["patent_id", "wizard_approved"])
     pids = list(idn.loc[idn.wizard_approved == True, "patent_id"])            # noqa: E712
     index = load_patseer_excel(PATSEER)

@@ -28,10 +28,11 @@ from pathlib import Path
 
 import pandas as pd
 
-ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED")
+ROOT = Path("/mnt/storage_11tb/Drive_files_to_syncronize/3 - Images DataSets & Labelling Outputs/1639_LABELLED/0_labelling/inputs")   # 2026-09-17: stage-0 INPUTS of the 1639_LABELLED tree
+OUT = ROOT.parent / "outputs"                                                                                   # what notebook 04 writes
 PATSEER = Path("/mnt/storage_11tb/Drive_files_to_syncronize/2 - Patente & Validation/"
                "3 -Raw_Patent_Exports_PatSeer_&Gold_Standard/1639__dataset_08_06_26.xlsx")
-IDENTITY = ROOT / "joined" / "aircraft_identity_ALL.xlsx"
+IDENTITY = ROOT / "identity" / "aircraft_identity_ALL.xlsx"
 SAMPLE_DECISIONS = ROOT / "text_scope" / "scope_sample_decisions_20260913.csv"
 OUT = Path(__file__).resolve().parents[1] / "notebooks" / "post-process" / "scope_all.html"
 
