@@ -2349,7 +2349,7 @@ function m3Count(key) { return xlCount(m3Get(key, 'count', 0)); }
 // on the Python side caps the type count either — verified across src/ and the
 // 01a/02a/21 notebooks — so a 5th/6th type exports as ordinary m3_*__t5/__t6
 // rows. (Unrelated: WING_CONFIG's panel count is separately capped at 4.)
-var M3_MAX_TYPES = 7;   // v15.19 (2026-09-19, user): 6 -> 7 distinct propulsor types per card
+var M3_MAX_TYPES = 6;
 function m3NTypes(key) { var n = parseInt(m3Get(key, 'ntypes', 1), 10) || 1; return Math.min(M3_MAX_TYPES, Math.max(1, n)); }
 function m3TypeKey(key, t) { return key + '__t' + t; }
 // Per-card total count: legacy single-type cards read the card key directly;

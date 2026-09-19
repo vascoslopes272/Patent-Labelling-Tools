@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Contradiction review — type vs parts</title>
+<style>
+*{box-sizing:border-box}
+body{font:14px system-ui,sans-serif;margin:0;background:#f4f4f2;color:#222}
+header{position:sticky;top:0;z-index:5;background:#1f2d3d;color:#fff;padding:8px 14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+header b{font-size:16px}
+button,select,textarea,input{font:inherit}
+button{cursor:pointer}
+.exp{background:#2e7d32;color:#fff;border:0;border-radius:4px;padding:6px 12px}
+.hint{font-size:12px;color:#cfd8dc;width:100%}
+main{padding:10px 14px}
+.card{background:#fff;border:1px solid #ccc;border-radius:6px;margin-bottom:18px}
+.card.d-right{border-left:8px solid #2e7d32}.card.d-type,.card.d-part,.card.d-mr_tilt,.card.d-mr_pitch{border-left:8px solid #1565c0}.card.d-unsure{border-left:8px solid #ff9800}
+.head{display:flex;gap:6px 12px;align-items:center;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid #e3e3e3;background:#f7f9fc;border-radius:6px 6px 0 0}
+.head .n{font-size:13px;color:#777}.head .pid{font-size:17px;font-weight:700}
+.pill{font-size:12px;border-radius:8px;padding:1px 8px;background:#e3e8ef}.pill.t{background:#1f2d3d;color:#fff}.pill.u{background:#fff3cd}
+.ttl{font-size:12px;color:#555;width:100%}
+.cols{display:flex;gap:14px;flex-wrap:wrap;padding:8px 12px}
+.rules{flex:1 1 420px}
+.rule{background:#fff8e1;border:1px solid #e0b400;border-radius:4px;padding:6px 10px;margin-bottom:6px}
+.rule .rid{font-size:11px;color:#8d6e00}
+.rule .det{font-size:12px;color:#555;margin-top:3px}
+.morph{flex:1 1 420px}
+table{border-collapse:collapse;font-size:13px;margin-bottom:6px;width:100%}
+td,th{border:1px solid #ddd;padding:3px 7px;text-align:left;vertical-align:top}
+th{background:#f0f0f0}
+.ans{padding:8px 12px;border-top:1px solid #eee;background:#fcfcfc}
+.opts{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px}
+.opts button{border:1px solid #999;background:#fff;border-radius:4px;padding:6px 12px}
+.opts button.sel{background:#1f2d3d;color:#fff;border-color:#1f2d3d}
+.ans textarea{width:100%;min-height:44px;padding:5px}
+.ans select{padding:3px}
+.sug{font-size:12px;color:#1565c0;margin-left:6px}
+.ac{padding:6px 12px}
+.ac h4{margin:4px 0 6px;font-size:14px}
+.gal{display:flex;flex-wrap:wrap;gap:10px}
+.f{width:250px;border:2px solid #ddd;border-radius:6px;padding:4px;background:#fff}
+.f.approved{border-color:#81c784}.f.disapproved{border-color:#ef9a9a;opacity:.75}.f.none{border-color:#bdbdbd;border-style:dashed}
+.f .box{height:200px;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:zoom-in;background:#fafafa}
+.f img{max-width:100%;max-height:200px;display:block}
+.bd{display:flex;flex-wrap:wrap;gap:3px;margin-top:3px}
+.b{font-size:11px;border-radius:6px;padding:0 6px;background:#eceff1}.b.main{background:#ffd54f;font-weight:700}.b.ok{background:#c8e6c9}.b.no{background:#ffcdd2}
+.fn{font-size:11px;color:#666;word-break:break-all;margin-top:2px}
+.more{font-size:12px;margin:6px 0;background:#fff;border:1px solid #bbb;border-radius:4px;padding:3px 10px}
+.none-img{color:#999;font-size:12px}
+#zoombox{position:fixed;inset:0;background:rgba(0,0,0,.9);display:none;align-items:center;justify-content:center;z-index:9;cursor:zoom-out}
+#zoombox img{max-height:94vh;max-width:96vw;background:#fff}
+</style></head><body>
+<header><b>Type vs parts — contradiction review</b><span id="count"></span>
+<select id="filter"><option value="">show all</option><option value="open">only not answered</option></select>
+<button class="exp" id="export">Export answers</button>
+<span class="hint">Each card is one aircraft whose own labels contradict the codebook definition of its type (yellow boxes: the rule in plain words + what the record says). Right: what the record holds. Below: its figures (green = approved, MAIN in yellow). Answer, and write WHY in the box — if the label is right, your reason is how the rule / the wizard gets changed. Answers are kept in this browser until you export.</span></header>
+<main id="main"></main><div id="zoombox"><img></div>
+<script>
+const D = {"cards": [], "top": [["TW", "Vectored Thrust — Tilt Wing"], ["TR", "Vectored Thrust — Tilt Rotor"], ["DS", "Vectored Thrust — Deflected Slipstream"], ["CVT", "Vectored Thrust — Combined (CVT)"], ["TB", "Vectored Thrust — Tilt Body"], ["PTC", "Vectored Thrust — Pitch-to-Cruise (Winged Multirotor)"], ["SLC", "Independent Thrust — Lift + Cruise (SLC)"], ["SRW", "Independent Thrust — Stopped / Slowed Rotor Wing"], ["RC", "Wingless — Rotorcraft"], ["MR", "Wingless — Multirotor"], ["HB", "Other — Hoverbikes"], ["PFV", "Other — Personal Flying Vehicles (PFVs)"]]};
+const KEY = 'contradictionReview_v1';
+let S = {dec: {}, type: {}, text: {}, open: {}};
+try { S = Object.assign(S, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
+function persist(){ try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+const STN = {HoverCruise: 'Invariant'};
+function saveToFolder(blob, name){
+  function fallback(){ var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); return Promise.resolve('downloads'); }
+  if (!window.showSaveFilePicker) return fallback();
+  return window.showSaveFilePicker({suggestedName: name, id: 'review_decisions'})
+    .then(function(h){ return h.createWritable().then(function(w){ return w.write(blob).then(function(){ return w.close(); }); }); })
+    .then(function(){ return 'folder'; }).catch(function(e){ return (e && e.name === 'AbortError') ? 'cancelled' : fallback(); });
+}
+function fig(f){
+  const cls = 'f ' + (f.status === 'approved' ? 'approved' : f.status === 'disapproved' ? 'disapproved' : 'none');
+  return '<div class="' + cls + '"><div class="box">' + (f.src ? '<img loading="lazy" src="' + esc(f.src) + '" style="transform:rotate(' + (f.rot || 0) + 'deg)">' : '<span class="none-img">(image file not found)</span>') + '</div>'
+    + '<div class="bd">' + (f.main ? '<span class="b main">MAIN</span>' : '') + '<span class="b ' + (f.status === 'approved' ? 'ok' : 'no') + '">' + esc(f.status || 'no status') + '</span>'
+    + (f.status === 'approved' ? '<span class="b">' + esc(f.per || '—') + '</span><span class="b">' + esc(STN[f.state] || f.state || '—') + '</span>' : '') + '</div>'
+    + '<div class="fn">' + esc(f.file) + '</div></div>';
+}
+function cardHtml(c, i){
+  const dec = S.dec[c.key] || '';
+  let h = '<div class="head"><span class="n">' + (i + 1) + '</span><span class="pid">' + esc(c.pid) + (c.n_ua > 1 ? ' · aircraft ' + c.ua : '') + '</span>'
+    + '<span class="pill t">' + esc(c.type) + ' — ' + esc(c.typeName) + '</span>'
+    + (c.name && c.name !== c.key ? '<span class="pill">' + esc(c.name) + '</span>' : '') + '<span class="pill">' + esc(c.company) + '</span>'
+    + (c.uncertain ? '<span class="pill u">you marked it uncertain</span>' : '')
+    + (/^https?:/.test(c.pdf) ? '<a href="' + esc(c.pdf) + '" target="pdf">patent PDF</a>' : '')
+    + '<span class="ttl">' + esc(c.title) + '</span></div>';
+  h += '<div class="cols"><div class="rules">' + c.rules.map(r => '<div class="rule"><div>' + esc(r.text) + '</div><div class="det">the record: ' + esc(r.detail) + '</div><div class="rid">' + esc(r.rule) + '</div></div>').join('') + '</div>';
+  h += '<div class="morph"><table>' + c.morph.map(m => '<tr><th>' + esc(m[0]) + '</th><td>' + esc(m[1]) + '</td></tr>').join('') + '</table>'
+    + (c.props.length ? '<table><tr><th>propulsion</th><th>count</th><th>thrust direction</th><th>articulation</th><th>retraction</th><th></th></tr>' + c.props.map(p => '<tr>' + p.map(x => '<td>' + esc(x) + '</td>').join('') + '</tr>').join('') + '</table>' : '<table><tr><td>no propulsors recorded</td></tr></table>')
+    + '</div></div>';
+  h += '<div class="ans"><div class="opts">' + c.opts.map(o => '<button data-k="' + esc(c.key) + '" data-v="' + o[0] + '" class="dec' + (dec === o[0] ? ' sel' : '') + '">' + esc(o[1]) + '</button>').join('')
+    + '<span>new type: <select data-k="' + esc(c.key) + '" class="typ"><option value="">—</option>' + D.top.map(t => '<option value="' + t[0] + '"' + (S.type[c.key] === t[0] ? ' selected' : '') + '>' + t[0] + ' — ' + esc(t[1]) + '</option>').join('') + '</select></span>'
+    + (c.suggest.length ? '<span class="sug">the codebook would say: ' + esc(c.suggest.join(' or ')) + '</span>' : '') + '</div>'
+    + '<textarea data-k="' + esc(c.key) + '" placeholder="Why? — e.g. “the rear propeller is only for control, so it is still TR”, or “booms tilt, group 2”, or “the wing does not tilt”">' + esc(S.text[c.key] || '') + '</textarea></div>';
+  const groups = [...new Set(c.figs.map(f => f.ua))].sort((a, b) => (a === c.ua ? -1 : b === c.ua ? 1 : a - b));
+  groups.forEach(a => {
+    const fs = c.figs.filter(f => f.ua === a).sort((x, y) => (y.main - x.main) || ((x.status === 'approved' ? 0 : 1) - (y.status === 'approved' ? 0 : 1)));
+    const k = c.key + '|' + a, show = S.open[k] || false;
+    const vis = fs.filter(f => f.status === 'approved' || show), nOther = fs.length - fs.filter(f => f.status === 'approved').length;
+    if (a !== c.ua && !show) { h += '<div class="ac"><button class="more" data-open="' + esc(k) + '">show aircraft ' + a + ' of this patent (' + fs.length + ' figures)</button></div>'; return; }
+    h += '<div class="ac"><h4>' + (a === c.ua ? 'This aircraft' : 'Aircraft ' + a + ' of the same patent') + '</h4><div class="gal">' + vis.map(fig).join('') + '</div>'
+      + (nOther ? '<button class="more" data-open="' + esc(k) + '">' + (show ? 'hide' : 'show') + ' ' + nOther + ' disapproved / unreviewed figure' + (nOther > 1 ? 's' : '') + '</button>' : '') + '</div>';
+  });
+  return h;
+}
+function renderAll(){
+  const f = document.getElementById('filter').value, m = document.getElementById('main');
+  const idx = D.cards.map((c, i) => i).filter(i => f !== 'open' || !S.dec[D.cards[i].key]);
+  m.innerHTML = idx.map(i => '<div class="card" id="c' + i + '"></div>').join(''); idx.forEach(renderCard); count();
+}
+function renderCard(i){ const c = D.cards[i], el = document.getElementById('c' + i); if (!el) return; const d = S.dec[c.key] || ''; el.className = 'card' + (d ? ' d-' + d : ''); el.innerHTML = cardHtml(c, i); }
+function count(){ document.getElementById('count').textContent = D.cards.filter(c => S.dec[c.key]).length + ' / ' + D.cards.length + ' answered'; }
+const idxOf = k => D.cards.findIndex(c => c.key === k);
+document.addEventListener('click', e => {
+  const b = e.target.closest('button.dec');
+  if (b) { const k = b.dataset.k; if (S.dec[k] === b.dataset.v) delete S.dec[k]; else S.dec[k] = b.dataset.v; persist(); renderCard(idxOf(k)); count(); return; }
+  const mo = e.target.closest('button.more');
+  if (mo) { const k = mo.dataset.open; S.open[k] = !S.open[k]; persist(); renderCard(idxOf(k.split('|').slice(0, -1).join('|'))); return; }
+  const im = e.target.closest('.box img');
+  if (im) { const z = document.getElementById('zoombox'); z.querySelector('img').src = im.src; z.querySelector('img').style.transform = im.style.transform; z.style.display = 'flex'; return; }
+  if (e.target.closest('#zoombox')) document.getElementById('zoombox').style.display = 'none';
+});
+document.addEventListener('change', e => {
+  const s = e.target.closest('select.typ');
+  if (s) { const k = s.dataset.k; S.type[k] = s.value; if (s.value && !S.dec[k]) S.dec[k] = 'type'; persist(); renderCard(idxOf(k)); count(); }
+});
+document.addEventListener('input', e => { const t = e.target.closest('textarea[data-k]'); if (t) { S.text[t.dataset.k] = t.value; persist(); } });
+document.getElementById('filter').onchange = renderAll;
+document.getElementById('export').onclick = () => {
+  const q = s => '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"';
+  const head = ['aircraft_id', 'patent_id', 'ua', 'topType', 'rules', 'answer', 'new_type', 'why'];
+  const rows = D.cards.map(c => [c.key, c.pid, c.ua, c.type, c.rules.map(r => r.rule).join('|'), S.dec[c.key] || '', S.type[c.key] || '', S.text[c.key] || ''].map(q).join(','));
+  saveToFolder(new Blob([head.map(q).join(',') + '\n' + rows.join('\n') + '\n'], {type: 'text/csv'}), 'CONTRADICTION_DECISIONS.csv')
+    .then(w => { if (w !== 'cancelled') alert('Saved (' + w + '). Tell Claude it is exported.'); });
+};
+renderAll();
+</script></body></html>

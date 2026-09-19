@@ -705,11 +705,7 @@ var AC_STATE = [
   // record changes meaning. Ground/Unclear/NonApplicable stay exactly as they
   // are (already retired as reviewer-facing choices, kept for labelling old
   // values; the NonApplicable auto-fill for non-Whole-Vehicle figures is correct).
-  {id:'HoverCruise',  n:'Invariant'},
-  // v15.18 (2026-09-19, user: "can we add a state naming both?"): the figure draws the moving part in BOTH positions
-  // with the same weight (hover and cruise superimposed, split half-views). Until now that case was Other; Other is now
-  // only "no flight configuration can be read". Solid-vs-dashed still picks the solid one (codebook R2-02 (a)).
-  {id:'Both',         n:'Both (two positions drawn)'}
+  {id:'HoverCruise',  n:'Invariant'}
 ];
 // v15.7 (2026-09-05): the canonical pickable set, declared so the conformance harness
 // can read it instead of inferring one. CORRECTION to an earlier claim: the T2 render
@@ -718,7 +714,7 @@ var AC_STATE = [
 // 'Other' for the highlight. So the 92 legacy figures in B01/B05 CANNOT grow; they are
 // stored values awaiting a re-pick, not an open hole. This constant just makes that
 // guarantee explicit in one place rather than buried in a render function.
-var AC_STATE_CHOICES = ['Hover', 'Transition', 'Cruise', 'HoverCruise', 'Both', 'Other'];
+var AC_STATE_CHOICES = ['Hover', 'Transition', 'Cruise', 'HoverCruise', 'Other'];
 // TILTED_IN_VIEW retired v14 (C1/PR-01): the per-figure "Wings tilted / Rotors
 // tilted" pick never had much signal beyond acState/topType and was removed from
 // the UI + export. The 'tiltedInView' STATE KEY and its ingestAI/rowsToAIData
@@ -2349,7 +2345,7 @@ function m3Count(key) { return xlCount(m3Get(key, 'count', 0)); }
 // on the Python side caps the type count either — verified across src/ and the
 // 01a/02a/21 notebooks — so a 5th/6th type exports as ordinary m3_*__t5/__t6
 // rows. (Unrelated: WING_CONFIG's panel count is separately capped at 4.)
-var M3_MAX_TYPES = 7;   // v15.19 (2026-09-19, user): 6 -> 7 distinct propulsor types per card
+var M3_MAX_TYPES = 6;
 function m3NTypes(key) { var n = parseInt(m3Get(key, 'ntypes', 1), 10) || 1; return Math.min(M3_MAX_TYPES, Math.max(1, n)); }
 function m3TypeKey(key, t) { return key + '__t' + t; }
 // Per-card total count: legacy single-type cards read the card key directly;
@@ -3928,12 +3924,11 @@ function pageT2(){
            var _acOpts = [
              // v15.17 (2026-09-19, codebook R2-02 (a)): a part drawn in TWO positions -> the SOLID one wins; both drawn
              // with the same weight -> Other; lift rotors beside cruise props are not two states; never Invariant.
-             {id:'Hover',       n:'Hover (VTOL)', t:'Moving parts drawn in the hover position. If a part is drawn in two positions, pick the one drawn in SOLID lines and ignore the dashed one; if both are drawn the same, pick Both.'},
+             {id:'Hover',       n:'Hover (VTOL)', t:'Moving parts drawn in the hover position. If a part is drawn in two positions, pick the one drawn in SOLID lines and ignore the dashed one.'},
              {id:'Transition',  n:'Transition'},
-             {id:'Cruise',      n:'Cruise / Forward', t:'Moving parts drawn in the cruise position. If a part is drawn in two positions, pick the one drawn in SOLID lines and ignore the dashed one; if both are drawn the same, pick Both.'},
+             {id:'Cruise',      n:'Cruise / Forward', t:'Moving parts drawn in the cruise position. If a part is drawn in two positions, pick the one drawn in SOLID lines and ignore the dashed one.'},
              {id:'HoverCruise', n:'Invariant', t:'State-invariant drawing: this figure looks the same in hover and in cruise, so it commits to neither. Use for views where the mechanism angle is not depicted at all. Never for a figure that draws a part in two positions.'},
-             {id:'Both',        n:'Both', t:'The moving part is drawn in BOTH positions with the same weight (hover and cruise superimposed, or split half-views). If one position is solid and the other dashed, pick the solid one instead. Lift rotors drawn beside cruise propellers are NOT two positions: read only the parts that move.'},
-             {id:'Other',       n:'Other', t:'No flight configuration can be read (exploded view, close-up, unclear drawing). A figure that draws both positions is Both, not Other.'}
+             {id:'Other',       n:'Other', t:'Both positions drawn with the same weight, or no flight configuration can be read. Lift rotors drawn beside cruise propellers are NOT two states: read only the parts that move.'}
            ];
            var _rawAc = figGet(fNum, 'acState'), _dispAc = ['Ground','Unclear','NonApplicable'].indexOf(_rawAc) > -1 ? 'Other' : _rawAc;
            var _acTip = 'Decide by the MECHANISM ANGLE drawn — mechanism state wins even if the aircraft is drawn on the ground. Invariant = the drawing is identical in hover and cruise, so it commits to no state. Other = figure shows no flight configuration (exploded, unclear, N/A).';

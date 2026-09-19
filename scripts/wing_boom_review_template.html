@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Wing or boom rotors</title>
+<style>
+*{box-sizing:border-box}
+body{font:14px system-ui,sans-serif;margin:0;background:#f4f4f2;color:#222}
+header{position:sticky;top:0;z-index:5;background:#1f2d3d;color:#fff;padding:8px 14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+header b{font-size:16px}
+button,select,textarea{font:inherit}
+button{cursor:pointer}
+.exp{background:#2e7d32;color:#fff;border:0;border-radius:4px;padding:6px 12px}
+.rule{font-size:12.5px;color:#e3eaf2;width:100%;line-height:1.45}
+.rule b{color:#fff}
+main{padding:10px 14px}
+.card{background:#fff;border:1px solid #ccc;border-radius:6px;margin-bottom:16px;border-left:8px solid #bbb}
+.card.d-ok{border-left-color:#2e7d32}.card.d-to_wing,.card.d-to_boom{border-left-color:#1565c0}.card.d-unsure{border-left-color:#ff9800}
+.head{display:flex;gap:6px 12px;align-items:center;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid #e3e3e3;background:#f7f9fc}
+.head .n{font-size:13px;color:#777}.head .pid{font-size:17px;font-weight:700}
+.pill{font-size:12px;border-radius:8px;padding:1px 8px;background:#e3e8ef}.pill.t{background:#1f2d3d;color:#fff}.pill.c{background:#e1f5fe}
+.rec{padding:6px 12px;font-size:13px}
+.rec li{margin:2px 0}
+.ans{padding:6px 12px;border-top:1px solid #eee;background:#fcfcfc;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.ans button{border:1px solid #999;background:#fff;border-radius:4px;padding:5px 10px}
+.ans button.sel{background:#1f2d3d;color:#fff;border-color:#1f2d3d}
+.ans textarea{flex:1 1 300px;min-height:32px;padding:4px}
+.gal{display:flex;flex-wrap:wrap;gap:10px;padding:8px 12px}
+.f{width:240px;border:2px solid #ddd;border-radius:6px;padding:4px}
+.f.approved{border-color:#81c784}.f.other{border-color:#bdbdbd;border-style:dashed;opacity:.8}
+.box{height:190px;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:zoom-in;background:#fafafa}
+.box img{max-width:100%;max-height:190px}
+.fn{font-size:11px;color:#666;word-break:break-all}
+.b{font-size:11px;border-radius:6px;padding:0 6px;background:#eceff1}.b.main{background:#ffd54f;font-weight:700}
+.more{font-size:12px;margin:0 12px 8px;background:#fff;border:1px solid #bbb;border-radius:4px;padding:3px 10px}
+#zoombox{position:fixed;inset:0;background:rgba(0,0,0,.9);display:none;align-items:center;justify-content:center;z-index:9;cursor:zoom-out}
+#zoombox img{max-height:94vh;max-width:96vw;background:#fff}
+</style></head><body>
+<header><b>Wing or boom? — rotors near the wing</b><span id="count"></span>
+<select id="filter"><option value="">show all</option><option value="open">only not answered</option></select>
+<button class="exp" id="export">Export answers</button>
+<span class="rule"><b>Rule:</b> a member on a wing that carries a rotor is a <b>boom</b> when it carries rotors both <b>ahead of and behind</b> the wing, reaches past the leading or trailing edge by <b>more than the local wing chord</b>, or carries a <b>tail surface</b>. Otherwise it is a <b>nacelle / pylon</b> and the rotor goes on the <b>wing card</b> (LE, TE, Above, Below). The analysis counts both as wing-borne thrust, so this only makes the detail consistent. A "move" answer goes to your wizard list.</span></header>
+<main id="main"></main><div id="zoombox"><img></div>
+<script>
+const D = __DATA__;
+const KEY = 'wingBoomReview_v1';
+let S = {dec: {}, text: {}, open: {}};
+try { S = Object.assign(S, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
+function persist(){ try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+const OPTS = [['ok', 'Recorded right'], ['to_wing', 'They are nacelles / pylons → rotors to the wing card'], ['to_boom', 'They are booms → rotors to boom groups'], ['unsure', 'Not sure']];
+const CAR = {wing: 'rotors on the wing card', wing_boom: 'rotors on wing-attached booms', both: 'rotors on the wing card AND on wing booms', none: 'no wing-borne rotors'};
+function saveToFolder(blob, name){
+  function fallback(){ var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); return Promise.resolve('downloads'); }
+  if (!window.showSaveFilePicker) return fallback();
+  return window.showSaveFilePicker({suggestedName: name, id: 'review_decisions'})
+    .then(function(h){ return h.createWritable().then(function(w){ return w.write(blob).then(function(){ return w.close(); }); }); })
+    .then(function(){ return 'folder'; }).catch(function(e){ return (e && e.name === 'AbortError') ? 'cancelled' : fallback(); });
+}
+function fig(f){
+  return '<div class="f ' + (f.status === 'approved' ? 'approved' : 'other') + '"><div class="box">' + (f.src ? '<img loading="lazy" src="' + esc(f.src) + '" style="transform:rotate(' + (f.rot || 0) + 'deg)">' : '<span style="color:#999">(no image)</span>') + '</div>'
+    + (f.main ? '<span class="b main">MAIN</span> ' : '') + '<span class="b">' + esc(f.per || f.status || '') + '</span><div class="fn">' + esc(f.file) + '</div></div>';
+}
+function cardHtml(c, i){
+  const d = S.dec[c.key] || '', k = c.key + '|all', all = S.open[k];
+  const own = c.figs.filter(f => f.ua === c.ua).sort((x, y) => (y.main - x.main) || ((x.status === 'approved' ? 0 : 1) - (y.status === 'approved' ? 0 : 1)));
+  const vis = all ? own : own.filter(f => f.status === 'approved'), hidden = own.length - own.filter(f => f.status === 'approved').length;
+  return '<div class="head"><span class="n">' + (i + 1) + '</span><span class="pid">' + esc(c.pid) + (c.n_ua > 1 ? ' · aircraft ' + c.ua : '') + '</span>'
+    + '<span class="pill t">' + esc(c.type) + '</span><span class="pill c">' + esc(CAR[c.carrier] || c.carrier) + '</span>'
+    + (c.name && c.name !== c.key ? '<span class="pill">' + esc(c.name) + '</span>' : '') + '<span class="pill">' + esc(c.company) + '</span>'
+    + (/^https?:/.test(c.pdf) ? '<a href="' + esc(c.pdf) + '" target="pdf">patent PDF</a>' : '') + '</div>'
+    + '<div class="rec"><b>Recorded now:</b><ul>' + c.lines.map(l => '<li>' + esc(l) + '</li>').join('') + '</ul></div>'
+    + '<div class="ans">' + OPTS.map(o => '<button data-k="' + esc(c.key) + '" data-v="' + o[0] + '" class="' + (d === o[0] ? 'sel' : '') + '">' + esc(o[1]) + '</button>').join('')
+    + '<textarea data-t="' + esc(c.key) + '" placeholder="note (optional) — e.g. the front pods are nacelles, the rear ones are booms">' + esc(S.text[c.key] || '') + '</textarea></div>'
+    + '<div class="gal">' + vis.map(fig).join('') + '</div>'
+    + (hidden ? '<button class="more" data-open="' + esc(k) + '">' + (all ? 'hide' : 'show') + ' ' + hidden + ' other figure(s)</button>' : '');
+}
+function renderAll(){
+  const f = document.getElementById('filter').value, m = document.getElementById('main');
+  const idx = D.cards.map((c, i) => i).filter(i => f !== 'open' || !S.dec[D.cards[i].key]);
+  m.innerHTML = idx.map(i => '<div class="card" id="c' + i + '"></div>').join(''); idx.forEach(renderCard); count();
+}
+function renderCard(i){ const c = D.cards[i], el = document.getElementById('c' + i); if (!el) return; const d = S.dec[c.key] || ''; el.className = 'card' + (d ? ' d-' + d : ''); el.innerHTML = cardHtml(c, i); }
+function count(){ document.getElementById('count').textContent = D.cards.filter(c => S.dec[c.key]).length + ' / ' + D.cards.length + ' answered'; }
+const idxOf = k => D.cards.findIndex(c => c.key === k);
+document.addEventListener('click', e => {
+  const b = e.target.closest('.ans button');
+  if (b) { const k = b.dataset.k; if (S.dec[k] === b.dataset.v) delete S.dec[k]; else S.dec[k] = b.dataset.v; persist(); renderCard(idxOf(k)); count(); return; }
+  const mo = e.target.closest('button.more');
+  if (mo) { const k = mo.dataset.open; S.open[k] = !S.open[k]; persist(); renderCard(idxOf(k.split('|')[0])); return; }
+  const im = e.target.closest('.box img');
+  if (im) { const z = document.getElementById('zoombox'); z.querySelector('img').src = im.src; z.querySelector('img').style.transform = im.style.transform; z.style.display = 'flex'; return; }
+  if (e.target.closest('#zoombox')) document.getElementById('zoombox').style.display = 'none';
+});
+document.addEventListener('input', e => { const t = e.target.closest('textarea[data-t]'); if (t) { S.text[t.dataset.t] = t.value; persist(); } });
+document.getElementById('filter').onchange = renderAll;
+document.getElementById('export').onclick = () => {
+  const q = s => '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"';
+  const head = ['aircraft_id', 'patent_id', 'ua', 'topType', 'carrier_now', 'answer', 'note'];
+  const rows = D.cards.filter(c => S.dec[c.key] || S.text[c.key]).map(c => [c.key, c.pid, c.ua, c.type, c.carrier, S.dec[c.key] || '', S.text[c.key] || ''].map(q).join(','));
+  saveToFolder(new Blob([head.map(q).join(',') + '\n' + rows.join('\n') + '\n'], {type: 'text/csv'}), 'WING_BOOM_DECISIONS.csv')
+    .then(w => { if (w !== 'cancelled') alert('Saved (' + w + '). Tell Claude it is exported.'); });
+};
+renderAll();
+</script></body></html>

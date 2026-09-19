@@ -12,7 +12,7 @@ bring them back; this script repairs the record already written. A lock whose sc
 as Fixed: the wizard clears it and asks) is listed, never guessed.
 Cells keep their types (openpyxl) — the wizard's xlBool() reads the text "False" as true.
 """
-import sys, re, shutil, subprocess, collections
+import sys, shutil, subprocess, collections
 from datetime import datetime
 from pathlib import Path
 import pandas as pd
@@ -66,22 +66,6 @@ for d in D.itertuples():
         for k, i in where.items():
             if k[0] == apid and k[2] == "wCount": changed.append((k, s(body[i][ix["Value"]]), False)); body[i][ix["Value"]] = False
         continue
-    if "hidden mounting position" in d.rule:        # m3Card draws none here: blank it
-        apid = f"{d.patent_id}_arch{d.arch}" if f"{d.patent_id}_arch{d.arch}" in ids_with_arch else d.patent_id
-        for k, i in where.items():
-            if k[0] == apid and k[2] == d.field: changed.append((k, s(body[i][ix["Value"]]), None)); body[i][ix["Value"]] = None
-        continue
-    if "unticked pill" in d.rule:                   # a real False, never the text (xlBool("False") is true)
-        key = (d.patent_id, d.figure, d.field); i = where.get(key)
-        if i is not None: changed.append((key, s(body[i][ix["Value"]]), False)); body[i][ix["Value"]] = False
-        else:
-            anchor = max(j for k, j in where.items() if k[0] == key[0] and k[1] == key[1])
-            row = [None] * len(hdr)
-            for c, v in (("Patent_ID", key[0]), ("Section", "T2"), ("Sub_Dimension", key[1]), ("Field", key[2]), ("Value", False),
-                         ("Source", "human"), ("Image_Path", body[anchor][ix["Image_Path"]])):
-                if c in ix: row[ix[c]] = v
-            insert_after.setdefault(anchor, []).append(row); inserted.append((key, False))
-        continue
     if not d.wizard_shows:
         human.append(d); continue
     new = label(d.field, d.wizard_shows)
@@ -94,16 +78,9 @@ for d in D.itertuples():
     if i is not None:
         changed.append((key, s(body[i][ix["Value"]]), new)); body[i][ix["Value"]] = new
     else:                                    # no row at all: add it after the last row of the same block
-        sec = "T2" if d.scope == "figure" else "M1"
-        m3 = re.match(r"^(wing\d|fuselage|emp|boom|hull_array|core_layout)(?:_t(\d+))?_", d.field)
-        if d.scope != "figure" and m3:       # an M3 propulsion field: its block is "Propulsion: <card>[ — Type N]"
-            sec = "M3"; key = (key[0], f"Propulsion: {m3.group(1)}" + (f" — Type {m3.group(2)}" if m3.group(2) else ""), key[2])
-        same = [j for k, j in where.items() if k[0] == key[0] and k[1] == key[1]]
-        if not same and sec == "M3":         # no row of that type block yet: after the card's last row
-            same = [j for k, j in where.items() if k[0] == key[0] and k[1].startswith(key[1].split(" — ")[0])]
-        anchor = max(same)
+        anchor = max(j for k, j in where.items() if k[0] == key[0] and k[1] == key[1])
         row = [None] * len(hdr)
-        for c, v in (("Patent_ID", key[0]), ("Section", sec), ("Sub_Dimension", key[1]),
+        for c, v in (("Patent_ID", key[0]), ("Section", "T2" if d.scope == "figure" else "M1"), ("Sub_Dimension", key[1]),
                      ("Field", key[2]), ("Value", new), ("Source", "human"), ("Image_Path", body[anchor][ix["Image_Path"]])):
             if c in ix: row[ix[c]] = v
         insert_after.setdefault(anchor, []).append(row); inserted.append((key, new))
@@ -112,10 +89,7 @@ print(f"record {RECORD.name}: {len(body)} rows; wizard-view differences {len(D)}
       f"{len(inserted)} rows to add, {len(removed)} rows to remove, {len(human)} need a human pick, {len(skipped)} skipped (--skip)")
 for (pid, sub, f), old in removed: print(f"  - {pid:<22} {f:<14} {old!r}   (wingless type: no wing rows)")
 for d in skipped: print(f"  (skipped) {d.patent_id} arch{d.arch} {d.field}={d.stored!r} — the user reviews it in the wizard")
-_pills = [c for c in changed if c[0][2] in ("hasLegends", "isMain")]
-if _pills: print(f"  {len(_pills)} figure pills blank -> False (hasLegends {sum(c[0][2] == 'hasLegends' for c in _pills)}, isMain {sum(c[0][2] == 'isMain' for c in _pills)})")
-for (pid, sub, f), old, new in changed:
-    if f not in ("hasLegends", "isMain"): print(f"  {pid:<24} {f:<8} {old!r} -> {new!r}   {sub if f == 'acState' else ''}")
+for (pid, sub, f), old, new in changed: print(f"  {pid:<24} {f:<8} {old!r} -> {new!r}   {sub if f == 'acState' else ''}")
 for (pid, sub, f), new in inserted: print(f"  + {pid:<22} {f:<8} {new!r}   {sub}")
 for d in human: print(f"  ?? {d.patent_id} arch{d.arch} {d.field}={d.stored!r}: {d.rule}")
 if not APPLY: print("dry run — re-run with --apply"); sys.exit(0)

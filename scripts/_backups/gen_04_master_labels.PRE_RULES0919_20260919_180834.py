@@ -39,7 +39,6 @@ rebuilt on every run. Nothing here writes back to an input.
 | ML pre-labels | 7c: the feed's predictions with an `ml_` prefix (tables only, never in the workbook) |
 | names | the wizard's names instead of four legacy ids (user 2026-09-18): gearArch `Wheeled Gear` (id FixedWheel), fusKin `Variable Incidence` (id LevelCabin), every `*_rmech` `Fixed` (id Exposed), figure qualityFlag `Partial Quality` (id generic); `dup_type` stays 1/2/3 (the analysis computes with it) with `dup_type_name` D1/D2/D3 beside it. TiltBody and `No Aircraft Image` are kept as they are |
 | wizard view | 6b: every lock the wizard draws is replayed on the record (`src/wizard_view.py`); a stored value the screen does not show FAILS the build — fix with `scripts/apply_wizard_locks.py --apply`. `acState` is written as the wizard's display name **Invariant**, not its stored id `HoverCruise` |
-| rules 2026-09-19 | 7e: `overrides`, `propulsor_units` (+ `_note`), `boom_thrust_state`, `wing_thrust_carrier`, `wing_borne_units` (+ `_note`), `wing_boom_candidate` — derived beside the labels, no label changed; a value an override hides is never read as zero / none / Fixed (blank + reason). Flags OVERRIDE_HIDES_VALUE, LEFTOVER_QUICK_COUNT, BOOM_TICK_AND_ROTOR_TILT, BOOM_ROTORS_WITHOUT_GROUP, STATE_NOTE_MENTIONS_TWO_STATES (R2-02(e)) |
 | re-codes | two `T2.parts` free texts → `Other` (the old US2021284333A1 Oth→Trap recode was a wizard reload bug, fixed in the record 2026-09-18) |
 | dropped | `codebook_version`, `timestamp`, `familyId`, `labelToken`, SBERT pre-labels, long bibliographic text, retired fields |
 | outputs | `1639_LABELS.xlsx` (README · **Review** = the record with the names written in, loadable in the wizard · ground_truth · patseer) · `images/<aircraft_id>/<figure>.png` + MANIFEST.csv · `tables/aircraft_table.csv`, `figure_table.csv`, `data_dictionary.csv` (what stages 1–2 read) · `BUILD_LOG.md` · `ACTION_FLAGS.csv` |
@@ -345,10 +344,6 @@ Fixed). `src/wizard_view.py` replays every lock on the record — Aircraft State
 nothing → Invariant), Body Motion (PTC/RC → Whole-Body Pitch; TB never Fixed), card-level Propulsor Articulation
 (TW/DS/SLC/SRW/MR/TB/PTC/RC → Fixed), Wing Tilt (TB/PTC → Fixed; TW wing 1 → Tilt; RC/MR wingless). Any difference
 FAILS §12; the fix is `python scripts/apply_wizard_locks.py --apply` (same replay), never a hand edit here.
-
-Quick Count Overrides are the other place where the screen hides a stored value: the wizard skips the overridden
-page or card, but a value typed before the tick is still exported. §7e lists every such value (flag
-OVERRIDE_HIDES_VALUE) and derives its columns without it (ruling 2026-09-19).
 """)
 code(r"""
 from src.wizard_view import replay, unlocked_fixed, INVARIANT_ID, INVARIANT_NAME
@@ -718,204 +713,6 @@ if GT_MISSING: log(f"  !! {len(GT_MISSING)} primary approved aircraft without a 
 if GT_ORPHANS: log(f"  !! {len(GT_ORPHANS)} GT rows that match no primary approved aircraft: {GT_ORPHANS[:10]}")
 """)
 
-md(r"""
-## 7e — Overrides, boom thrust and wing-borne thrust (rulings 2026-09-19)
-
-Columns derived per **primary approved** aircraft and placed beside the labels they read (a D1/D2 points and a rejected
-row carries nothing, so theirs are blank). No label column is changed. A value a rule cannot determine is left blank
-with its reason — never read as zero, none or Fixed — and the number left out is logged.
-
-**1 · Overrides.** *An override keeps only what it records. After a G1 override the aircraft has no type; after an M1 or
-M2 override the skipped fields are not determinable; at an M3 station only the propulsor count is kept (the wizard
-stores `<station>_count = 0` and the real number in `<station>_quickCount`). A value that is not determinable is never
-read as zero, none or Fixed: it is left out, and the number left out is reported.*
-`overrides` = the overrides ticked (`G1|M2|M3:wing1`). `propulsor_units` = the non-control-only propulsors over every
-M3 station, the quick count on a count-only station; blank for HB/PFV (the codebook excludes them), after a G1
-override, and when an overridden station has no quick count (`propulsor_units_note` says why). A quick count on a
-station whose override is off is ignored (LEFTOVER_QUICK_COUNT); a stored detail value behind an override is reported
-(OVERRIDE_HIDES_VALUE), never used.
-
-**2 · Tilting-boom rotors.** *The boom tick carries the tilt. A rotor on a boom group ticked Booms tilt is recorded Fixed,
-as on a tilting wing. Tick Booms tilt only when the boom itself rotates; otherwise a rotor that changes angle on a boom
-is recorded Tilt. A rotor that also pivots on a tilting boom is recorded Other, with a note.*
-`boom_thrust_state` ∈ none / fixed / tilting / on_tilting_wing / mixed, over every (propeller-carrying boom group ×
-non-control-only boom-card rotor type): a group rides a tilting wing when it is attached to Wings/Both, a wing is set to
-Tilt (the one named by `boomN_wingIdx`, any when blank/Multi) and `boomN_onFixedPart` is not True; otherwise it tilts
-when `boomN_tilts` is True or the rotor's propKin is Tilt; otherwise fixed. Groups with `hasProps` False are ignored;
-blank when an M1 or boom-station override hides the groups or the rotors. Checks: BOOM_TICK_AND_ROTOR_TILT (Tilt rotor
-on an aircraft whose every propeller-carrying boom group is ticked — 0 once migrated), BOOM_ROTORS_WITHOUT_GROUP.
-
-**3 · Wing-borne thrust.** *A member on a wing that carries a propulsor is a boom when it carries propulsors both ahead of
-and behind the wing, reaches beyond the leading or trailing edge by more than the local wing chord, or carries a tail
-surface. Otherwise it is a nacelle or pylon, and the propulsor is recorded on the wing card at LE, TE, Above or Below.
-Where the analysis asks whether the wing carries the thrust, both count as wing-borne.*
-`wing_thrust_carrier` ∈ wing (wing cards only) / wing_boom (boom groups on the wing only) / both / none — winged aircraft
-only. `wing_borne_units` = propulsors on the wing cards + on boom groups attached to Wings/Both; blank (with
-`wing_borne_units_note`) when the boom-card rotors cannot be apportioned. `wing_boom_candidate` = the members to re-read
-under rule 3: wing-attached boom groups that all lie only fore or only aft of the wing, vertical booms straddling the
-wing, and wing-card propulsors at Above/Below.
-
-**4 · Two flight states in one figure (R2-02(e))** — a figure check, §9: STATE_NOTE_MENTIONS_TWO_STATES.
-""")
-code(r"""
-from src.wizard_view import PROPKIN_FIXED
-def _s(v):
-    if v is None or v is pd.NA or (isinstance(v, float) and np.isnan(v)): return ""
-    s = str(v).strip(); return "" if s in ("nan", "None", "NaT", "<NA>") else s
-def _t(v): return _s(v) == "True"
-def _n(v):
-    s = _s(v)
-    if s in ("", "False"): return 0
-    if s == "True": return 1
-    try: return int(float(s))
-    except ValueError: return 0
-NO_UNITS_TYPES = {"HB", "PFV"}                       # codebook: hoverbikes and PFVs are not counted in propulsor units
-WING_CARDS = ["wing1", "wing2", "wing3"]
-WING_ATTACH = ("Wings", "Both")
-
-def station_units(r, st):
-    # (units, types, reason) at one M3 station: non-control-only propulsors; a count-only (override) station gives its
-    # quick count and no type detail. units None = not determinable (override without a quick count)
-    if _t(r.get(f"{st}_quickOverride")):
-        q = _s(r.get(f"{st}_quickCount"))
-        if not q: return None, [], f"M3:{st} override without a quick count"
-        n = _n(q); return n, ([dict(count=n, propKin="", zoneChord="")] if n > 0 else []), ""
-    nt = _n(r.get(f"{st}_ntypes")) or 1
-    tys = []
-    for pre in ([f"{st}_t{k}_" for k in range(1, nt + 1)] if nt > 1 else [f"{st}_"]):
-        c = _n(r.get(pre + "count"))
-        if c > 0 and not _t(r.get(pre + "ctrlOnly")):
-            tys.append(dict(count=c, propKin=_s(r.get(pre + "propKin")), zoneChord=_s(r.get(pre + "zoneChord"))))
-    return sum(t["count"] for t in tys), tys, ""
-
-def boom_groups(r):
-    # the boom groups that carry propulsors: recorded (count or attachment) and hasProps not False
-    out = []
-    for k in range(1, 7):
-        att, cnt = _s(r.get(f"boom{k}_attach")), _n(r.get(f"boom{k}_count"))
-        if (not att and cnt == 0) or _s(r.get(f"boom{k}_hasProps")) == "False": continue
-        out.append(dict(k=k, attach=att, wingIdx=_s(r.get(f"boom{k}_wingIdx")), wingRel=_s(r.get(f"boom{k}_wingRel")),
-                        orient=_s(r.get(f"boom{k}_orient")), tilts=_t(r.get(f"boom{k}_tilts")), on_fixed=_t(r.get(f"boom{k}_onFixedPart"))))
-    return out
-def rides_tilting_wing(g, tw):
-    if g["attach"] not in WING_ATTACH or not tw or g["on_fixed"]: return False
-    if g["wingIdx"] in ("", "Multi"): return True
-    m = re.fullmatch(r"W(\d)", g["wingIdx"]); return bool(m) and int(m.group(1)) in tw
-
-# what each override hides in the wizard (pageGate / pageM1 / pageM2 return early; m3Card shows only the quick count
-# and the notes). Values the wizard writes by itself are not answers: defaults (False, count 0, one type, latSym True,
-# wing role Main; the card `sym` tick defaults per card) and the propKin lock (Fixed on PROPKIN_FIXED types).
-HIDDEN_BY = {"G1": ["topType", "notPureArch"],
-             "M1": M1_FIXED + [f"boom{k}_{f}" for k in range(1, 7) for f in M1_BOOM],
-             "M2": M2_FIXED + [f"wing{k}_{f}" for k in range(1, 4) for f in M2_WING]}
-def hidden_fields(o):
-    if o in HIDDEN_BY: return HIDDEN_BY[o]
-    st = o.split(":", 1)[1]
-    return ([f"{st}_{f}" for f in M3_CARD if f not in ("quickOverride", "quickCount", "notes", "sym")]
-            + [f"{st}_t{k}_{f}" for k in range(1, 8) for f in M3_TYPE])   # wizard M3_MAX_TYPES = 7 (2026-09-19)
-def is_default(field, v, tt):
-    s, f = _s(v), suffix(field)
-    return (s in ("", "False") or (f in ("count", "wCount") and s == "0") or (f == "ntypes" and s in ("0", "1"))
-            or (f == "latSym" and s == "True") or (f == "role" and s == "Main") or (f == "propKin" and s == "Fixed" and tt in PROPKIN_FIXED))
-
-RULE_COLS = ["overrides", "propulsor_units", "propulsor_units_note", "boom_thrust_state",
-             "wing_thrust_carrier", "wing_borne_units", "wing_borne_units_note", "wing_boom_candidate"]
-RV = {c: [None] * len(M) for c in RULE_COLS}
-OVR_HIDDEN, LEFTOVER_QC, BOOM_TICK_TILT, BOOM_NO_GROUP = [], [], [], []
-_pa = M.is_approved.fillna(False).astype(bool) & M.is_primary.astype(bool)
-for pos, (i, row) in enumerate(M.iterrows()):
-    if not _pa[i]: continue
-    r = row.to_dict(); tt = _s(r.get("topType")); aid, pid = r["aircraft_id"], r["patent_id"]
-    # ── 1 · overrides ──
-    ov = [s for s in ("G1", "M1", "M2") if _t(r.get(f"{s.lower()}_quickOverride"))]
-    ov += [f"M3:{st}" for st in M3_CARDS if _t(r.get(f"{st}_quickOverride"))]
-    RV["overrides"][pos] = "|".join(ov) if ov else None
-    for o in ov:
-        hid = [f"{f}={_s(r.get(f))}" for f in hidden_fields(o) if not is_default(f, r.get(f), tt)]
-        if hid: OVR_HIDDEN.append((pid, aid, o, hid))
-    for st in M3_CARDS:
-        q = _s(r.get(f"{st}_quickCount"))
-        if q and not _t(r.get(f"{st}_quickOverride")): LEFTOVER_QC.append((pid, aid, st, q))
-    su = {st: station_units(r, st) for st in M3_CARDS}
-    why = ([f"{tt}: the codebook excludes hoverbikes and PFVs from propulsor counts"] if tt in NO_UNITS_TYPES else []) \
-        + (["G1 override: the aircraft has no type"] if "G1" in ov else []) + [su[st][2] for st in M3_CARDS if su[st][0] is None]
-    if why: RV["propulsor_units_note"][pos] = "; ".join(why)
-    else:   RV["propulsor_units"][pos] = int(sum(su[st][0] for st in M3_CARDS))
-    # ── 2 · boom thrust ──
-    gs = boom_groups(r); tw = {k for k in range(1, 5) if _s(r.get(f"wing{k}_tilt")) == "Tilt"}
-    bu, btys, _ = su["boom"]; m1_ovr, boom_ovr = "M1" in ov, "M3:boom" in ov
-    boom_card_n = (bu or 0) if boom_ovr else _n(r.get("boom_count"))
-    if boom_card_n > 0 and not gs and not m1_ovr: BOOM_NO_GROUP.append((pid, aid, boom_card_n))
-    if gs and not m1_ovr and not boom_ovr and all(g["tilts"] for g in gs) and any(t["propKin"] == "Tilt" for t in btys):
-        BOOM_TICK_TILT.append((pid, aid, tt, len(gs)))
-    if m1_ovr or boom_ovr: state = None
-    elif not btys: state = "none"
-    else:
-        cats = set()
-        for t in btys:
-            for g in (gs or [None]):
-                if g is not None and rides_tilting_wing(g, tw): cats.add("on_tilting_wing")
-                elif (g is not None and g["tilts"]) or t["propKin"] == "Tilt": cats.add("tilting")
-                else: cats.add("fixed")
-        state = cats.pop() if len(cats) == 1 else "mixed"
-    RV["boom_thrust_state"][pos] = state
-    # ── 3 · wing-borne thrust ──
-    if "M2" in ov: wwhy = ["M2 override: the wings are not determinable"]
-    elif _n(r.get("wCount")) <= 0: wwhy = ["wingless"]
-    else: wwhy = (["M1 override: the boom groups are not determinable"] if m1_ovr else []) + [su[st][2] for st in WING_CARDS + ["boom"] if su[st][0] is None]
-    if wwhy:
-        RV["wing_borne_units_note"][pos] = "; ".join(wwhy); continue
-    wty = [t for st in WING_CARDS for t in su[st][1]]
-    wgs = [g for g in gs if g["attach"] in WING_ATTACH]; ogs = [g for g in gs if g["attach"] not in WING_ATTACH]
-    on_wing_boom = bool(btys) and bool(wgs)
-    RV["wing_thrust_carrier"][pos] = "both" if (wty and on_wing_boom) else "wing_boom" if on_wing_boom else "wing" if wty else "none"
-    rel = {g["wingRel"] for g in wgs}
-    RV["wing_boom_candidate"][pos] = bool((on_wing_boom and (rel in ({"Fore"}, {"Aft"}) or any(g["orient"] == "Vert" and g["wingRel"] == "Straddle" for g in wgs)))
-                                          or any(t["zoneChord"] in ("Above", "Below") for t in wty))
-    uwhy = ([f"{tt}: the codebook excludes hoverbikes and PFVs from propulsor counts"] if tt in NO_UNITS_TYPES else []) \
-         + (["G1 override: the aircraft has no type"] if "G1" in ov else [])
-    if bu > 0 and not gs: uwhy.append("the boom card's rotors have no propeller-carrying boom group")
-    elif bu > 0 and wgs and ogs: uwhy.append("the boom card's rotors cannot be apportioned: boom groups mix wing (Wings/Both) and other attachment")
-    if uwhy: RV["wing_borne_units_note"][pos] = "; ".join(uwhy)
-    else:    RV["wing_borne_units"][pos] = int(sum(su[st][0] for st in WING_CARDS) + (bu if wgs else 0))
-for c in RULE_COLS:
-    M[c] = pd.Series(RV[c], index=M.index, dtype=object)
-for c in ("propulsor_units", "wing_borne_units"): M[c] = pd.array(M[c].tolist(), dtype="Int64")
-M["wing_boom_candidate"] = pd.array(M["wing_boom_candidate"].tolist(), dtype="boolean")
-
-# column dictionary entries (tables/data_dictionary.csv, section "derived" — not a label slot)
-RULE_DOC = {
-    "overrides": ("", "Quick Count Overrides ticked on this aircraft: G1 | M1 | M2 | M3:<station> (empty = none). An override keeps only what it records: after G1 the aircraft has no type, after M1/M2 the skipped fields are not determinable, at an M3 station only the propulsor count is kept (ruling 2026-09-19)"),
-    "propulsor_units": ("", "non-control-only propulsors over every M3 station; a count-only (override) station counts its quick count. Blank for HB/PFV (the codebook excludes them), after a G1 override, and when an overridden station has no quick count — never read as 0"),
-    "propulsor_units_note": ("", "why propulsor_units is blank"),
-    "boom_thrust_state": ("none=no non-control-only rotor on the boom card | fixed=every boom rotor fixed | tilting=boom group ticked Booms tilt or rotor propKin Tilt | on_tilting_wing=group rides a tilting wing | mixed=more than one of these",
-                          "state of the thrust carried on booms (ruling 2026-09-19: the boom tick carries the tilt; a rotor on a boom group ticked Booms tilt is recorded Fixed, as on a tilting wing; tick Booms tilt only when the boom itself rotates, otherwise a rotor that changes angle on a boom is Tilt; a rotor that also pivots on a tilting boom is Other, with a note). Groups with hasProps False ignored; blank when an M1 or boom-station override hides the groups or rotors"),
-    "wing_thrust_carrier": ("wing=propulsors on the wing cards only | wing_boom=on boom groups attached to Wings/Both only | both=both | none=neither",
-                            "winged aircraft only (blank when wingless or after an M2/M1 override). Ruling 2026-09-19: a member on a wing carrying a propulsor is a boom when it carries propulsors ahead of and behind the wing, reaches beyond the LE/TE by more than the local chord, or carries a tail surface; otherwise a nacelle/pylon recorded on the wing card (LE/TE/Above/Below). Both count as wing-borne"),
-    "wing_borne_units": ("", "propulsors on the wing cards + on boom groups attached to Wings/Both (non-control-only; quick counts on count-only stations). Blank with wing_borne_units_note when the boom-card rotors cannot be apportioned, and for HB/PFV / G1 override as propulsor_units"),
-    "wing_borne_units_note": ("", "why wing_borne_units is blank (wingless, override, boom rotors that cannot be apportioned)"),
-    "wing_boom_candidate": ("", "True = a member to re-read under the 2026-09-19 boom/nacelle rule: the wing-attached boom groups all lie only fore or only aft of the wing, a vertical boom straddles the wing, or a wing-card propulsor sits Above/Below the wing"),
-    "empTilts": (None, "True when the empennage tilts, with the wing or on its own"),
-}
-
-_ppa = M[_pa]; _gate = _ppa.edgeTags.isna()
-log("rules 2026-09-19 (7e):")
-log("  1 overrides — an override keeps only what it records; a value not determinable is left out, never read as zero, none or Fixed")
-log(f"    overrides on primary approved aircraft: {int(_ppa.overrides.notna().sum())}  {_ppa.overrides.value_counts().to_dict()}")
-log(f"    propulsor_units: {int(_ppa.propulsor_units.notna().sum())} / {len(_ppa)} primary approved non-blank "
-    f"({int(_ppa[_gate].propulsor_units.notna().sum())} / {int(_gate.sum())} without a Similar tag); left out: "
-    f"{_ppa.propulsor_units_note.dropna().str.replace(r'^(HB|PFV):.*', 'HB/PFV', regex=True).value_counts().to_dict()}")
-log(f"    values stored behind an override: {len(OVR_HIDDEN)} (OVERRIDE_HIDES_VALUE)   quick counts on a station whose override is off: {len(LEFTOVER_QC)} (ignored, LEFTOVER_QUICK_COUNT)")
-log("  2 booms — the boom tick carries the tilt: a rotor on a ticked boom group is Fixed, as on a tilting wing; Other if it also pivots")
-log(f"    boom_thrust_state: {_ppa.boom_thrust_state.value_counts(dropna=False).to_dict()}")
-log(f"    boom tick + boom-card rotor Tilt: {len(BOOM_TICK_TILT)} (BOOM_TICK_AND_ROTOR_TILT; 0 once migrated)   boom rotors without a boom group: {len(BOOM_NO_GROUP)}")
-log("  3 wing-borne thrust — a wing member is a boom only when it carries propulsors fore and aft, reaches beyond LE/TE by more than the chord, or carries a tail; both count as wing-borne")
-_w = _ppa.wing_thrust_carrier.notna()
-log(f"    wing_thrust_carrier (winged, determinable: {int(_w.sum())}): {_ppa.wing_thrust_carrier.value_counts().to_dict()}")
-log(f"    wing_borne_units non-blank: {int(_ppa.wing_borne_units.notna().sum())}; blank because: {_ppa[_w].wing_borne_units_note.dropna().str.replace(r'^(HB|PFV):.*', 'HB/PFV', regex=True).value_counts().to_dict()}")
-log(f"    wing_boom_candidate: {int(_ppa.wing_boom_candidate.fillna(False).sum())} to re-read under rule 3")
-""")
-
 md("## 8 — Order: company A→Z → named aircraft A→Z, then unnamed by patent id, then rejected → a D1/D2 of the same company right under its original")
 code(r"""
 # Ruling 2026-09-17 (user): ONE block per company, inside a company per aircraft, alphabetical.
@@ -1029,15 +826,6 @@ F = F[~F.patent_id.isin(D2_SET)].reset_index(drop=True)      # a D2 has the same
 log(f"figures: {len(F_all)} with a file reference ({int(F_all.file_exists.sum())} files present, {len(appr_all)} approved); "
     f"{int(n_placeholder.sum())} '(fig N)' placeholders dropped; {n_d2_fig} figures of D2 records set aside ({n_d2_appr} approved) — they point at the original's")
 
-# rule 2026-09-19 (codebook R2-02(e)), two flight states in one figure: the state drawn in solid lines is recorded, the
-# dashed one ignored; both drawn with the same weight = Both (state added 2026-09-19); nothing readable = Other; lift units beside cruise units are not two states;
-# Invariant never for a figure showing two positions. acState passes through unchanged — a stateNote that names two
-# states / both modes is a WARNING for the reviewer (STATE_NOTE_MENTIONS_TWO_STATES, §13).
-TWO_STATE_RE = re.compile(r"\bboth\b[^.;]*\b(?:modes?|states?|configurations?|positions?)\b|\b(?:two|2)\s+(?:flight\s+)?(?:modes|states|positions|configurations)\b"
-                          r"|\b(?:hover|vtol|take-?off)\b[^.;]*\band\b[^.;]*\bcruise\b|\bcruise\b[^.;]*\band\b[^.;]*\b(?:hover|vtol)\b|\b(?:dashed|dotted|phantom)\b", re.I)
-TWO_STATE_FIGS = F[F.stateNote.map(lambda v: not is_empty(v) and bool(TWO_STATE_RE.search(str(v))))] if "stateNote" in F.columns else F.iloc[0:0]
-log(f"  figure stateNotes that name two states (R2-02(e) warning): {len(TWO_STATE_FIGS)}  acState {TWO_STATE_FIGS.acState.value_counts(dropna=False).to_dict()}")
-
 appr = F[F.status == "approved"]
 byv = appr.groupby(["patent_id", "ua"]).size()
 mainfig = appr[appr.is_main == True].drop_duplicates(["patent_id", "ua"]).set_index(["patent_id", "ua"]).image_path
@@ -1117,7 +905,7 @@ m1 += expand(r"^boom(\d+)_", M1_BOOM + [f"{x}_otherTag" for x in ("attach", "win
 m1 += [c for c in M1_TAIL if c in cols]
 m2 = [c for c in M2_FIXED if c in cols] + [c for c in ("wingConf_otherTag", "empType_otherTag") if c in cols]
 m2 += expand(r"^wing(\d+)_", M2_WING + ["role_otherTag", "plan_otherTag"], cols) + [c for c in M2_TAIL if c in cols]
-m3 = m3_block(cols) + sorted(c for c in cols if c.endswith("propKin_otherTag")) + [c for c in M3_TAIL if c in cols]   # sorted: a set's order changes with the hash seed
+m3 = m3_block(cols) + [c for c in cols if c.endswith("propKin_otherTag")] + [c for c in M3_TAIL if c in cols]
 ORDER = HEAD + g1 + m1 + m2 + m3 + [c for c in ml_head if c in cols]
 def insert_after(order, anchor, items):
     items = [i for i in items if i in cols and i not in order]
@@ -1125,17 +913,7 @@ def insert_after(order, anchor, items):
     else: order += items
 for f in ML_MORPH:
     insert_after(ORDER, f, [f"ml_{f}", f"ml_{f}_conf", f"ml_{f}_source", f"ml_{f}_agrees"])
-def insert_before(order, anchor, items):
-    items = [i for i in items if i in cols and i not in order]
-    if anchor in order: i = order.index(anchor); order[i:i] = items
-    else: order += items
-# 7e rule columns beside what they read: overrides after the G1 block, the unit totals ahead of the M3 cards, the
-# wing-thrust columns ahead of the wing-1 card, the boom state ahead of the boom card
-insert_after(ORDER, "g1_quickNote", ["overrides"])
-if m3: insert_before(ORDER, m3[0], ["propulsor_units", "propulsor_units_note"])
-insert_before(ORDER, "wing1_count", ["wing_thrust_carrier", "wing_borne_units", "wing_borne_units_note", "wing_boom_candidate"])
-insert_before(ORDER, "boom_count", ["boom_thrust_state"])
-leftover =[c for c in M.columns if c not in ORDER and c != "n_variants_declared"]
+leftover = [c for c in M.columns if c not in ORDER and c != "n_variants_declared"]
 if leftover: log(f"  columns not in the template (appended at the end): {leftover}")
 M = M[ORDER + leftover]
 log(f"aircraft table: {M.shape[0]} rows x {M.shape[1]} columns")
@@ -1147,9 +925,7 @@ for c in M.columns:
     kind = ("tag" if c.endswith("_otherTag") else "id" if lst else "bool" if str(M[c].dtype) == "boolean" else
             "int" if str(M[c].dtype) == "Int64" else "text")
     opts = " | ".join(f"{i}={LABELS[lst].get(i, i)}" if LABELS.get(lst) else i for i in LISTS[lst]) if lst else ""
-    doc_opts, desc = RULE_DOC.get(c, (None, ""))
-    dd.append(dict(column=c, section=sec or ("derived" if c in HEAD or c in RULE_COLS else ""), kind=kind,
-                   options=opts if doc_opts is None else doc_opts, non_empty=int(M[c].notna().sum()), description=desc))
+    dd.append(dict(column=c, section=sec or ("derived" if c in HEAD else ""), kind=kind, options=opts, non_empty=int(M[c].notna().sum())))
 DD = pd.DataFrame(dd)
 
 # ── outputs folder: only what this run writes ──
@@ -1241,14 +1017,10 @@ readme += [("sheet Review", "the wizard record exactly as exported (Patent_ID, S
            ("sheet patseer", "bibliographic facts from the PatSeer export, one row per patent, joined on patent_id"),
            ("aircraft id", "<patent>_ua<N>: N = the aircraft number in the wizard (a single-aircraft patent is _ua1). Names: real name (+ vN) where reviewed, else the id."),
            ("order", "every sheet, table and the record itself: ONE block per company, companies A→Z (column company = reference/family_map.csv company_canonical, e.g. Bell Helicopter Textron / Bell Textron / Textron Innovations = Bell / Textron; Individual Inventor and Unknown / Independent last); inside a company the named aircraft A→Z, then the unnamed by patent id, then the rejected records; a D1/D2 of the same company directly under its original; a patent's aircraft together in ua order"),
-           ("flight state", "acState per figure. The wizard SHOWS 'Invariant' for the option it stores under the old id HoverCruise: tables/figure_table.csv writes Invariant; the Review sheet keeps 'HoverCruise — Invariant' because the wizard reads that sheet back. Every lock the wizard draws is checked against the record on each build (notebook 04 §6b). Two flight states in one figure (codebook R2-02(e), ruling 2026-09-19): when a moving part is drawn in two positions, the state drawn in solid lines is recorded and the dashed one is ignored; when both are drawn with the same weight, the figure is Both (a state added the same day; Other is only 'no configuration can be read'). Lift units drawn beside cruise units do not make a two-state figure. Invariant is never used for a figure showing two positions. acState passes through unchanged; a stateNote that names two states is flagged STATE_NOTE_MENTIONS_TWO_STATES (warning)."),
-           ("overrides", "ruling 2026-09-19: an override keeps only what it records. After a G1 override the aircraft has no type; after an M1 or M2 override the skipped fields are not determinable; at an M3 station only the propulsor count is kept (the wizard stores <station>_count=0 and the real number in <station>_quickCount). A value that is not determinable is never read as zero, none or Fixed: it is left out, and the number left out is reported. aircraft_table: overrides (G1|M1|M2|M3:<station>), propulsor_units (non-control-only propulsors over every M3 station, quick count on a count-only station; blank for HB/PFV, after a G1 override, or when an overridden station has no quick count) and propulsor_units_note (why blank). Flags: OVERRIDE_HIDES_VALUE (a value stored behind an override), LEFTOVER_QUICK_COUNT (a quick count on a station whose override is off — ignored)."),
-           ("tilting booms", "ruling 2026-09-19: the boom tick carries the tilt. A rotor on a boom group ticked Booms tilt is recorded Fixed, as on a tilting wing. Tick Booms tilt only when the boom itself rotates; otherwise a rotor that changes angle on a boom is recorded Tilt. A rotor that also pivots on a tilting boom is recorded Other, with a note. aircraft_table: boom_thrust_state = none / fixed / tilting / on_tilting_wing / mixed (a group rides a tilting wing when attached to Wings/Both, the wing it names — any when blank/Multi — is set to Tilt and onFixedPart is not True; it tilts when Booms tilt is ticked or its rotors are propKin Tilt; groups with hasProps False ignored). Flags: BOOM_TICK_AND_ROTOR_TILT, BOOM_ROTORS_WITHOUT_GROUP."),
-           ("wing-borne thrust", "ruling 2026-09-19: a member on a wing that carries a propulsor is a boom when it carries propulsors both ahead of and behind the wing, reaches beyond the leading or trailing edge by more than the local wing chord, or carries a tail surface. Otherwise it is a nacelle or pylon, and the propulsor is recorded on the wing card at LE, TE, Above or Below. Where the analysis asks whether the wing carries the thrust, both count as wing-borne. aircraft_table (winged aircraft): wing_thrust_carrier = wing / wing_boom / both / none, wing_borne_units (+ wing_borne_units_note when the boom rotors cannot be apportioned), wing_boom_candidate (members to re-read under this rule)."),
-           ("tilting empennage", "empTilts = True: the empennage tilts, with the wing or on its own."),
+           ("flight state", "acState per figure. The wizard SHOWS 'Invariant' for the option it stores under the old id HoverCruise: tables/figure_table.csv writes Invariant; the Review sheet keeps 'HoverCruise — Invariant' because the wizard reads that sheet back. Every lock the wizard draws is checked against the record on each build (notebook 04 §6b)."),
            ("duplicates", "D1/D2 carry nothing from G1 to M3 and point at the aircraft they repeat (tables/aircraft_table.csv, column same_aircraft_as); a D2 has no figures of its own"),
            ("images", "images/<aircraft_id>/<figure>.png — every approved figure of a non-D2 record, MANIFEST.csv with sha256"),
-           ("tables", "tables/aircraft_table.csv (one row per aircraft, every label + identity + ground truth + the 2026-09-19 rule columns + ml_ pre-labels), figure_table.csv (one row per figure), data_dictionary.csv (every column: section, kind, options; description for the derived rule columns) — what stages 1 and 2 read"),
+           ("tables", "tables/aircraft_table.csv (one row per aircraft, every label + identity + ground truth + ml_ pre-labels), figure_table.csv (one row per figure), data_dictionary.csv — what stages 1 and 2 read"),
            ("", "")]
 readme += [("input " + what, stmp) for what, _, stmp in INPUTS_USED]
 readme += [("", ""), ("rows Review", len(L) + sum(1 for p in approved_pids if p not in has_name_row)), ("rows ground_truth", len(GTS)), ("rows patseer", len(PS)),
@@ -1326,18 +1098,6 @@ chk("no D2 figure in the figure table / images", not F.patent_id.isin(D2_SET).an
 chk("figure_table aircraft_ids exist", F.aircraft_id.isin(set(M.aircraft_id)).all(), f"{int((~F.aircraft_id.isin(set(M.aircraft_id))).sum())} orphan figure rows")
 chk("workbook Review sheet holds every record row", wsR.max_row - 1 == len(L) + NAME_ROWS_ADDED)
 log(f"  [{'OK' if not GT_MISSING else 'FINDING'}] primary approved aircraft without a ground truth: {len(GT_MISSING)}")
-# rules 2026-09-19 (§7e / §9)
-_pa12 = M.is_primary & M.is_approved.fillna(False).astype(bool)
-chk("rule columns (7e) only on primary approved aircraft", M.loc[~_pa12, RULE_COLS].isna().all().all())
-chk("propulsor_units / wing_borne_units blank exactly where a note gives the reason",
-    ((M.propulsor_units.isna() == M.propulsor_units_note.notna())[_pa12]).all()
-    and ((M.wing_borne_units.isna() == M.wing_borne_units_note.notna())[_pa12]).all())
-for _what, _items in [("values stored behind an override (OVERRIDE_HIDES_VALUE)", OVR_HIDDEN),
-                      ("quick counts on a station whose override is off, ignored (LEFTOVER_QUICK_COUNT)", LEFTOVER_QC),
-                      ("boom-card rotor Tilt on a fully ticked tilting boom (BOOM_TICK_AND_ROTOR_TILT; 0 once migrated)", BOOM_TICK_TILT),
-                      ("boom-card rotors without a propeller-carrying boom group (BOOM_ROTORS_WITHOUT_GROUP)", BOOM_NO_GROUP)]:
-    log(f"  [{'OK' if not _items else 'FINDING'}] {_what}: {len(_items)}")
-log(f"  [{'OK' if TWO_STATE_FIGS.empty else 'WARNING'}] figure stateNotes that name two states (STATE_NOTE_MENTIONS_TWO_STATES, R2-02(e)): {len(TWO_STATE_FIGS)}")
 log("")
 log(f"rows per batch: {M.groupby('batch').size().to_dict()}")
 log(f"primary approved aircraft: {len(prim_appr)}   pointing D1/D2 rows: {len(pt)}   rejected: {len(rej)}")
@@ -1401,23 +1161,7 @@ for a in GT_MISSING:
     flag("GROUND_TRUTH_MISSING", a, "primary approved aircraft with no row in architecture_text_final_variants.csv", "decide it on the 03b page and re-apply")
 for a in GT_ORPHANS:
     flag("GROUND_TRUTH_ORPHAN", a, "ground-truth row that matches no primary approved aircraft", "informational — the aircraft was merged, renumbered or became a duplicate")
-# rules 2026-09-19 (§7e / §9)
-for pid, aid, o, hid in OVR_HIDDEN:
-    flag("OVERRIDE_HIDES_VALUE", pid, f"{aid}: {o} override, but the record still stores {', '.join(hid)} — the wizard does not show it and the tables do not use it",
-         "an override keeps only what it records: if these are real answers untick the override in the wizard, otherwise clear them; re-export")
-for pid, aid, st, q in LEFTOVER_QC:
-    flag("LEFTOVER_QUICK_COUNT", pid, f"{aid}: {st}_quickCount={q} but the {st} override is off — ignored, the card's own count is used",
-         "clear the quick count in the wizard (or tick the override if the station really is count-only); re-export")
-for pid, aid, tt, n in BOOM_TICK_TILT:
-    flag("BOOM_TICK_AND_ROTOR_TILT", pid, f"{aid} ({tt}): every propeller-carrying boom group ({n}) is ticked Booms tilt and a boom-card rotor is also propKin Tilt",
-         "the boom tick carries the tilt: record the rotor Fixed (Other with a note if it also pivots on the boom), or untick Booms tilt if the boom itself does not rotate")
-for pid, aid, n in BOOM_NO_GROUP:
-    flag("BOOM_ROTORS_WITHOUT_GROUP", pid, f"{aid}: {n} propulsors on the boom card but no boom group carries propulsors (none recorded, or every group hasProps=False)",
-         "add the boom group in M1 (or set its hasProps), or move the propulsors to the card that carries them")
-for r in TWO_STATE_FIGS.itertuples():
-    flag("STATE_NOTE_MENTIONS_TWO_STATES", r.patent_id, f"{r.aircraft_id} fig {r.fig_key} ({r.status}): acState={r.acState}, stateNote={str(r.stateNote)!r}",
-         "WARNING — R2-02(e): record the state drawn in solid lines (ignore the dashed one); both drawn with the same weight = Both; nothing readable = Other; never Invariant; lift units beside cruise units are not two states")
-AF =pd.DataFrame(flags, columns=["flag", "patent_id", "detail", "action"])
+AF = pd.DataFrame(flags, columns=["flag", "patent_id", "detail", "action"])
 AF.to_csv(OUT_DIR / "ACTION_FLAGS.csv", index=False)
 INFO = ["DUP_BLOCK_IGNORED", "UNCLASSIFIABLE_BY_DESIGN", "WIZARD_TAG_KEPT", "GROUND_TRUTH_ORPHAN"]
 pd.set_option("display.width", 220); pd.set_option("display.max_colwidth", 90); pd.set_option("display.max_rows", 200)

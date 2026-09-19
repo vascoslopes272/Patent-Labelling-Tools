@@ -12,7 +12,7 @@ bring them back; this script repairs the record already written. A lock whose sc
 as Fixed: the wizard clears it and asks) is listed, never guessed.
 Cells keep their types (openpyxl) — the wizard's xlBool() reads the text "False" as true.
 """
-import sys, re, shutil, subprocess, collections
+import sys, shutil, subprocess, collections
 from datetime import datetime
 from pathlib import Path
 import pandas as pd
@@ -94,16 +94,9 @@ for d in D.itertuples():
     if i is not None:
         changed.append((key, s(body[i][ix["Value"]]), new)); body[i][ix["Value"]] = new
     else:                                    # no row at all: add it after the last row of the same block
-        sec = "T2" if d.scope == "figure" else "M1"
-        m3 = re.match(r"^(wing\d|fuselage|emp|boom|hull_array|core_layout)(?:_t(\d+))?_", d.field)
-        if d.scope != "figure" and m3:       # an M3 propulsion field: its block is "Propulsion: <card>[ — Type N]"
-            sec = "M3"; key = (key[0], f"Propulsion: {m3.group(1)}" + (f" — Type {m3.group(2)}" if m3.group(2) else ""), key[2])
-        same = [j for k, j in where.items() if k[0] == key[0] and k[1] == key[1]]
-        if not same and sec == "M3":         # no row of that type block yet: after the card's last row
-            same = [j for k, j in where.items() if k[0] == key[0] and k[1].startswith(key[1].split(" — ")[0])]
-        anchor = max(same)
+        anchor = max(j for k, j in where.items() if k[0] == key[0] and k[1] == key[1])
         row = [None] * len(hdr)
-        for c, v in (("Patent_ID", key[0]), ("Section", sec), ("Sub_Dimension", key[1]),
+        for c, v in (("Patent_ID", key[0]), ("Section", "T2" if d.scope == "figure" else "M1"), ("Sub_Dimension", key[1]),
                      ("Field", key[2]), ("Value", new), ("Source", "human"), ("Image_Path", body[anchor][ix["Image_Path"]])):
             if c in ix: row[ix[c]] = v
         insert_after.setdefault(anchor, []).append(row); inserted.append((key, new))

@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Multirotor blanks</title>
+<style>
+*{box-sizing:border-box}
+body{font:14px system-ui,sans-serif;margin:0;background:#f4f4f2;color:#222}
+header{position:sticky;top:0;z-index:5;background:#1f2d3d;color:#fff;padding:8px 14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+header b{font-size:16px}
+button,select,textarea{font:inherit}
+button{cursor:pointer}
+.exp{background:#2e7d32;color:#fff;border:0;border-radius:4px;padding:6px 12px}
+.hint{font-size:12px;color:#cfd8dc;width:100%}
+main{padding:10px 14px}
+.card{background:#fff;border:1px solid #ccc;border-radius:6px;margin-bottom:18px;border-left:8px solid #ff9800}
+.card.done{border-left-color:#2e7d32}.card.wiz{border-left-color:#1565c0}
+.head{display:flex;gap:6px 12px;align-items:center;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid #e3e3e3;background:#f7f9fc;border-radius:6px 6px 0 0}
+.head .n{font-size:13px;color:#777}.head .pid{font-size:17px;font-weight:700}
+.pill{font-size:12px;border-radius:8px;padding:1px 8px;background:#e3e8ef}.pill.t{background:#1f2d3d;color:#fff}
+.ttl{font-size:12px;color:#555;width:100%}
+.body{padding:8px 12px}
+table{border-collapse:collapse;font-size:13px;margin-bottom:8px}
+td,th{border:1px solid #ddd;padding:3px 7px;text-align:left;vertical-align:top}
+th{background:#f0f0f0}
+.grp{border:1px solid #ddd;border-radius:6px;padding:6px 10px;margin:8px 0;background:#fcfcfc}
+.grp h4{margin:0 0 4px;font-size:14px}
+.ctx{font-size:12px;color:#555;margin-bottom:4px}
+.note{font-size:12px;background:#fff8e1;border:1px solid #e0b400;border-radius:4px;padding:3px 8px;margin:4px 0}
+.fld{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:4px 0}
+.fld .lab{width:250px;font-size:13px}
+.fld .lab.miss{color:#c62828;font-weight:700}
+.fld .have{font-size:13px;color:#2e7d32}
+.o{border:1px solid #999;background:#fff;border-radius:4px;padding:4px 10px;font-size:13px}
+.o.sel{background:#1f2d3d;color:#fff;border-color:#1f2d3d}
+.quick{font-size:12px;border:1px dashed #1565c0;color:#1565c0;background:#fff;border-radius:4px;padding:3px 8px;margin:2px 0 4px}
+.ans{padding:8px 12px;border-top:1px solid #eee;background:#fcfcfc;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.ans textarea{flex:1 1 400px;min-height:38px;padding:5px}
+.wizb{border:1px solid #1565c0;color:#1565c0;background:#fff;border-radius:4px;padding:5px 10px}
+.wizb.sel{background:#1565c0;color:#fff}
+.ac{padding:6px 12px}
+.ac h4{margin:4px 0 6px;font-size:14px}
+.gal{display:flex;flex-wrap:wrap;gap:10px}
+.f{width:250px;border:2px solid #ddd;border-radius:6px;padding:4px;background:#fff}
+.f.approved{border-color:#81c784}.f.disapproved{border-color:#ef9a9a;opacity:.75}.f.none{border-color:#bdbdbd;border-style:dashed}
+.f .box{height:200px;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:zoom-in;background:#fafafa}
+.f img{max-width:100%;max-height:200px;display:block}
+.bd{display:flex;flex-wrap:wrap;gap:3px;margin-top:3px}
+.b{font-size:11px;border-radius:6px;padding:0 6px;background:#eceff1}.b.main{background:#ffd54f;font-weight:700}.b.ok{background:#c8e6c9}.b.no{background:#ffcdd2}
+.fn{font-size:11px;color:#666;word-break:break-all;margin-top:2px}
+.more{font-size:12px;margin:6px 0;background:#fff;border:1px solid #bbb;border-radius:4px;padding:3px 10px}
+#zoombox{position:fixed;inset:0;background:rgba(0,0,0,.9);display:none;align-items:center;justify-content:center;z-index:9;cursor:zoom-out}
+#zoombox img{max-height:94vh;max-width:96vw;background:#fff}
+</style></head><body>
+<header><b>Multirotor blanks — fields never recorded</b><span id="count"></span>
+<select id="filter"><option value="">show all</option><option value="open">only not finished</option></select>
+<button class="exp" id="export">Export answers</button>
+<span class="hint">Old wizard versions (before 9 Aug) never asked these fields on a multirotor, and nothing in any backup holds them. Red = blank, pick one. Green = already recorded (context only). The dashed button fills only the blanks of that group with your most common multirotor pick. Nothing is preselected. “I'll do it in the wizard” leaves the aircraft for the wizard. Answers stay in this browser until you export.</span></header>
+<main id="main"></main><div id="zoombox"><img></div>
+<script>
+const D = __DATA__;
+const KEY = 'mrFieldsReview_v1';
+let S = {v: {}, wiz: {}, text: {}, open: {}};
+try { S = Object.assign(S, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
+function persist(){ try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+const STN = {HoverCruise: 'Invariant'};
+const USUAL = {orient: 'Mixed', chord: 'Front', rmech: 'Exposed', propKin: 'Fixed'};   // most common complete MR group in the dataset (16 of 39)
+const optName = (f, id) => { const o = (D.opts[f] || []).find(x => x[0] === id); return o ? o[1] : id; };
+const HAVE = {rmech: {Fixed: 'Exposed'}};                                              // 04 display name -> wizard id
+function saveToFolder(blob, name){
+  function fallback(){ var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); return Promise.resolve('downloads'); }
+  if (!window.showSaveFilePicker) return fallback();
+  return window.showSaveFilePicker({suggestedName: name, id: 'review_decisions'})
+    .then(function(h){ return h.createWritable().then(function(w){ return w.write(blob).then(function(){ return w.close(); }); }); })
+    .then(function(){ return 'folder'; }).catch(function(e){ return (e && e.name === 'AbortError') ? 'cancelled' : fallback(); });
+}
+const vk = (c, g, f) => c.key + '|' + g.key + '|' + f;
+function blanks(c){ const out = []; c.groups.forEach(g => D.fields.forEach(f => { if (!g.vals[f]) out.push(vk(c, g, f)); })); return out; }
+function state(c){ if (S.wiz[c.key]) return 'wiz'; return blanks(c).every(k => S.v[k]) ? 'done' : ''; }
+function fig(f){
+  const cls = 'f ' + (f.status === 'approved' ? 'approved' : f.status === 'disapproved' ? 'disapproved' : 'none');
+  return '<div class="' + cls + '"><div class="box">' + (f.src ? '<img loading="lazy" src="' + esc(f.src) + '" style="transform:rotate(' + (f.rot || 0) + 'deg)">' : '<span style="color:#999;font-size:12px">(image file not found)</span>') + '</div>'
+    + '<div class="bd">' + (f.main ? '<span class="b main">MAIN</span>' : '') + '<span class="b ' + (f.status === 'approved' ? 'ok' : 'no') + '">' + esc(f.status || 'no status') + '</span>'
+    + (f.status === 'approved' ? '<span class="b">' + esc(f.per || '—') + '</span><span class="b">' + esc(STN[f.state] || f.state || '—') + '</span>' : '') + '</div>'
+    + '<div class="fn">' + esc(f.file) + '</div></div>';
+}
+function grpHtml(c, g){
+  const miss = D.fields.filter(f => !g.vals[f]);
+  let h = '<div class="grp"><h4>' + esc(g.label) + ' — ' + esc(g.count) + ' unit' + (g.count === '1' ? '' : 's') + (g.ctrl ? ' (control only)' : '') + '</h4>'
+    + '<div class="ctx">enclosure: ' + esc(g.bmech || '—') + ' · mounting zone: ' + esc(g.zone || '—') + '</div>'
+    + (g.notes ? '<div class="note">your card note: ' + esc(g.notes) + '</div>' : '');
+  if (miss.length) h += '<button class="quick" data-c="' + esc(c.key) + '" data-g="' + esc(g.key) + '">fill the ' + miss.length + ' blank' + (miss.length > 1 ? 's' : '') + ' with your usual multirotor pick: ' + miss.map(f => optName(f, USUAL[f]).split(' (')[0]).join(' · ') + '</button>';
+  D.fields.forEach(f => {
+    if (g.vals[f]) { h += '<div class="fld"><span class="lab">' + esc(D.fname[f]) + '</span><span class="have">✓ ' + esc(optName(f, (HAVE[f] || {})[g.vals[f]] || g.vals[f])) + '</span></div>'; return; }
+    const k = vk(c, g, f);
+    h += '<div class="fld"><span class="lab miss">' + esc(D.fname[f]) + '</span>' + D.opts[f].map(o => '<button class="o' + (S.v[k] === o[0] ? ' sel' : '') + '" data-k="' + esc(k) + '" data-v="' + esc(o[0]) + '">' + esc(o[1]) + '</button>').join('') + '</div>';
+  });
+  return h + '</div>';
+}
+function cardHtml(c, i){
+  let h = '<div class="head"><span class="n">' + (i + 1) + '</span><span class="pid">' + esc(c.pid) + (c.n_ua > 1 ? ' · aircraft ' + c.ua : '') + '</span>'
+    + '<span class="pill t">' + esc(c.type) + ' — ' + esc(c.typeName) + '</span>'
+    + (c.name && c.name !== c.key ? '<span class="pill">' + esc(c.name) + '</span>' : '') + '<span class="pill">' + esc(c.company) + '</span>'
+    + (/^https?:/.test(c.pdf) ? '<a href="' + esc(c.pdf) + '" target="pdf">patent PDF</a>' : '')
+    + '<span class="ttl">' + esc(c.title) + '</span></div>';
+  h += '<div class="body"><table>' + c.morph.map(m => '<tr><th>' + esc(m[0]) + '</th><td>' + esc(m[1]) + '</td></tr>').join('') + '</table>'
+    + c.groups.map(g => grpHtml(c, g)).join('') + '</div>';
+  h += '<div class="ans"><button class="wizb' + (S.wiz[c.key] ? ' sel' : '') + '" data-wiz="' + esc(c.key) + '">I\'ll do it in the wizard</button>'
+    + '<textarea data-t="' + esc(c.key) + '" placeholder="Note (optional) — e.g. “the front pair are cruise props”">' + esc(S.text[c.key] || '') + '</textarea></div>';
+  const uas = [...new Set(c.figs.map(f => f.ua))].sort((a, b) => (a === c.ua ? -1 : b === c.ua ? 1 : a - b));
+  uas.forEach(a => {
+    const fs = c.figs.filter(f => f.ua === a).sort((x, y) => (y.main - x.main) || ((x.status === 'approved' ? 0 : 1) - (y.status === 'approved' ? 0 : 1)));
+    const k = c.key + '|' + a, show = S.open[k] || false;
+    const vis = fs.filter(f => f.status === 'approved' || show), nOther = fs.length - fs.filter(f => f.status === 'approved').length;
+    if (a !== c.ua && !show) { h += '<div class="ac"><button class="more" data-open="' + esc(k) + '">show aircraft ' + a + ' of this patent (' + fs.length + ' figures)</button></div>'; return; }
+    h += '<div class="ac"><h4>' + (a === c.ua ? 'This aircraft' : 'Aircraft ' + a + ' of the same patent') + '</h4><div class="gal">' + vis.map(fig).join('') + '</div>'
+      + (nOther ? '<button class="more" data-open="' + esc(k) + '">' + (show ? 'hide' : 'show') + ' ' + nOther + ' disapproved / unreviewed figure' + (nOther > 1 ? 's' : '') + '</button>' : '') + '</div>';
+  });
+  return h;
+}
+function renderAll(){
+  const f = document.getElementById('filter').value, m = document.getElementById('main');
+  const idx = D.cards.map((c, i) => i).filter(i => f !== 'open' || !state(D.cards[i]));
+  m.innerHTML = idx.map(i => '<div class="card" id="c' + i + '"></div>').join(''); idx.forEach(renderCard); count();
+}
+function renderCard(i){ const c = D.cards[i], el = document.getElementById('c' + i); if (!el) return; el.className = 'card ' + state(c); el.innerHTML = cardHtml(c, i); }
+function count(){
+  const nb = D.cards.reduce((s, c) => s + blanks(c).length, 0), nf = D.cards.reduce((s, c) => s + blanks(c).filter(k => S.v[k]).length, 0);
+  document.getElementById('count').textContent = D.cards.filter(c => state(c)).length + ' / ' + D.cards.length + ' aircraft finished · ' + nf + ' / ' + nb + ' blanks picked';
+}
+const idxOf = k => D.cards.findIndex(c => c.key === k);
+document.addEventListener('click', e => {
+  const b = e.target.closest('button.o');
+  if (b) { const k = b.dataset.k; if (S.v[k] === b.dataset.v) delete S.v[k]; else S.v[k] = b.dataset.v; persist(); renderCard(idxOf(k.split('|')[0])); count(); return; }
+  const q = e.target.closest('button.quick');
+  if (q) { const c = D.cards[idxOf(q.dataset.c)], g = c.groups.find(x => x.key === q.dataset.g); D.fields.forEach(f => { if (!g.vals[f]) S.v[vk(c, g, f)] = USUAL[f]; }); persist(); renderCard(idxOf(c.key)); count(); return; }
+  const w = e.target.closest('button.wizb');
+  if (w) { const k = w.dataset.wiz; S.wiz[k] = !S.wiz[k]; persist(); renderCard(idxOf(k)); count(); return; }
+  const mo = e.target.closest('button.more');
+  if (mo) { const k = mo.dataset.open; S.open[k] = !S.open[k]; persist(); renderCard(idxOf(k.split('|').slice(0, -1).join('|'))); return; }
+  const im = e.target.closest('.box img');
+  if (im) { const z = document.getElementById('zoombox'); z.querySelector('img').src = im.src; z.querySelector('img').style.transform = im.style.transform; z.style.display = 'flex'; return; }
+  if (e.target.closest('#zoombox')) document.getElementById('zoombox').style.display = 'none';
+});
+document.addEventListener('input', e => { const t = e.target.closest('textarea[data-t]'); if (t) { S.text[t.dataset.t] = t.value; persist(); } });
+document.getElementById('filter').onchange = renderAll;
+document.getElementById('export').onclick = () => {
+  const q = s => '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"';
+  const head = ['aircraft_id', 'patent_id', 'ua', 'group', 'field', 'value', 'in_wizard', 'note'];
+  const rows = [];
+  D.cards.forEach(c => {
+    if (S.wiz[c.key]) { rows.push([c.key, c.pid, c.ua, '', '', '', 'yes', S.text[c.key] || '']); return; }
+    c.groups.forEach(g => D.fields.forEach(f => { const k = vk(c, g, f); if (!g.vals[f] && S.v[k]) rows.push([c.key, c.pid, c.ua, g.key, f, S.v[k], '', S.text[c.key] || '']); }));
+  });
+  saveToFolder(new Blob([head.map(q).join(',') + '\n' + rows.map(r => r.map(q).join(',')).join('\n') + '\n'], {type: 'text/csv'}), 'MR_FIELDS_DECISIONS.csv')
+    .then(w => { if (w !== 'cancelled') alert('Saved (' + w + '). Tell Claude it is exported.'); });
+};
+renderAll();
+</script></body></html>

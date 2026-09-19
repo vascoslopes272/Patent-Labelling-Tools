@@ -812,7 +812,7 @@ def hidden_fields(o):
     if o in HIDDEN_BY: return HIDDEN_BY[o]
     st = o.split(":", 1)[1]
     return ([f"{st}_{f}" for f in M3_CARD if f not in ("quickOverride", "quickCount", "notes", "sym")]
-            + [f"{st}_t{k}_{f}" for k in range(1, 8) for f in M3_TYPE])   # wizard M3_MAX_TYPES = 7 (2026-09-19)
+            + [f"{st}_t{k}_{f}" for k in range(1, 7) for f in M3_TYPE])
 def is_default(field, v, tt):
     s, f = _s(v), suffix(field)
     return (s in ("", "False") or (f in ("count", "wCount") and s == "0") or (f == "ntypes" and s in ("0", "1"))

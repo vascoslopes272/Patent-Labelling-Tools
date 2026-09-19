@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Flight state review</title>
+<style>
+*{box-sizing:border-box}
+body{font:14px system-ui,sans-serif;margin:0;background:#f4f4f2;color:#222}
+header{position:sticky;top:0;z-index:5;background:#1f2d3d;color:#fff;padding:8px 14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+header b{font-size:16px}
+button,select,textarea{font:inherit}
+button{cursor:pointer}
+.exp{background:#2e7d32;color:#fff;border:0;border-radius:4px;padding:6px 12px}
+.rule{font-size:12.5px;color:#e3eaf2;width:100%;line-height:1.45}
+.rule b{color:#fff}
+main{padding:10px 14px}
+h2{font-size:15px;margin:16px 0 8px}
+.grid{display:flex;flex-wrap:wrap;gap:12px}
+.c{width:330px;background:#fff;border:2px solid #ccc;border-radius:6px;padding:6px}
+.c.changed{border-color:#1565c0}.c.kept{border-color:#81c784}
+.box{height:250px;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:zoom-in;background:#fafafa}
+.box img{max-width:100%;max-height:250px}
+.meta{font-size:12px;color:#555;margin:4px 0}
+.meta b{color:#222;font-size:13px}
+.b{font-size:11px;border-radius:6px;padding:0 6px;background:#eceff1;margin-left:4px}.b.main{background:#ffd54f;font-weight:700}
+.note{font-size:12px;background:#fff8e1;border:1px solid #e0b400;border-radius:4px;padding:3px 6px;margin:4px 0}
+.ex{font-size:12px;background:#e3f2fd;border:1px solid #64b5f6;border-radius:4px;padding:4px 6px;margin:4px 0}
+.opts{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.o{border:1px solid #999;background:#fff;border-radius:4px;padding:4px 8px;font-size:12.5px}
+.o.sel{background:#1f2d3d;color:#fff;border-color:#1f2d3d}
+.o.was{outline:2px dashed #81c784}
+textarea{width:100%;min-height:30px;margin-top:4px;font-size:12px;padding:3px}
+#zoombox{position:fixed;inset:0;background:rgba(0,0,0,.9);display:none;align-items:center;justify-content:center;z-index:9;cursor:zoom-out}
+#zoombox img{max-height:94vh;max-width:96vw;background:#fff}
+</style></head><body>
+<header><b>Flight state — figures that may show two states</b><span id="count"></span>
+<button class="exp" id="export">Export answers</button>
+<span class="rule"><b>Rule:</b> a part drawn in two positions → pick the position drawn in <b>solid</b> lines (ignore the dashed one). Both drawn with the <b>same weight</b> → <b>Both</b> (new). <b>Other</b> = no configuration can be read. Lift rotors drawn beside cruise propellers are <b>not</b> two states: read only the parts that <b>move</b> (nothing moves → Invariant). Invariant is never used for a figure showing two positions. The current label is preselected (dashed green outline = what the record has); click to change. Click an image to enlarge.</span></header>
+<main id="main"></main><div id="zoombox"><img></div>
+<script>
+const D = __DATA__;
+const KEY = 'acstateReview_v1';
+let S = {v: {}, t: {}};
+try { S = Object.assign(S, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
+function persist(){ try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+const val = it => S.v[it.key] || it.cur;
+function saveToFolder(blob, name){
+  function fallback(){ var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); return Promise.resolve('downloads'); }
+  if (!window.showSaveFilePicker) return fallback();
+  return window.showSaveFilePicker({suggestedName: name, id: 'review_decisions'})
+    .then(function(h){ return h.createWritable().then(function(w){ return w.write(blob).then(function(){ return w.close(); }); }); })
+    .then(function(){ return 'folder'; }).catch(function(e){ return (e && e.name === 'AbortError') ? 'cancelled' : fallback(); });
+}
+function card(it, i){
+  const v = val(it), ch = v !== it.cur;
+  return '<div class="c ' + (ch ? 'changed' : (S.v[it.key] ? 'kept' : '')) + '" id="c' + i + '">'
+    + '<div class="box">' + (it.src ? '<img loading="lazy" src="' + esc(it.src) + '" style="transform:rotate(' + it.rot + 'deg)">' : '<span style="color:#999">(image not found)</span>') + '</div>'
+    + '<div class="meta"><b>' + esc(it.aid) + '</b><span class="b">' + esc(it.tt || 'no type') + '</span>' + (it.main ? '<span class="b main">MAIN</span>' : '') + '<span class="b">' + esc(it.per) + '</span></div>'
+    + '<div class="meta">' + esc(it.file) + '</div>'
+    + (it.note ? '<div class="note">your state note: ' + esc(it.note) + '</div>' : '')
+    + (it.explain ? '<div class="ex">' + esc(it.explain) + '</div>' : '')
+    + '<div class="opts">' + D.opts.map(o => '<button class="o' + (v === o[0] ? ' sel' : '') + (it.cur === o[0] ? ' was' : '') + '" data-i="' + i + '" data-v="' + o[0] + '">' + esc(o[1]) + '</button>').join('') + '</div>'
+    + '<textarea data-t="' + i + '" placeholder="note (optional)">' + esc(S.t[it.key] || '') + '</textarea></div>';
+}
+function render(){
+  const m = document.getElementById('main'); let h = '';
+  [[1, 'Figures labelled Other (' + D.items.filter(x => x.section === 1).length + ')'], [2, 'Optional: Invariant figures of convertible types, and figures with a state note (' + D.items.filter(x => x.section === 2).length + ')']].forEach(([s, t]) => {
+    h += '<h2>' + t + '</h2><div class="grid">' + D.items.map((it, i) => it.section === s ? card(it, i) : '').join('') + '</div>';
+  });
+  m.innerHTML = h; count();
+}
+function count(){
+  const n = D.items.filter(it => S.v[it.key]).length, ch = D.items.filter(it => val(it) !== it.cur).length;
+  document.getElementById('count').textContent = n + ' / ' + D.items.length + ' looked at · ' + ch + ' changed';
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('button.o');
+  if (b) { const it = D.items[+b.dataset.i]; S.v[it.key] = b.dataset.v; persist(); const el = document.getElementById('c' + b.dataset.i); el.outerHTML = card(it, +b.dataset.i); count(); return; }
+  const im = e.target.closest('.box img');
+  if (im) { const z = document.getElementById('zoombox'); z.querySelector('img').src = im.src; z.querySelector('img').style.transform = im.style.transform; z.style.display = 'flex'; return; }
+  if (e.target.closest('#zoombox')) document.getElementById('zoombox').style.display = 'none';
+});
+document.addEventListener('input', e => { const t = e.target.closest('textarea[data-t]'); if (t) { S.t[D.items[+t.dataset.t].key] = t.value; persist(); } });
+document.getElementById('export').onclick = () => {
+  const q = s => '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"';
+  const head = ['aircraft_id', 'patent_id', 'image_file', 'section', 'old', 'new', 'note'];
+  const rows = D.items.filter(it => S.v[it.key] || S.t[it.key]).map(it => [it.aid, it.pid, it.file, it.section, it.cur, val(it), S.t[it.key] || ''].map(q).join(','));
+  saveToFolder(new Blob([head.map(q).join(',') + '\n' + rows.join('\n') + '\n'], {type: 'text/csv'}), 'ACSTATE_DECISIONS.csv')
+    .then(w => { if (w !== 'cancelled') alert('Saved (' + w + '). Tell Claude it is exported.'); });
+};
+render();
+</script></body></html>

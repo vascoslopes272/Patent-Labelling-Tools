@@ -12,18 +12,11 @@ Every rule below mirrors a named function in the wizard; keep them in sync:
   acState (per approved figure)  pageT2 "Aircraft State in this View" + isConvertibleArch() +
                                  archConfigChanges(): a fixed architecture whose record moves
                                  nothing is locked to Invariant (stored id 'HoverCruise')
-  <card>_propKin, <card>_tN_propKin  propKinLock(): TW/DS/SLC/SRW/MR/TB/PTC/RC -> Fixed — on the card AND
-                                 on every propeller type (m3TypeAttrs draws the lock per type; the
-                                 wizard exports it per type since v15.11)
+  <card>_propKin                 propKinLock(): TW/DS/SLC/SRW/MR/TB/PTC/RC -> Fixed (card level
+                                 only; per-type <card>_tN_propKin stays free)
   fusKin                         applyFusKinLock() / pageM1: PTC, RC -> BodyPitch; TB -> never Fixed
-  wingN_tilt                     g1-subbtn handler + pageM2: TB, PTC -> Fixed; TW -> wing1 Tilt
-  wCount / wingConf / wingN_*    RC, MR are wingless: count 0, no wing architecture, no wing rows
-                                 (G1 lock + v15.11 export)
-  <card>_orient (M3)             SLC, SRW: 'Mixed' is not offered (m3OrientationOptions) — shown blank
-  <card>_zone/zoneChord/zoneSpan m3Card: card-level mounting positions are drawn only on a single-type card with
-                                 propulsors (count > 0); on a count-0 card or a multi-type card (positions live per
-                                 type) they are hidden — v15.12 export writes them only when drawn
-  hasLegends / isMain (figure)   pageT2: an unticked pill reads "No" — v15.12 export writes False, not blank
+  wingN_tilt                     g1-subbtn handler + pageM2: TB, PTC -> Fixed; TW -> wing1 Tilt;
+                                 RC, MR are wingless (no wing tilt)
 
 One deliberate difference: the wizard evaluates archConfigChanges() on the architecture that is
 active while T2 is drawn (always arch 1), so on a multi-aircraft patent the figures of arch 2+
@@ -43,11 +36,11 @@ SEP = " — "
 INVARIANT_ID = "HoverCruise"          # the wizard's id for the option it displays as "Invariant"
 INVARIANT_NAME = "Invariant"
 CONVERTIBLE = {"TW", "TR", "DS", "CVT", "SRW"}                       # isConvertibleArch()
-PROPKIN_FIXED = {"TW", "DS", "SLC", "SRW", "TB", "PTC", "RC"}        # propKinLock() — MR unlocked 2026-09-19
+PROPKIN_FIXED = {"TW", "DS", "SLC", "SRW", "MR", "TB", "PTC", "RC"}  # propKinLock()
 BODYPITCH = {"PTC", "RC"}                                            # BODYPITCH_ARCHS
 WINGLESS = {"RC", "MR"}
 RETIRED_AC = {"Ground", "Unclear", "NonApplicable"}
-PROPKIN_CARD_RE = re.compile(r"^(core_layout|hull_array|fuselage|emp|boom|wing\d)(_t\d+)?_propKin$")
+PROPKIN_CARD_RE = re.compile(r"^(core_layout|hull_array|fuselage|emp|boom|wing\d)_propKin$")
 DIFF_COLS = ["patent_id", "arch", "scope", "figure", "field", "topType", "stored", "wizard_shows", "rule"]
 
 
@@ -104,21 +97,12 @@ def figures(L: pd.DataFrame) -> pd.DataFrame:
     """One row per T2 figure block (placeholders '(fig N)' excluded): base, figure, arch, status, acState."""
     L = _long(L)
     t2 = L[(L.Section == "T2") & ~L.Sub_Dimension.astype(str).str.contains(r"\(fig", regex=True)]
-    t2 = t2[t2.Field.isin(["arch", "status", "acState", "hasLegends", "isMain"])]
+    t2 = t2[t2.Field.isin(["arch", "status", "acState"])]
     F = t2.pivot_table(index=["base", "Sub_Dimension"], columns="Field", values="v", aggfunc="last").reset_index()
-    for c in ("arch", "status", "acState", "hasLegends", "isMain"):
+    for c in ("arch", "status", "acState"):
         if c not in F.columns: F[c] = ""
     F["arch"] = pd.to_numeric(F.arch.replace("", "1"), errors="coerce").fillna(1).astype(int)
     return F.rename(columns={"Sub_Dimension": "figure"}).fillna("")
-
-
-def _count(x) -> int:
-    """xlCount(): a count of 1 is stored as True."""
-    x = str(x)
-    if x == "True": return 1
-    if x in ("", "False", "nan", "None"): return 0
-    try: return int(float(x))
-    except ValueError: return 0
 
 
 def replay(L: pd.DataFrame) -> pd.DataFrame:
@@ -135,12 +119,6 @@ def replay(L: pd.DataFrame) -> pd.DataFrame:
             for f, x in d.items():
                 if PROPKIN_CARD_RE.match(f) and x and x != "Fixed":
                     diff(pid, arch, "aircraft", "", f, tt, x, "Fixed", f"propKinLock: {tt} propulsors never articulate")
-            # an EMPTY articulation on a propulsor group with units is drawn as the locked Fixed chip too (m3TypeAttrs)
-            for card in ("wing1", "wing2", "wing3", "wing4", "fuselage", "emp", "boom", "hull_array", "core_layout"):
-                nt = _count(d.get(f"{card}_ntypes", "")) or 1
-                for pre in ([f"{card}_t{t}_" for t in range(1, nt + 1)] if nt > 1 else [f"{card}_"]):
-                    if _count(d.get(pre + "count", "")) > 0 and not d.get(pre + "propKin", ""):
-                        diff(pid, arch, "aircraft", "", pre + "propKin", tt, "", "Fixed", f"propKinLock: {tt} propulsors never articulate (empty = shown Fixed)")
         fk = d.get("fusKin", "")
         if tt in BODYPITCH and fk != "BodyPitch":
             diff(pid, arch, "aircraft", "", "fusKin", tt, fk, "BodyPitch", f"applyFusKinLock: {tt} pitches as one body")
@@ -151,35 +129,12 @@ def replay(L: pd.DataFrame) -> pd.DataFrame:
             if tt in ("TB", "PTC") and x != "Fixed":
                 diff(pid, arch, "aircraft", "", f, tt, x, "Fixed", f"wing-tilt lock: a {tt} wing is rigid to the airframe")
             elif tt in WINGLESS:
-                pass                                        # reported with the rest of the wing rows below
-        if tt in WINGLESS:
-            if d.get("wCount", "") not in ("", "0", "False"):
-                diff(pid, arch, "aircraft", "", "wCount", tt, d["wCount"], "False", f"{tt} is wingless: wing count 0")
-            for f, x in sorted(d.items()):
-                if x and (f == "wingConf" or re.match(r"wing\d+_", f)) and not f.endswith(("_count", "_sym", "_ntypes", "_quickOverride", "_quickCount", "_zone", "_zoneChord", "_zoneSpan", "_chord", "_orient", "_bmech", "_rmech", "_propKin", "_propKinOth", "_ctrlOnly", "_notes", "_symLong", "_symCirc")):
-                    diff(pid, arch, "aircraft", "", f, tt, x, "", f"{tt} is wingless: no wing architecture")
-        if tt in ("SLC", "SRW"):                        # m3OrientationOptions(): independent thrust never tilts — no 'Mixed'
-            for f, x in d.items():
-                if f.endswith("_orient") and not re.match(r"boom\d+_orient$", f) and x == "Mixed":
-                    diff(pid, arch, "aircraft", "", f, tt, x, "", f"{tt}: thrust direction 'Mixed' is not offered (the wizard shows it blank) — pick Vertical or Horizontal")
+                diff(pid, arch, "aircraft", "", f, tt, x, "", f"{tt} is wingless: no wing tilt")
         if tt == "TW" and d.get("wing1_tilt", "") not in ("", "Tilt"):
             diff(pid, arch, "aircraft", "", "wing1_tilt", tt, d["wing1_tilt"], "Tilt", "wing-tilt lock: the TW primary wing tilts")
 
-        # card-level mounting positions hidden by m3Card (count 0, or a multi-type card; RC hubs excepted)
-        for card in ("wing1", "wing2", "wing3", "wing4", "fuselage", "emp", "boom", "hull_array", "core_layout"):
-            vals = {f: d.get(f"{card}_{f}", "") for f in ("zone", "zoneChord", "zoneSpan")}
-            if not any(vals.values()) or d.get(f"{card}_quickOverride") == "True": continue
-            nt = _count(d.get(f"{card}_ntypes", "")) or 1
-            hidden = (_count(d.get(f"{card}_count", "")) == 0) if nt <= 1 else (tt != "RC")
-            if hidden:
-                for f, x in vals.items():
-                    if x: diff(pid, arch, "aircraft", "", f"{card}_{f}", tt, x, "", "hidden mounting position (m3Card draws none here)")
-
     for r in figures(L).itertuples():
         if r.status != "approved": continue
-        for f in ("hasLegends", "isMain"):
-            if getattr(r, f) == "":
-                diff(r.base, r.arch, "figure", r.figure, f, "", "", "False", "an unticked pill reads No (v15.12 export writes False)")
         d = A.get((r.base, r.arch))
         if not d: continue                                   # no topType (D1/D2, unclassifiable): nothing is locked
         tt = d["topType"]
