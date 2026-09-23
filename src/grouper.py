@@ -111,6 +111,7 @@ COMPANY_LOOKUP: dict[str, str] = {
     "airbus helicopters deutschland gmbh": "Airbus",           # PatSeer form
     "airbus urban mobility":       "Airbus",
     "a3 by airbus":                "Airbus",
+    "aby airbus llc":              "Airbus",                   # PatSeer form of A³ by Airbus (Vahana)
     "airbus":                      "Airbus",
     # ── Boeing / NeXt ─────────────────────────────────────────────────────────
     "the boeing company":          "Boeing",

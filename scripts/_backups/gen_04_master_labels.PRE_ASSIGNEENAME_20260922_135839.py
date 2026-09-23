@@ -509,9 +509,6 @@ def real_name_of(pid, ua):
     # 2026-09-17: a multi-aircraft patent keeps per-aircraft groups ("LEONARDO 2a"), but its unreviewed name can still be the
     # patent-level generated group ("LEONARDO 2") — that is company numbering, not a real name
     if pid not in _KNOWN and _norm(n) == _norm(IDT.at[pid, "aircraft_group"]): return None
-    # 2026-09-22: a group that is the raw assignee list ("A (US); B") yields its first assignee as the
-    # name — that is still the generated group, not a real name (Georgia Tech, I-Hub patents)
-    if pid not in _KNOWN and ";" in str(g) and _norm(n) in {_norm(x) for x in str(g).split(";")}: return None
     return n
 def name_for(r):
     if r.same_aircraft_as is not np.nan and not is_empty(r.same_aircraft_as):
@@ -575,8 +572,7 @@ for i, r in M[appr_mask].iterrows(): group_tags[(r.group_root, r.group_ua)] |= i
 ROW_TAGS = {i: group_tags[(r.group_root, r.group_ua)] | (id_tags(r) & CONTESTED[(r.group_root, r.group_ua)])
             for i, r in M[appr_mask].iterrows()}
 TAG_ORDER = LISTS["T1_EDGE_TAGS"]
-WIZARD_TAG_KEEP = {("US11124286B1", "UAVSimilar"): "user 2026-09-14: UAV but similar stays, although uav_final=No",
-                   ("US2012091257A1", "UAVSimilar"): "user 2026-09-22 (TRL pass): aircraft 2 is the IAI Panther tactical UAV; the tag sits on _arch2 only"}
+WIZARD_TAG_KEEP = {("US11124286B1", "UAVSimilar"): "user 2026-09-14: UAV but similar stays, although uav_final=No"}
 def contradicted(i):
     out = {}
     if M.at[i, "uav_final"] == "No": out["UAVSimilar"] = "uav_final=No"

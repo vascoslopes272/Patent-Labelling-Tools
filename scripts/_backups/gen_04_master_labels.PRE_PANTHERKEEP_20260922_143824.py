@@ -575,8 +575,7 @@ for i, r in M[appr_mask].iterrows(): group_tags[(r.group_root, r.group_ua)] |= i
 ROW_TAGS = {i: group_tags[(r.group_root, r.group_ua)] | (id_tags(r) & CONTESTED[(r.group_root, r.group_ua)])
             for i, r in M[appr_mask].iterrows()}
 TAG_ORDER = LISTS["T1_EDGE_TAGS"]
-WIZARD_TAG_KEEP = {("US11124286B1", "UAVSimilar"): "user 2026-09-14: UAV but similar stays, although uav_final=No",
-                   ("US2012091257A1", "UAVSimilar"): "user 2026-09-22 (TRL pass): aircraft 2 is the IAI Panther tactical UAV; the tag sits on _arch2 only"}
+WIZARD_TAG_KEEP = {("US11124286B1", "UAVSimilar"): "user 2026-09-14: UAV but similar stays, although uav_final=No"}
 def contradicted(i):
     out = {}
     if M.at[i, "uav_final"] == "No": out["UAVSimilar"] = "uav_final=No"
