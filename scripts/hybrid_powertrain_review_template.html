@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Powertrain Domain Review</title>
+<style>
+:root{--bg:#f6f6f4;--card:#fff;--ink:#1d1d1b;--mute:#6b6b66;--line:#dcdcd6;--acc:#2f5d8a;
+  --keep:#2e7d4f;--yes:#2f6fb0;--remove:#b3402e;--unknown:#8a6d1f;--pend:#b9b9b2}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink)}
+header{position:sticky;top:0;z-index:5;background:#fff;border-bottom:1px solid var(--line);padding:8px 14px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+header h1{font-size:16px;margin:0 8px 0 0}
+.bar{flex:1;min-width:160px;height:8px;background:#ececE6;border-radius:4px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--keep)}
+.cnt{color:var(--mute);font-size:13px}
+button,select,input[type=text]{font:inherit}
+.btn{border:1px solid var(--line);background:#fff;border-radius:6px;padding:5px 10px;cursor:pointer}
+.btn:hover{border-color:var(--acc)}
+.btn.primary{background:var(--acc);color:#fff;border-color:var(--acc)}
+.wrap{display:grid;grid-template-columns:250px 1fr;gap:0;min-height:calc(100vh - 50px)}
+nav{border-right:1px solid var(--line);background:#fbfbf9;overflow-y:auto;max-height:calc(100vh - 50px);position:sticky;top:50px}
+nav h3{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute);margin:12px 12px 4px}
+nav a{display:flex;gap:7px;align-items:center;padding:3px 12px;color:var(--ink);text-decoration:none;font-size:12.5px;cursor:pointer}
+nav a.cur{background:#e3ebf3}
+nav a .dot{width:9px;height:9px;border-radius:50%;background:var(--pend);flex:none}
+nav a .dot.ok{background:var(--keep)} nav a .dot.chg{background:#e08a1e}
+nav a small{color:var(--mute);margin-left:auto}
+main{padding:16px 22px;max-width:1250px}
+.rule{background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px}
+.rule summary{cursor:pointer;font-weight:600}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:14px}
+.ph{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.ph h2{margin:0;font-size:20px}
+.ph .t{font-size:15px;font-weight:600;flex-basis:100%;margin-top:2px}
+.pill{display:inline-block;border-radius:10px;padding:1px 8px;font-size:12px;background:#eee;color:#333}
+.pill.cur{background:#f1e7d0}
+.figs{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+.ac{border:1px solid var(--line);border-radius:8px;padding:6px;background:#fafaf8}
+.ac .lab{font-size:12px;color:var(--mute);margin-bottom:4px}
+.ac .row{display:flex;gap:6px}
+.ac img{height:170px;max-width:260px;object-fit:contain;background:#fff;border:1px solid #eee;cursor:zoom-in}
+.miss{height:170px;width:150px;display:flex;align-items:center;justify-content:center;color:#999;font-size:12px;border:1px dashed #ccc}
+.prop{border-left:4px solid var(--acc);background:#f4f7fa;padding:8px 12px;margin:12px 0;border-radius:0 6px 6px 0}
+.prop b{display:block;margin-bottom:2px}
+.cites{margin-top:10px}.cites .ch{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute);margin-bottom:4px}
+blockquote{margin:0 0 8px;padding:8px 12px;background:#fff;border:1px solid var(--line);border-radius:6px;font-size:14.5px}
+blockquote.none{color:var(--mute);font-style:italic}
+blockquote cite{display:block;margin-top:4px;font-size:12px;color:var(--mute);font-style:normal}
+.key{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:3px;font-weight:600}
+.counts{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:13px}
+.chip.zero{color:#aaa;border-style:dashed}
+.opts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:10px 0}
+.o{border:2px solid var(--line);background:#fff;border-radius:8px;padding:9px 11px;text-align:left;cursor:pointer;position:relative}
+.o .k{display:inline-block;width:20px;height:20px;border-radius:4px;background:#eee;text-align:center;font-size:12px;line-height:20px;margin-right:6px;color:#444}
+.o .p{position:absolute;right:8px;top:6px;font-size:11px;color:var(--mute)}
+.o.sel.keep{border-color:var(--keep);background:#eef7f1}.o.sel.yes{border-color:var(--yes);background:#edf3fa}
+.o.sel.remove_gen,.o.sel.remove_mech,.o.sel.remove_none{border-color:var(--remove);background:#fbefec}.o.sel.unknown{border-color:var(--unknown);background:#f8f3e6}
+.o small{display:block;color:var(--mute);margin-top:2px;margin-left:26px}
+.status{font-size:13px;margin:4px 0 8px}
+.status.ok{color:var(--keep)} .status.pend{color:var(--mute)}
+textarea{width:100%;min-height:44px;font:inherit;border:1px solid var(--line);border-radius:6px;padding:6px}
+.actions{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
+.ev li{margin:0 0 7px}
+.ev{padding-left:18px;margin:6px 0}
+mark{padding:0 1px;border-radius:2px}
+mark.bat{background:#bfe6c9} mark.fc{background:#dccff0} mark.cmb{background:#f6c9bf} mark.hyb{background:#f7e2a8} mark.ele{background:#cfe0f3}
+.legend mark{margin-right:6px}
+.search{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:6px 0}
+.search input{border:1px solid var(--line);border-radius:6px;padding:5px 8px;min-width:220px}
+.chip{border:1px solid var(--line);border-radius:12px;padding:2px 9px;background:#fff;cursor:pointer;font-size:12.5px}
+.hits div{border-bottom:1px solid #eee;padding:5px 0;font-size:13px}
+.muted{color:var(--mute)}
+#zoom{position:fixed;inset:0;background:rgba(0,0,0,.8);display:none;align-items:center;justify-content:center;z-index:20;cursor:zoom-out}
+#zoom img{max-width:94vw;max-height:94vh;background:#fff}
+.kbd{font-size:12px;color:var(--mute)}
+@media (max-width:800px){.wrap{grid-template-columns:1fr}nav{display:none}.opts{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Powertrain domain review</h1>
+  <div class="bar"><i id="barfill"></i></div>
+  <span class="cnt" id="cnt"></span>
+  <select id="view">
+    <option value="all">all patents</option>
+    <option value="pending">not yet confirmed</option>
+    <option value="changed">my answer ≠ proposal</option>
+  </select>
+  <button class="btn" id="imp">Load previous export…</button>
+  <input type="file" id="impfile" accept=".csv" hidden>
+  <button class="btn primary" id="exp">Export decisions</button>
+</header>
+<div class="wrap">
+  <nav id="nav"></nav>
+  <main>
+    <details class="rule">
+      <summary>The rule being applied (click to read)</summary>
+      <p><b>In the domain:</b> the patent states that the propulsors can be driven by electric motors fed from on-board <b>batteries</b> — as the only source, or as one of the stated options, or in an electric mode.</p>
+      <p><b>Out (No + ElectricSimilar):</b> the aircraft needs a combustion engine to fly — the engine turns a propeller/fan, or the engine makes the electricity (series hybrid, turbo-electric, range extender with no battery-only flight). <b>A fuel cell does not count as electric.</b></p>
+      <p><b>Unknown:</b> the patent never says where the energy comes from (stays in, by the existing rule). &nbsp; <b>Hybrid → Yes:</b> "hybrid" only appears in background text; the aircraft is electric.</p>
+      <p class="kbd">Keys: <b>1–6</b> choose (confirms) · <b>Enter</b> agree with what is selected &amp; go to the next unconfirmed · <b>← →</b> previous / next · <b>/</b> search the text. Answers are kept in this browser; export when done (or any time).</p>
+    </details>
+    <div id="cardwrap"></div>
+  </main>
+</div>
+<div id="zoom"><img alt=""></div>
+<script>
+const D = __DATA__;
+const OPTS = [
+  ['keep','Keep — battery option stated','the source can be chosen (batteries, or an engine + generator) · stays in as Hybrid'],
+  ['yes','Keep — plain electric','"hybrid" only in background text · Hybrid → Yes'],
+  ['remove_gen','Remove — the engine makes the electricity','electric motors fed by an engine + generator, no battery-only flight · No + ElectricSimilar'],
+  ['remove_mech','Remove — the engine drives a propeller/fan','electric AND combustion propulsion (e.g. engine for cruise) · No + ElectricSimilar'],
+  ['remove_none','Remove — not electric','turbine / turboshaft aircraft, no electric propulsion · No + ElectricSimilar'],
+  ['unknown','Unknown — the patent never says','no energy source named · stays in as Unknown'],
+];
+const FINAL = {keep:'Hybrid', yes:'Yes', remove_gen:'No', remove_mech:'No', remove_none:'No', unknown:'Unknown'};
+const OPT_LABEL = Object.fromEntries(OPTS.map(o => [o[0], o[1]]));
+const SECTION = {remove_gen:'Proposed: remove — engine makes the electricity', remove_mech:'Proposed: remove — engine drives a propeller/fan', remove_none:'Proposed: remove — not electric', unknown:'Proposed: Unknown', yes:'Proposed: Hybrid → Yes', keep:'Proposed: keep (battery option)'};
+const KEY = 'hybrid_powertrain_review_v1';
+let S = {d:{}};
+try { const raw = localStorage.getItem(KEY); if (raw) S = JSON.parse(raw) || {d:{}}; } catch (e) {}
+function migrate(pid, st){
+  if (!st || st.v !== 'remove') return st;
+  const it = D.items.find(x => x.pid === pid); if (!it) return st;
+  if (it.prop.startsWith('remove')) st.v = it.prop;
+  else { st.v = it.prop; st.c = false; st.t = ((st.t || '') + ' [you had chosen Remove before the options were split — choose the reason again]').trim(); }
+  return st;
+}
+Object.keys(S.d || {}).forEach(pid => migrate(pid, S.d[pid]));
+function persist(){ try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+let cur = 0;
+
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+const HL = /(batter(?:y|ies)|accumulators?|energy stor\w*|electrochemical\w*|lithium[- ]\w+|fuel[- ]cells?|internal combustion|combustion\w*|turbo[- ]?generators?|turboshaft\w*|turbofan\w*|turbojet\w*|turboprop\w*|gas turbines?|turbines?|piston|diesel|gasoline|kerosene|range extender|generators?|alternators?|engines?|fuel\w*|hybrid\w*|all[- ]electric|fully[- ]electric|purely electric\w*|electric[- ]only|electric(?:al)? motors?|electric\w*)/gi;
+function cls(w){
+  const l = w.toLowerCase();
+  if (/fuel[- ]cell/.test(l)) return 'fc';
+  if (/batter|accumul|energy stor|electrochem|lithium/.test(l)) return 'bat';
+  if (/hybrid/.test(l)) return 'hyb';
+  if (/electric/.test(l)) return 'ele';
+  return 'cmb';
+}
+const COUNT_Q = {'battery':'batter|accumulator','fuel cell':'fuel[- ]cell','engine':'\\bengines?\\b','generator':'generators?','turbine':'turbine|turboshaft|turbofan|turbojet','hybrid':'hybrid','electric motor':'electric(al)? motors?'};
+function hlPhrase(sent, phrase){
+  const i = sent.indexOf(phrase);
+  if (i < 0) return hl(sent);
+  return hl(sent.slice(0, i)) + '<span class="key">' + hl(phrase) + '</span>' + hl(sent.slice(i + phrase.length));
+}
+function hl(s){ return esc(s).replace(HL, w => '<mark class="' + cls(w) + '">' + w + '</mark>'); }
+const dec = it => (S.d[it.pid] && S.d[it.pid].v) || it.prop;
+const done = it => !!(S.d[it.pid] && S.d[it.pid].c);
+const changed = it => done(it) && dec(it) !== it.prop;
+
+function visible(){
+  const v = document.getElementById('view').value;
+  return D.items.map((it, i) => [it, i]).filter(([it]) => v === 'all' || (v === 'pending' && !done(it)) || (v === 'changed' && changed(it)));
+}
+function renderNav(){
+  let h = '', last = '';
+  visible().forEach(([it, i]) => {
+    if (it.prop !== last){ last = it.prop; h += '<h3>' + SECTION[it.prop] + ' (' + D.items.filter(x => x.prop === it.prop).length + ')</h3>'; }
+    const dot = changed(it) ? 'chg' : done(it) ? 'ok' : '';
+    h += '<a data-i="' + i + '"' + (i === cur ? ' class="cur"' : '') + '><span class="dot ' + dot + '"></span>' + esc(it.pid) + '<small>' + esc((it.company || '').slice(0, 14)) + '</small></a>';
+  });
+  const nav = document.getElementById('nav'); nav.innerHTML = h || '<p class="muted" style="padding:12px">nothing in this view</p>';
+  const c = nav.querySelector('a.cur'); if (c) c.scrollIntoView({block:'nearest'});
+}
+function renderCount(){
+  const n = D.items.length, c = D.items.filter(done).length, ch = D.items.filter(changed).length;
+  document.getElementById('barfill').style.width = (100 * c / n) + '%';
+  const by = {}; D.items.forEach(it => { const v = dec(it); by[v] = (by[v] || 0) + 1; });
+  document.getElementById('cnt').textContent = c + ' / ' + n + ' confirmed · ' + ch + ' changed · keep ' + ((by.keep||0) + (by.yes||0)) + ' · remove ' + ((by.remove_gen||0) + (by.remove_mech||0) + (by.remove_none||0)) + ' · unknown ' + (by.unknown||0);
+}
+function renderCard(){
+  const it = D.items[cur], v = dec(it), st = S.d[it.pid] || {};
+  let h = '<div class="card"><div class="ph"><h2>' + esc(it.pid) + '</h2><span class="pill">' + esc(it.company) + '</span><span class="pill">' + esc(it.year) + '</span>'
+    + '<span class="pill cur">current label: ' + esc(it.cur) + '</span>'
+    + (it.pdf ? '<a href="' + esc(it.pdf) + '" target="_blank" rel="noopener">open PDF ↗</a>' : '')
+    + '<span class="muted" style="margin-left:auto">' + (cur + 1) + ' of ' + D.items.length + '</span>'
+    + '<div class="t">' + esc(it.title) + '</div></div>';
+  h += '<div class="figs">' + it.aircraft.map(a => '<div class="ac"><div class="lab">' + esc(a.aid) + (a.name ? ' · <b>' + esc(a.name) + '</b>' : '') + ' · ' + esc(a.tt || '—') + (a.tags ? ' · tags: ' + esc(a.tags) : '') + '</div><div class="row">'
+    + (a.figs.length ? a.figs.map(f => f.src ? '<img loading="lazy" src="' + esc(f.src) + '" style="transform:rotate(' + f.rot + 'deg)" title="' + esc(f.file) + '">' : '<div class="miss">image not found</div>').join('') : '<div class="miss">no approved figure</div>')
+    + '</div></div>').join('') + '</div>';
+  if (it.dups.length) h += '<p class="muted" style="margin:8px 0 0">Your answer also goes to the duplicate record(s) of this patent: ' + it.dups.map(esc).join(', ') + '</p>';
+  h += '<div class="prop"><b>Proposed: ' + esc(OPT_LABEL[it.prop]) + '</b>' + esc(D.classText[it.cls] || '')
+    + '<div class="cites"><div class="ch">Citation' + (it.cites.length > 1 ? 's' : '') + ' from the patent</div>'
+    + (it.cites.length ? it.cites.map(c => '<blockquote>' + hlPhrase(c.sentence, c.phrase) + '<cite>' + esc(c.section) + (c.para ? ' [' + esc(c.para) + ']' : '')
+        + (c.also.length ? ' · also in ' + esc(c.also.join(', ')) : '') + '</cite></blockquote>').join('')
+      : '<blockquote class="none">No sentence in the patent names an energy source (no battery, engine, generator, fuel cell or motor for its own aircraft).</blockquote>')
+    + '</div><div class="muted" style="margin-top:6px">My reading: ' + esc(it.why) + '</div>'
+    + '<div class="counts">Words in the whole text: ' + Object.entries(it.counts).map(([k, n]) => '<span class="chip cnt' + (n ? '' : ' zero') + '" data-q="' + esc(COUNT_Q[k]) + '">' + esc(k) + ' <b>' + n + '</b></span>').join('') + ' <span class="muted">(click to see every passage)</span></div></div>';
+  h += '<div class="status ' + (done(it) ? 'ok' : 'pend') + '">' + (done(it) ? '✓ confirmed: ' + esc(OPT_LABEL[v]) + (v !== it.prop ? ' (differs from the proposal)' : '') + ' <a href="#" id="unconf">undo</a>' : 'not confirmed yet — the proposal is preselected') + '</div>';
+  h += '<div class="opts">' + OPTS.map((o, k) => '<button class="o ' + o[0] + (v === o[0] ? ' sel' : '') + '" data-v="' + o[0] + '"><span class="k">' + (k + 1) + '</span>' + esc(o[1]) + (it.prop === o[0] ? '<span class="p">proposed</span>' : '') + '<small>' + esc(o[2]) + '</small></button>').join('') + '</div>';
+  h += '<textarea id="note" placeholder="note (optional) — e.g. which sentence decided it">' + esc(st.t || '') + '</textarea>';
+  h += '<div class="actions"><button class="btn primary" id="agree">' + (done(it) ? 'Next unconfirmed ⏎' : 'Confirm &amp; next ⏎') + '</button><button class="btn" id="prev">← previous</button><button class="btn" id="next">next →</button></div></div>';
+  h += '<div class="card"><b>What the patent says about power</b> <span class="muted">(' + it.ev.length + ' of ' + it.n_ev + ' sentences, the most telling first)</span>'
+    + '<div class="legend muted" style="font-size:12px;margin-top:4px"><mark class="bat">battery</mark><mark class="fc">fuel cell</mark><mark class="cmb">engine / turbine / generator / fuel</mark><mark class="hyb">hybrid</mark><mark class="ele">electric</mark></div>'
+    + (it.ev.length ? '<ol class="ev">' + it.ev.map(s => '<li>' + hl(s) + '</li>').join('') + '</ol>' : '<p class="muted">The text has no sentence about power, engines, batteries or motors.</p>') + '</div>';
+  h += '<div class="card"><b>Search the full text</b> <span class="muted">(' + Math.round(it.text.length / 1000) + ' k characters: title, abstract, summary, description, claims)</span>'
+    + '<div class="search"><input type="text" id="q" placeholder="word or regex, e.g. batter"> ' + ['batter','fuel cell','generator','engine','turbine','hybrid','electric motor','alternativ'].map(w => '<span class="chip" data-q="' + w + '">' + w + '</span>').join('') + '</div><div class="hits" id="hits"></div></div>';
+  document.getElementById('cardwrap').innerHTML = h;
+}
+function search(q){
+  const it = D.items[cur], box = document.getElementById('hits');
+  if (!q){ box.innerHTML = ''; return; }
+  let re; try { re = new RegExp(q, 'gi'); } catch (e) { box.innerHTML = '<div class="muted">not a valid pattern</div>'; return; }
+  const out = []; let m, n = 0, lastEnd = -1;
+  while ((m = re.exec(it.text)) && n < 400){
+    n++; if (m[0] === '') { re.lastIndex++; continue; }
+    if (m.index < lastEnd) continue;
+    const a = Math.max(0, m.index - 260), b = Math.min(it.text.length, m.index + m[0].length + 260); lastEnd = b;
+    if (out.length < 60) out.push('…' + hl(it.text.slice(a, b)) + '…');
+  }
+  box.innerHTML = '<div class="muted">' + n + ' match(es)' + (out.length < n ? ', showing ' + out.length + ' passages' : '') + '</div>' + out.map(s => '<div>' + s + '</div>').join('');
+}
+function render(){ renderCount(); renderNav(); renderCard(); }
+function setDec(v){
+  const it = D.items[cur];
+  S.d[it.pid] = Object.assign({}, S.d[it.pid], {v: v, c: true, at: new Date().toISOString()});
+  persist(); render();
+}
+function go(i){ if (i < 0 || i >= D.items.length) return; cur = i; render(); window.scrollTo(0, 0); }
+function nextPending(){
+  for (let k = 1; k <= D.items.length; k++){ const i = (cur + k) % D.items.length; if (!done(D.items[i])) return go(i); }
+  go(Math.min(cur + 1, D.items.length - 1));
+}
+function agree(){ const it = D.items[cur]; if (!done(it)) setDec(dec(it)); nextPending(); }
+
+document.addEventListener('click', e => {
+  const o = e.target.closest('.o'); if (o) return setDec(o.dataset.v);
+  const a = e.target.closest('nav a'); if (a) return go(+a.dataset.i);
+  const ch = e.target.closest('.chip'); if (ch){ const q = document.getElementById('q'); q.value = ch.dataset.q; search(ch.dataset.q); if (ch.classList.contains('cnt')) document.getElementById('hits').scrollIntoView({behavior:'smooth', block:'start'}); return; }
+  if (e.target.id === 'agree') return agree();
+  if (e.target.id === 'prev') return go(cur - 1);
+  if (e.target.id === 'next') return go(cur + 1);
+  if (e.target.id === 'unconf'){ e.preventDefault(); const it = D.items[cur]; if (S.d[it.pid]) { S.d[it.pid].c = false; S.d[it.pid].v = it.prop; } persist(); return render(); }
+  if (e.target.tagName === 'IMG' && e.target.closest('.ac')){ const z = document.getElementById('zoom'); z.querySelector('img').src = e.target.src; z.querySelector('img').style.transform = e.target.style.transform; z.style.display = 'flex'; }
+});
+document.getElementById('zoom').onclick = () => { document.getElementById('zoom').style.display = 'none'; };
+document.addEventListener('input', e => {
+  if (e.target.id === 'note'){ const it = D.items[cur]; S.d[it.pid] = Object.assign({v: dec(it), c: done(it)}, S.d[it.pid], {t: e.target.value}); persist(); }
+  if (e.target.id === 'q') search(e.target.value);
+});
+document.addEventListener('keydown', e => {
+  const typing = ['TEXTAREA', 'INPUT', 'SELECT'].includes(document.activeElement.tagName);
+  if (e.key === 'Escape'){ document.getElementById('zoom').style.display = 'none'; if (typing) document.activeElement.blur(); return; }
+  if (typing) return;
+  if (['1','2','3','4','5','6'].includes(e.key)) return setDec(OPTS[+e.key - 1][0]);
+  if (e.key === 'Enter'){ e.preventDefault(); return agree(); }
+  if (e.key === 'ArrowRight') return go(cur + 1);
+  if (e.key === 'ArrowLeft') return go(cur - 1);
+  if (e.key === '/'){ e.preventDefault(); const q = document.getElementById('q'); if (q){ q.focus(); q.scrollIntoView({block:'center'}); } }
+});
+document.getElementById('view').onchange = renderNav;
+
+function saveToFolder(blob, name){
+  function fallback(){ var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); return Promise.resolve('downloads'); }
+  if (!window.showSaveFilePicker) return fallback();
+  return window.showSaveFilePicker({suggestedName: name, id: 'review_decisions'})
+    .then(h => h.createWritable().then(w => w.write(blob).then(() => w.close())))
+    .then(() => 'folder').catch(e => (e && e.name === 'AbortError') ? 'cancelled' : fallback());
+}
+const COLS = ['patent_id','current_final','class','proposed','decision','final_label','confirmed','differs_from_proposal','note','decided_at','company','title'];
+function csvCell(v){ v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+document.getElementById('exp').onclick = () => {
+  const rows = D.items.map(it => { const s = S.d[it.pid] || {};
+    return [it.pid, it.cur, it.cls, it.prop, dec(it), FINAL[dec(it)], done(it), done(it) && dec(it) !== it.prop, s.t || '', s.at || '', it.company, it.title]; });
+  const csv = [COLS].concat(rows).map(r => r.map(csvCell).join(',')).join('\n') + '\n';
+  saveToFolder(new Blob([csv], {type: 'text/csv'}), 'HYBRID_POWERTRAIN_REVIEW.csv').then(w => {
+    if (w !== 'cancelled') alert('Saved ' + D.items.filter(done).length + ' confirmed of ' + D.items.length + (w === 'downloads' ? ' to Downloads — move it to 1639_LABELLED/0_labelling/inputs/review_decisions/' : '.'));
+  });
+};
+function parseCSV(t){
+  const rows = []; let r = [], f = '', q = false;
+  for (let i = 0; i < t.length; i++){ const c = t[i];
+    if (q){ if (c === '"'){ if (t[i+1] === '"'){ f += '"'; i++; } else q = false; } else f += c; }
+    else if (c === '"') q = true; else if (c === ','){ r.push(f); f = ''; } else if (c === '\n'){ r.push(f); rows.push(r); r = []; f = ''; } else if (c !== '\r') f += c; }
+  if (f || r.length){ r.push(f); rows.push(r); }
+  return rows;
+}
+document.getElementById('imp').onclick = () => document.getElementById('impfile').click();
+document.getElementById('impfile').onchange = e => {
+  const file = e.target.files[0]; if (!file) return;
+  file.text().then(t => {
+    const rows = parseCSV(t), hd = rows.shift(), ix = n => hd.indexOf(n); let n = 0;
+    rows.forEach(r => { const pid = r[ix('patent_id')]; if (!pid || !D.items.some(x => x.pid === pid)) return;
+      if (r[ix('confirmed')] === 'true'){ S.d[pid] = migrate(pid, {v: r[ix('decision')], c: true, t: r[ix('note')] || '', at: r[ix('decided_at')] || ''}); n++; }
+      else if (r[ix('note')]) S.d[pid] = Object.assign({}, S.d[pid], {t: r[ix('note')]}); });
+    persist(); render(); alert('Loaded ' + n + ' confirmed answers.');
+  });
+};
+render();
+</script>
+</body>
+</html>
