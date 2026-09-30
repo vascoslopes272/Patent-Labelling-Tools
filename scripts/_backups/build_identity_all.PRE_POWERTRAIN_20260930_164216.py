@@ -58,11 +58,6 @@ VARIANT_ANSWERS = "review_decisions/duplicate_root_variant.csv"   # 2026-09-17: 
 # exported as NAME_DECISIONS.csv and copied into 1639_LABELLED/. They fill the *_human name cells only
 # where the identity review page left them empty — a name typed in that page always wins.
 NAME_DECISIONS = "NAME_DECISIONS.csv"
-# The powertrain domain rulings (user 2026-09-30, review_decisions/POWERTRAIN_DECISIONS_README.md): one row per
-# patent with is_electric (Yes / No / Unknown) and powertrain_review. They OVERRIDE the typed is_electric_human on
-# the patent and on every D1/D2 of it ("a duplicate says what its original says"), so there is no "Hybrid" left
-# on them; editing the file and re-running this script is how a ruling is changed.
-POWERTRAIN_DECISIONS = "review_decisions/POWERTRAIN_DECISIONS.csv"
 # Only fields of the WIZARD record may be corrected here. Everything else is
 # either yours to type in the review page or derived from these.
 CORRECTABLE = {"wizard_duplicate_type", "wizard_duplicate_of", "wizard_arch_count",
@@ -189,74 +184,6 @@ def apply_name_decisions(ident: pd.DataFrame, path: Path) -> list[str]:
     return out + fixes
 
 
-def _record_duplicate_links(labels: Path) -> dict:
-    """D1/D2 links as the wizard record holds them now (patent -> original). The 03a workbooks keep the links of
-    their own run, so a duplicate linked later in the wizard (EP4134301A1 -> US2023211877A1) is missing there."""
-    links = {}
-    for f in sorted(labels.glob("reviewed_patents_Batch_0*.xlsx")):
-        rec = pd.read_excel(f, sheet_name="Review", dtype=str, keep_default_na=False)
-        rec["pid"] = rec["Patent_ID"].str.replace(r"_arch\d+$", "", regex=True)
-        typ = rec[rec.Field == "duplicateType"].groupby("pid").Value.first().str.strip().str[:1]
-        dup_of = rec[rec.Field == "duplicateId"].groupby("pid").Value.first().str.strip()
-        for pid, t in typ.items():
-            if t in ("1", "2") and dup_of.get(pid):
-                links[pid] = dup_of[pid]
-    return links
-
-
-def apply_powertrain_decisions(ident: pd.DataFrame, path: Path, labels: Path | None = None) -> list[str]:
-    """Set is_electric_human (+ _variants) and powertrain_review from the decision file, on each patent and its D1/D2s."""
-    if not path.exists():
-        return []
-    record_links = _record_duplicate_links(labels) if labels else {}
-    dec = pd.read_csv(path, dtype=str, keep_default_na=False)
-    bad = dec[~dec.is_electric.isin(["Yes", "No", "Unknown"])]
-    if len(bad):
-        raise SystemExit(f"{path.name}: is_electric must be Yes / No / Unknown — {bad.patent_id.tolist()}")
-    rule = dict(zip(dec.patent_id, zip(dec.is_electric, dec.powertrain_review)))
-    by_id = dict(zip(ident["patent_id"], ident.index))
-    if "powertrain_review" not in ident.columns:
-        ident["powertrain_review"] = None
-    ident["powertrain_review"] = ident["powertrain_review"].astype(object)
-
-    def parent_of(pid):
-        # the (corrected) 03a link first; the wizard record's only where 03a has none
-        if pid in by_id and str(ident.at[by_id[pid], "wizard_duplicate_type"] or "").strip() in ("1", "2"):
-            return str(ident.at[by_id[pid], "wizard_duplicate_of"] or "").strip() or None
-        if pid in by_id and not _is_blank(ident.at[by_id[pid], "wizard_duplicate_type"]):
-            return None
-        return record_links.get(pid)
-
-    def root_of(pid):
-        seen = {pid}
-        while True:
-            parent = parent_of(pid)
-            if not parent or parent in seen:
-                return pid
-            seen.add(parent)
-            pid = parent
-
-    missing = [p for p in rule if p not in by_id]
-    changed, dups = 0, 0
-    for pid, i in by_id.items():
-        key = pid if pid in rule else root_of(pid)
-        if key not in rule:
-            continue
-        val, review = rule[key]
-        old = ident.at[i, "is_electric_human"]
-        ident.at[i, "is_electric_human"] = val
-        vc = ident.at[i, "is_electric_human_variants"]
-        if not _is_blank(vc):
-            ident.at[i, "is_electric_human_variants"] = "; ".join([val] * len(str(vc).split(";")))
-        ident.at[i, "powertrain_review"] = review
-        changed += (str(old) != val)
-        dups += key != pid
-    out = [f"   powertrain rulings: {len(rule)} patent(s) + {dups} duplicate record(s) set from {path.name} "
-           f"({changed} is_electric_human value(s) changed)"]
-    out += [f"⚠  {p}: in {path.name} but not in the corpus — ignored" for p in missing]
-    return out
-
-
 # Ruling 2026-09-13: a row whose powertrain was only PRESUMED (the patent never states one) but whose
 # own text carries a turbine / piston sentence contradicts the presumption, so the electric question is
 # re-opened on it. The evidence file is the one embedded in the review page, so page and report agree.
@@ -309,15 +236,13 @@ def recompute(ident: pd.DataFrame) -> pd.DataFrame:
 
 def build(labels: Path, out_dir: Path, write: bool = True,
           corrections: Path | None = None, answers: Path | None = None,
-          names: Path | None = None, powertrain: Path | None = None) -> dict:
+          names: Path | None = None) -> dict:
     ident = pd.concat([_read(labels, b, "Identity") for b in BATCHES], ignore_index=True)
     fixes = apply_corrections(ident, corrections) if corrections else []
     if answers:
         fixes += apply_variant_answers(ident, answers)
     if names:
         fixes += apply_name_decisions(ident, names)
-    if powertrain:
-        fixes += apply_powertrain_decisions(ident, powertrain, labels)
     ident = recompute(ident)
     fixes += flag_presumed_conflicts(ident, Path(str(corrections).rsplit("/", 1)[0]) / EVIDENCE) if corrections else []
     variants = build_variants_sheet(ident)
@@ -381,11 +306,10 @@ def main() -> int:
     r = build(labels, root / "identity", write=not a.check,                       # 2026-09-17: identity_ALL is a derived INPUT of 04
               corrections=root / "review_decisions" / CORRECTIONS, answers=root / VARIANT_ANSWERS,
               names=next((p for p in [root / "review_decisions" / NAME_DECISIONS, root / NAME_DECISIONS]
-                          if p.exists()), root / "review_decisions" / NAME_DECISIONS),
-              powertrain=root / POWERTRAIN_DECISIONS)
+                          if p.exists()), root / "review_decisions" / NAME_DECISIONS))
 
     if r["fixes"]:
-        print(f"corrections from {CORRECTIONS}, {VARIANT_ANSWERS}, {NAME_DECISIONS} and {POWERTRAIN_DECISIONS}:")
+        print(f"corrections from {CORRECTIONS}, {VARIANT_ANSWERS} and {NAME_DECISIONS}:")
         print("\n".join(r["fixes"]))
         print()
     print("\n".join(f"{k:22s} {v}" for k, v in r["summary"].items()))

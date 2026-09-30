@@ -187,7 +187,7 @@ DROP_PATENT = {"abstract": "long bibliographic text", "description_of_drawings":
 DROP_VARIANT_RE = {r"^longSym$": "retired v13", r"^empTiltsNote$": "retired v15.5", r"_symLong$": "retired v15.6",
                    r"_symCirc$": "retired v15.6", r"^footAmbiguous$": "constant True", r"^boom\d+_cards$": "structural marker"}
 G1_ORDER = ["topType", "notPureArch", "edgeTags", "edgeTags_wizard",
-            "uav_final", "uav_uncertain", "is_electric_final", "electric_uncertain", "electric_similar_final", "powertrain_review",
+            "uav_final", "uav_uncertain", "is_electric_final", "electric_uncertain", "electric_similar_final",
             "takeoff_final", "takeoff_uncertain", "identity_from",
             "arch_gt", "arch_gt_provenance", "arch_gt_visible",
             "g1_humanUncertain", "g1_uncertainNote", "g1_quickOverride", "g1_quickNote"]
@@ -560,14 +560,6 @@ for (root, v), g in M[appr_mask].groupby(["group_root", "group_ua"]):
             CONTESTED[(root, v)].add(TAG_OF_FIELD[fcol])
             ID_CONFLICTS.append(dict(root=root, variant=v, field=fcol, answers="; ".join(f"{p}={a}" for p, a in reviewed.items())))
 for i, s in src_of.items(): M.at[i, "identity_from"] = "; ".join(s)
-# 2026-09-30 powertrain rulings (review_decisions/POWERTRAIN_DECISIONS.csv, applied by build_identity_all.py): the
-# reviewed class of the powertrain, carried per aircraft from its group root (a D1/D2 says what its original says)
-M["powertrain_review"] = pd.Series(np.nan, index=M.index, dtype=object)
-if "powertrain_review" in IDT.columns:
-    for i in M.index[appr_mask]:
-        _v = IDT.at[M.at[i, "group_root"], "powertrain_review"] if M.at[i, "group_root"] in IDT.index else ""
-        M.at[i, "powertrain_review"] = _v if _v else np.nan
-log(f"  powertrain_review (approved rows): {M.loc[appr_mask, 'powertrain_review'].value_counts().to_dict()}")
 for c in ID_UNC: M[c] = M[c].astype("boolean")
 log(f"  rows whose answer came from a reviewed group member other than the original: {dict(lifted)}")
 if ID_CONFLICTS: log(f"  !! {len(ID_CONFLICTS)} duplicate groups whose reviewed members disagree (own answers kept): {ID_CONFLICTS}")
@@ -908,8 +900,6 @@ RULE_DOC = {
     "wing_borne_units_note": ("", "why wing_borne_units is blank (wingless, override, boom rotors that cannot be apportioned)"),
     "wing_boom_candidate": ("", "True = a member to re-read under the 2026-09-19 boom/nacelle rule: the wing-attached boom groups all lie only fore or only aft of the wing, a vertical boom straddles the wing, or a wing-card propulsor sits Above/Below the wing"),
     "empTilts": (None, "True when the empennage tilts, with the wing or on its own"),
-    "powertrain_review": ("multi_source=electric, the patent also offers another energy source | electric=electric, 'hybrid' only in background text | engine_generator=a combustion engine makes the electricity for the motors | engine_propulsor=a combustion engine turns a propulsor | combustion=not electric | not_stated=the patent never names the source",
-                          "user ruling 2026-09-30 (review_decisions/POWERTRAIN_DECISIONS.csv): electric = propulsors can be driven by battery-fed electric motors, alone or as one option; no Hybrid label; engine_generator / engine_propulsor / combustion are is_electric_final=No and carry ElectricSimilar. Blank = the patent was not part of that review"),
 }
 
 _ppa = M[_pa]; _gate = _ppa.edgeTags.isna()
