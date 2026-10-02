@@ -9,7 +9,7 @@ notebook can be regenerated deterministically instead of hand-patched JSON).
   * names: the reviewed real name (+ vN) where one exists, otherwise the aircraft id;
     a D1/D2 carries the name of the aircraft it points at
   * outputs = 0_labelling/outputs/: ONE workbook 1639_LABELS.xlsx (README · Review = the record,
-    wizard-loadable, names written in · ground_truth · patseer), images/<aircraft_id>/,
+    wizard-loadable, names written in · aircraft_final = the analysed values · ground_truth · patseer), images/<aircraft_id>/,
     tables/*.csv for the analysis stages, BUILD_LOG.md, ACTION_FLAGS.csv
 """
 import nbformat as nbf
@@ -1166,6 +1166,19 @@ for c in M.columns:
                    options=opts if doc_opts is None else doc_opts, non_empty=int(M[c].notna().sum()), description=desc))
 DD = pd.DataFrame(dd)
 
+# ── backup of the previous build (2026-10-01, author's request) ──
+# Before anything in outputs/ is rewritten, the previous workbook, tables and logs are copied to
+# 1639_LABELLED/_archive/backups/NB04_<timestamp>/ (images are left out: they are copies of the crops).
+_prev = [WORKBOOK, TAB_DIR / "aircraft_table.csv", TAB_DIR / "figure_table.csv", TAB_DIR / "data_dictionary.csv",
+         OUT_DIR / "BUILD_LOG.md", OUT_DIR / "ACTION_FLAGS.csv"]
+_prev = [p for p in _prev if p.exists()]
+if _prev and not os.environ.get("NB04_OUT_DIR"):
+    BACKUP_DIR = OUT_DIR.parent.parent / "_archive" / "backups" / f"NB04_{datetime.now():%Y%m%d_%H%M%S}"
+    (BACKUP_DIR / "tables").mkdir(parents=True, exist_ok=True)
+    for p in _prev:
+        shutil.copy2(p, BACKUP_DIR / ("tables" if p.parent == TAB_DIR else "") / p.name)
+    log(f"backup of the previous build: {len(_prev)} files -> {BACKUP_DIR}")
+
 # ── outputs folder: only what this run writes ──
 OUT_DIR.mkdir(parents=True, exist_ok=True); TAB_DIR.mkdir(exist_ok=True)
 KEEP_TOP = {"1639_LABELS.xlsx", "images", "tables", "BUILD_LOG.md", "ACTION_FLAGS.csv", "README.md"}
@@ -1251,6 +1264,7 @@ wb = Workbook(); ws0 = wb.active; ws0.title = "README"
 readme = [("workbook", WORKBOOK.name), ("built", RUN_TS), ("built by", "Patent-Labelling-Tools/notebooks/04_master_labels.ipynb (generator scripts/gen_04_master_labels.py)"),
           ("wizard", HTML.name), ("", "")]
 readme += [("sheet Review", "the wizard record exactly as exported (Patent_ID, Section, Sub_Dimension, Field, Value, Source, Image_Path), with the aircraft names written into T1/aircraftName. Load it in the wizard with Resume (it picks the sheet named Review)."),
+           ("sheet aircraft_final", "the labelled dataset AS ANALYSED: one row per aircraft, the same values as tables/aircraft_table.csv — the wizard record PLUS every decision applied after the labelling (review_decisions/: powertrain ruling, duplicate answers, names, identity corrections; text_architecture/: the ground truth). The Review sheet does not carry those decisions."),
            ("sheet ground_truth", "one row per primary approved aircraft: the wizard type (image_label) next to the whole-document ground truth (arch_gt) and whether that type is visible in the figures; column flag = GT not stated in the patent / GT missing / GT unsure / image label marked uncertain in the wizard"),
            ("sheet patseer", "bibliographic facts from the PatSeer export, one row per patent, joined on patent_id"),
            ("aircraft id", "<patent>_ua<N>: N = the aircraft number in the wizard (a single-aircraft patent is _ua1). Names: real name (+ vN) where reviewed, else the id."),
@@ -1289,6 +1303,7 @@ def df_to_sheet(ws, df):
     for rec in df.itertuples(index=False):
         ws.append([None if (isinstance(v, float) and np.isnan(v)) or v is pd.NA else v for v in rec])
     for i, c in enumerate(df.columns, 1): ws.column_dimensions[get_column_letter(i)].width = min(60, max(12, int(df[c].astype(str).str.len().quantile(0.9)) + 2))
+df_to_sheet(wb.create_sheet("aircraft_final"), M)
 df_to_sheet(wb.create_sheet("ground_truth"), GTS)
 df_to_sheet(wb.create_sheet("patseer"), PS)
 wb.save(WORKBOOK)

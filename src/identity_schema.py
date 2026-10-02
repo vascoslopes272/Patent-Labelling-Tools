@@ -476,8 +476,12 @@ def review_flags(row: dict) -> dict:
     # "Not electric" is only half an answer: say whether the aircraft is still
     # architecturally equivalent to an electric one (the ElectricSimilar edge
     # tag) so it can stay in the corpus. Asked only once the answer IS "No".
+    # 2026-10-01: a patent decided on the powertrain page (review_decisions/POWERTRAIN_DECISIONS.csv,
+    # column powertrain_review) is settled: every "No" there was ruled ElectricSimilar by the author, so it
+    # is not asked again. Before this, those 31 patents were listed as "still in the queue".
     similar_review = bool(_blank(row.get("electric_similar_human"))
                           and _blank(row.get("electric_similar_final"))
+                          and _blank(row.get("powertrain_review"))
                           and _val(row.get("is_electric_human")) == "No")
 
     # A field you marked as unanswerable IS answered: it leaves the queue and
